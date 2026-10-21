@@ -1,0 +1,100 @@
+<!doctype html>
+<!--
+  Third-party host simulator for the widget loader.
+
+  Deliberately hostile: global resets, a rule targeting every iframe, a global
+  transition, a high z-index sticky header and a different font. The widget must
+  look and behave exactly as it does inside the app.
+
+  Serve this from an origin that is NOT the widget origin, e.g.:
+    npx serve frontend -l 4173
+  then add that host (localhost:4173) to the widget's allowed domains, and set
+  WIDGET_ORIGIN below to the widget dev server.
+
+  Not in public/: this is a local test harness, not a shipped asset.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Widget host simulator</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        transition: all 400ms linear !important;
+        font-family: 'Comic Sans MS', cursive;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        min-height: 200vh;
+        background: #10233f;
+        color: #eef;
+      }
+      /* The kind of rule that breaks naive embeds. */
+      iframe {
+        max-width: 100% !important;
+        width: 100% !important;
+        height: 320px !important;
+        border: 6px dashed hotpink !important;
+        border-radius: 24px !important;
+        background: yellow !important;
+        position: static !important;
+        box-shadow: 0 0 40px lime !important;
+        opacity: 0.5 !important;
+        filter: blur(2px) !important;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 999999;
+        padding: 16px 24px;
+        background: #ff5722;
+        font-weight: 700;
+      }
+      main {
+        padding: 24px;
+        max-width: 720px;
+        line-height: 1.7;
+      }
+      button {
+        padding: 10px 16px;
+        margin-right: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>Sticky host header with z-index 999999</header>
+    <main>
+      <h1>Hostile host page</h1>
+      <p>
+        This page applies a global <code>transition: all</code>, a global font
+        override, and an <code>iframe { ... !important }</code> rule that forces
+        size, border, background, opacity and blur. None of it may reach the
+        widget.
+      </p>
+      <p>
+        <button type="button" onclick="window.SapAiWidget.open()">
+          SapAiWidget.open()
+        </button>
+        <button type="button" onclick="window.SapAiWidget.close()">
+          SapAiWidget.close()
+        </button>
+      </p>
+      <p>Scroll: the launcher must stay pinned to its corner.</p>
+    </main>
+
+    <script>
+      // Point this at the widget origin (the dev server printed port).
+      const WIDGET_ORIGIN = 'http://localhost:3000'
+      const PUBLIC_KEY = 'c3e595a262334d36c91bde6cca787192'
+
+      const script = document.createElement('script')
+      script.src = `${WIDGET_ORIGIN}/widget.js`
+      script.async = true
+      script.dataset.publicKey = PUBLIC_KEY
+      document.body.appendChild(script)
+    </script>
+  </body>
+</html>
