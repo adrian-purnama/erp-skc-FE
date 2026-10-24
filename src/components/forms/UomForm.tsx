@@ -37,7 +37,11 @@ import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
-import { hintClassName } from '#/lib/ui-classes'
+import {
+  hintClassName,
+  pageTitleClassName,
+  sectionTitleClassName,
+} from '#/lib/ui-classes'
 import {
   FORMULA_PRESETS,
   formulaVariableCount,
@@ -396,13 +400,10 @@ export default function UomForm() {
   return (
     <div className="space-y-8">
       <div>
-        <p className="mb-2 text-sm text-(--muted)">
-          Master Data / Unit of Measure
-        </p>
-        <h1 className="text-2xl font-medium tracking-tight">Unit of Measure</h1>
+        <h1 className={pageTitleClassName}>Unit of Measure</h1>
         <p className={`mt-2 ${hintClassName}`}>
           {canManage
-            ? 'Create or edit units. Symbol must be unique. Formulas define how quantity is calculated.'
+            ? 'Units and how quantity is calculated. Symbol must be unique.'
             : 'View-only. You need uom.manage to edit.'}
         </p>
       </div>
@@ -416,7 +417,7 @@ export default function UomForm() {
         >
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <h2 className="text-base font-medium tracking-tight">
+              <h2 className={sectionTitleClassName}>
                 {editingId ? 'Edit unit' : 'New unit'}
               </h2>
               <p className={`mt-1 ${hintClassName}`}>
@@ -505,8 +506,7 @@ export default function UomForm() {
               <div>
                 <h3 className="text-sm font-medium">Quantity formulas</h3>
                 <p className={`mt-1 ${hintClassName}`}>
-                  How qty is built from inputs. Area often needs both direct and
-                  L×W.
+                  How quantity is built from inputs.
                 </p>
               </div>
               <div className="flex flex-wrap gap-1.5">

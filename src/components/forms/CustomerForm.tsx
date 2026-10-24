@@ -27,13 +27,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '#/components/ui/select'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import {
@@ -54,6 +47,7 @@ import {
   hintClassName,
   inputClassName,
   inputClassNameCompact,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -271,12 +265,9 @@ function CustomerList({ canManage }: { canManage: boolean }) {
   return (
     <div className="space-y-8">
       <div>
-        <p className="mb-2 text-sm text-[var(--muted)]">
-          Master Data / Customer Master Data
-        </p>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-medium tracking-tight">
+            <h1 className={pageTitleClassName}>
               Customer Master Data
             </h1>
             <p className={`mt-2 ${hintClassName}`}>
@@ -307,6 +298,7 @@ function CustomerList({ canManage }: { canManage: boolean }) {
               onChange={setQuery}
               placeholder="Filter names…"
               aria-label="Filter customers"
+              className="min-w-0 max-w-none flex-1"
             />
             <Combobox
               value={statusFilter}
@@ -324,6 +316,7 @@ function CustomerList({ canManage }: { canManage: boolean }) {
               searchPlaceholder="Search status…"
               emptyText="No status found."
               aria-label="Status filter"
+              className="w-[9rem] shrink-0"
             />
           </>
         }
@@ -597,7 +590,7 @@ function CustomerEditor({
   return (
     <form onSubmit={onSubmit} className="space-y-8">
       <div>
-        <h1 className="text-2xl font-medium tracking-tight">
+        <h1 className={pageTitleClassName}>
           {mode === 'create' ? 'New customer' : 'Customer'}
         </h1>
         <p className={`mt-2 ${hintClassName}`}>
@@ -675,7 +668,7 @@ function CustomerEditor({
                 key={row.id ?? `email-${index}`}
                 className="flex flex-row items-center gap-1"
               >
-                <Select
+                <Combobox
                   value={row.type}
                   disabled={readOnly}
                   onValueChange={(value) => {
@@ -685,22 +678,14 @@ function CustomerEditor({
                       rows.map((r, i) => (i === index ? { ...r, type } : r)),
                     )
                   }}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="w-24 shrink-0"
-                    aria-label="Email type"
-                  >
-                    <SelectValue placeholder="Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {EMAIL_TYPES.map((item) => (
-                      <SelectItem key={item} value={item}>
-                        {item}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={EMAIL_TYPES.map((item) => ({
+                    value: item,
+                    label: item,
+                  }))}
+                  placeholder="Type"
+                  className="w-24 shrink-0"
+                  aria-label="Email type"
+                />
                 <input
                   type="email"
                   value={row.address}
@@ -789,7 +774,7 @@ function CustomerEditor({
                 key={row.id ?? `phone-${index}`}
                 className="flex flex-row items-center gap-1"
               >
-                <Select
+                <Combobox
                   value={row.type}
                   disabled={readOnly}
                   onValueChange={(value) => {
@@ -799,22 +784,14 @@ function CustomerEditor({
                       rows.map((r, i) => (i === index ? { ...r, type } : r)),
                     )
                   }}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="w-28 shrink-0"
-                    aria-label="Phone type"
-                  >
-                    <SelectValue placeholder="Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PHONE_TYPES.map((item) => (
-                      <SelectItem key={item} value={item}>
-                        {item}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={PHONE_TYPES.map((item) => ({
+                    value: item,
+                    label: item,
+                  }))}
+                  placeholder="Type"
+                  className="w-28 shrink-0"
+                  aria-label="Phone type"
+                />
                 <input
                   type="tel"
                   value={row.number}

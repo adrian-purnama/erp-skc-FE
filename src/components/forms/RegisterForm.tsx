@@ -13,7 +13,9 @@ import {
   cardClassName,
   hintClassName,
   inputClassNameCompact,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
+import { cn } from '#/lib/utils'
 
 interface RegisterResponse {
   email: string
@@ -107,7 +109,7 @@ export default function RegisterForm() {
 
   return (
     <div className={`${cardClassName} w-full p-6 sm:p-8`}>
-      <h1 className="mb-6 text-2xl font-medium text-[var(--ink)]">Register</h1>
+      <h1 className={cn('mb-6', pageTitleClassName)}>Register</h1>
 
       <form className="w-full space-y-4" onSubmit={handleRegister}>
         <div className="w-full">

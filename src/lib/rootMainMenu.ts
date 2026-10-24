@@ -80,6 +80,14 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
             permission: 'project.view',
             carryProjectId: true,
           },
+          {
+            id: 'internal-quotation',
+            label: 'Quotation',
+            to: '/dashboard/internal/quotation',
+            match: '/dashboard/internal/quotation',
+            permission: 'quotation.view',
+            carryProjectId: true,
+          },
         ],
       },
     ],
@@ -108,6 +116,13 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
         to: '/dashboard/uom',
         match: '/dashboard/uom',
         permission: 'uom.view',
+      },
+      {
+        id: 'term-of-payment',
+        label: 'Terms of Payment',
+        to: '/dashboard/term-of-payment',
+        match: '/dashboard/term-of-payment',
+        permission: 'termOfPayment.view',
       },
       {
         id: 'item-master',

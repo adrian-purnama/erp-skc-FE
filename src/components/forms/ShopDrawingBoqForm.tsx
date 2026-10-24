@@ -9,6 +9,8 @@ import {
   Upload,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { changeKindBadgeClass } from '#/components/forms/costingStatus'
+import ProjectCostingStatusStrip from '#/components/forms/ProjectCostingStatusStrip'
 import TenderProjectPicker from '#/components/forms/TenderProjectPicker'
 import ShopDrawingBoqLinesEditor, {
   emptyLine,
@@ -16,6 +18,7 @@ import ShopDrawingBoqLinesEditor, {
   newLineKey,
   type DraftLine,
 } from '#/components/forms/ShopDrawingBoqLinesEditor'
+import ShopDrawingBoqSandwichPreview from '#/components/forms/ShopDrawingBoqSandwichPreview'
 import ShopDrawingBoqStackViewer from '#/components/forms/ShopDrawingBoqStackViewer'
 import {
   AlertDialog,
@@ -43,7 +46,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { useAuth } from '#/context/authContext'
 import { apiFetch, apiUpload } from '#/lib/api'
 import type {
+  ProjectRab,
   ProjectShopDrawingBoq,
+  ProjectShopDrawingBoqFinishing,
   ProjectShopDrawingBoqFinishPlacement,
   ProjectShopDrawingBoqItemSummary,
   ProjectShopDrawingBoqLine,
@@ -52,7 +57,12 @@ import type {
   ProjectShopDrawingFile,
   ProjectShopDrawingItem,
 } from '#/lib/project'
-import { buttonOutlineClassName, hintClassName } from '#/lib/ui-classes'
+import {
+  buttonOutlineClassName,
+  hintClassName,
+  pageTitleClassName,
+  sectionTitleClassName,
+} from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
 type Props = {
@@ -91,6 +101,8 @@ const MOUNTING_TYPES: {
 }[] = [
   { value: 'mounted', label: 'Mounted' },
   { value: 'hanging', label: 'Hanging' },
+  { value: 'pylon', label: 'Pylon' },
+  { value: 'blade', label: 'Blade' },
   { value: 'freestanding', label: 'Freestanding' },
   { value: 'other', label: 'Other' },
 ]
@@ -120,6 +132,33 @@ function draftLineToApi(line: DraftLine) {
     inputs: line.inputs,
     ...(line.spec?.trim() ? { spec: line.spec.trim() } : {}),
   }
+}
+
+/** One material per finishing; split legacy multi-line layers into stacked finishings. */
+function draftFinishingsFromApi(
+  finishings: ProjectShopDrawingBoqFinishing[],
+): DraftFinishing[] {
+  const result: DraftFinishing[] = []
+  for (const placement of ['top', 'bottom'] as const) {
+    const group = [...(finishings ?? [])]
+      .filter((f) => f.placement === placement)
+      .sort((a, b) => a.finishingOrder - b.finishingOrder)
+    let order = 0
+    for (const f of group) {
+      const lines =
+        f.lines.length > 0 ? f.lines.map(apiLineToDraft) : [emptyLine()]
+      for (const line of lines) {
+        order += 1
+        result.push({
+          key: newLineKey(),
+          finishingOrder: order,
+          placement,
+          lines: [line],
+        })
+      }
+    }
+  }
+  return result
 }
 
 function emptyBase(): DraftBase {
@@ -160,6 +199,7 @@ export default function ShopDrawingBoqForm({
   const canManage = can('project.manage')
 
   const [summary, setSummary] = useState<ProjectShopDrawingBoqItemSummary[]>([])
+  const [overview, setOverview] = useState<ProjectShopDrawingBoq[]>([])
   const [materials, setMaterials] = useState<ProjectShopDrawingBoqMaterial[]>([])
   const [loadingSummary, setLoadingSummary] = useState(false)
   const [loadingBoq, setLoadingBoq] = useState(false)
@@ -172,6 +212,8 @@ export default function ShopDrawingBoqForm({
   const [boqId, setBoqId] = useState<string | null>(null)
   const [makeQty, setMakeQty] = useState('1')
   const [section, setSection] = useState('main')
+  const [contentFrozen, setContentFrozen] = useState(false)
+  const [rab, setRab] = useState<ProjectRab | null>(null)
 
   const [parts, setParts] = useState<DraftPart[]>([])
   const [activeBaseKey, setActiveBaseKey] = useState<string | null>(null)
@@ -197,6 +239,7 @@ export default function ShopDrawingBoqForm({
     const empty = emptyBoqState()
     setBoqId(null)
     setMakeQty('1')
+    setContentFrozen(false)
     setParts(empty.parts)
     setActiveBaseKey(null)
     setAssemblyLines(empty.assemblyLines)
@@ -205,6 +248,7 @@ export default function ShopDrawingBoqForm({
     setMountingLines(empty.mountingLines)
     setOtherLines(empty.otherLines)
   }
+
 
   const flatBases = useMemo(() => {
     const list: { partKey: string; base: DraftBase }[] = []
@@ -262,20 +306,63 @@ export default function ShopDrawingBoqForm({
     return next
   }, [projectId])
 
+  const reloadOverview = useCallback(async () => {
+    if (!projectId) {
+      setOverview([])
+      return
+    }
+    const overviewRes = await apiFetch<ProjectShopDrawingBoq[]>(
+      `/project/${projectId}/shop-drawing/boq/overview`,
+    )
+    if (!overviewRes.success) {
+      toast.error(overviewRes.message || 'Failed to load BOQ overview')
+      setOverview([])
+      return
+    }
+    setOverview(overviewRes.data ?? [])
+  }, [projectId])
+
+  const reloadRab = useCallback(async () => {
+    if (!projectId) {
+      setRab(null)
+      return
+    }
+    try {
+      const rabRes = await apiFetch<ProjectRab | null>(
+        `/project/${projectId}/rab`,
+      )
+      if (rabRes.success) setRab(rabRes.data ?? null)
+      else setRab(null)
+    } catch {
+      setRab(null)
+    }
+  }, [projectId])
+
   useEffect(() => {
-    if (!projectId) return
+    if (!projectId) {
+      setSummary([])
+      setOverview([])
+      setMaterials([])
+      setRab(null)
+      return
+    }
     let cancelled = false
     async function load() {
       setLoadingSummary(true)
       try {
-        const [summaryRes, materialsRes] = await Promise.all([
-          apiFetch<ProjectShopDrawingBoqItemSummary[]>(
-            `/project/${projectId}/shop-drawing/boq/summary`,
-          ),
-          apiFetch<ProjectShopDrawingBoqMaterial[]>(
-            `/project/${projectId}/shop-drawing/boq/materials`,
-          ),
-        ])
+        const [summaryRes, materialsRes, overviewRes, rabRes] =
+          await Promise.all([
+            apiFetch<ProjectShopDrawingBoqItemSummary[]>(
+              `/project/${projectId}/shop-drawing/boq/summary`,
+            ),
+            apiFetch<ProjectShopDrawingBoqMaterial[]>(
+              `/project/${projectId}/shop-drawing/boq/materials`,
+            ),
+            apiFetch<ProjectShopDrawingBoq[]>(
+              `/project/${projectId}/shop-drawing/boq/overview`,
+            ),
+            apiFetch<ProjectRab | null>(`/project/${projectId}/rab`),
+          ])
         if (cancelled) return
         if (!summaryRes.success) {
           toast.error(summaryRes.message || 'Failed to load Shop Drawing items')
@@ -289,6 +376,14 @@ export default function ShopDrawingBoqForm({
         } else {
           setMaterials(materialsRes.data ?? [])
         }
+        if (!overviewRes.success) {
+          toast.error(overviewRes.message || 'Failed to load BOQ overview')
+          setOverview([])
+        } else {
+          setOverview(overviewRes.data ?? [])
+        }
+        if (rabRes.success) setRab(rabRes.data ?? null)
+        else setRab(null)
       } catch {
         if (!cancelled) toast.error('Unable to reach the server')
       } finally {
@@ -367,10 +462,27 @@ export default function ShopDrawingBoqForm({
         const data = response.data
         if (!data) {
           resetBoqDraft()
+          try {
+            const rabRes = await apiFetch<ProjectRab | null>(
+              `/project/${projectId}/rab`,
+            )
+            if (!cancelled && rabRes.success) {
+              setRab(rabRes.data ?? null)
+              if (
+                rabRes.data?.status === 'locked' &&
+                !rabRes.data.changeDraft
+              ) {
+                setContentFrozen(true)
+              }
+            }
+          } catch {
+            /* ignore */
+          }
           return
         }
         setBoqId(data.id)
         setMakeQty(data.makeQty)
+        setContentFrozen(Boolean(data.contentFrozen))
         setParts(
           (data.main?.parts ?? []).map((part) => ({
             key: part.key,
@@ -380,15 +492,7 @@ export default function ShopDrawingBoqForm({
                 ? part.bases.map((base) => ({
                     key: base.key,
                     line: apiLineToDraft(base),
-                    finishings: (base.finishings ?? []).map((f) => ({
-                      key: newLineKey(),
-                      finishingOrder: f.finishingOrder,
-                      placement: f.placement,
-                      lines:
-                        f.lines.length > 0
-                          ? f.lines.map(apiLineToDraft)
-                          : [emptyLine()],
-                    })),
+                    finishings: draftFinishingsFromApi(base.finishings ?? []),
                   }))
                 : [emptyBase()],
           })),
@@ -412,15 +516,33 @@ export default function ShopDrawingBoqForm({
     }
   }, [projectId, itemId, fileId])
 
+  const addedFileIds = useMemo(() => {
+    const set = new Set<string>()
+    for (const b of rab?.changeDiff?.boqDiff ?? []) {
+      if (b.kind === 'added') set.add(b.shopDrawingFileId)
+    }
+    return set
+  }, [rab?.changeDiff])
+
+  const addedItemIds = useMemo(() => {
+    const set = new Set<string>()
+    for (const b of rab?.changeDiff?.boqDiff ?? []) {
+      if (b.kind === 'added') set.add(b.shopDrawingItemId)
+    }
+    return set
+  }, [rab?.changeDiff])
+
   const itemOptions = summary.map((i) => ({
     value: i.itemId,
-    label: i.name,
+    label: addedItemIds.has(i.itemId) ? `${i.name} · Added` : i.name,
   }))
 
   const versionOptions = versions.map((v) => ({
     value: v.fileId,
-    label: `v${v.version}${v.isCurrent ? ' · current' : ''}${v.hasBoq ? ' · BOQ' : ''} · ${v.originalFilename}`,
+    label: `v${v.version}${v.isCurrent ? ' · current' : ''}${v.hasBoq ? ' · BOQ' : ''}${addedFileIds.has(v.fileId) ? ' · Added' : ''} · ${v.originalFilename}`,
   }))
+
+  const selectedAddedInChange = Boolean(fileId && addedFileIds.has(fileId))
 
   function selectItem(next: string) {
     setItemId(next)
@@ -515,7 +637,7 @@ export default function ShopDrawingBoqForm({
       setUploadOpen(false)
       setPendingFile(null)
       setForceDifferent(false)
-      await reloadSummary()
+      await Promise.all([reloadSummary(), reloadOverview()])
       selectFile(response.data.id)
     } catch {
       toast.error('Unable to reach the server')
@@ -533,8 +655,9 @@ export default function ShopDrawingBoqForm({
           return `Base ${baseIndex} needs a complete core material`
         }
         for (const finishing of base.finishings) {
-          if (!finishing.lines.some(isLineComplete)) {
-            return `Base ${baseIndex}: finishing on ${finishing.placement} needs at least one complete line`
+          const line = finishing.lines[0]
+          if (!line || !isLineComplete(line)) {
+            return `Base ${baseIndex}: finishing on ${finishing.placement} needs a complete material`
           }
         }
       }
@@ -547,6 +670,10 @@ export default function ShopDrawingBoqForm({
     const error = validateBeforeSave()
     if (error) {
       toast.error(error)
+      return
+    }
+    if (contentFrozen) {
+      toast.error('RAB is locked — open a change on RAB, then edit BOQ')
       return
     }
     setSaving(true)
@@ -598,12 +725,40 @@ export default function ShopDrawingBoqForm({
         toast.error(response.message || 'Failed to save BOQ')
         return
       }
-      toast.success('BOQ saved')
-      setBoqId(response.data.id)
-      const summaryRes = await apiFetch<ProjectShopDrawingBoqItemSummary[]>(
-        `/project/${projectId}/shop-drawing/boq/summary`,
+      toast.success(
+        rab?.changeDraft
+          ? 'BOQ saved to change draft — open RAB to price / commit when ready'
+          : 'BOQ saved',
       )
-      if (summaryRes.success) setSummary(summaryRes.data ?? [])
+      setBoqId(response.data.id)
+      setContentFrozen(Boolean(response.data.contentFrozen))
+      void reloadRab()
+      setParts(
+        (response.data.main?.parts ?? []).map((part) => ({
+          key: part.key,
+          label: part.label ?? '',
+          bases:
+            (part.bases ?? []).length > 0
+              ? part.bases.map((base) => ({
+                  key: base.key,
+                  line: apiLineToDraft(base),
+                  finishings: draftFinishingsFromApi(base.finishings ?? []),
+                }))
+              : [emptyBase()],
+        })),
+      )
+      setAssemblyLines(
+        (response.data.main?.assembly?.lines ?? []).map(apiLineToDraft),
+      )
+      setLightingLines(
+        (response.data.lighting?.lines ?? []).map(apiLineToDraft),
+      )
+      setMountingType(response.data.mounting?.type ?? 'mounted')
+      setMountingLines(
+        (response.data.mounting?.lines ?? []).map(apiLineToDraft),
+      )
+      setOtherLines((response.data.other?.lines ?? []).map(apiLineToDraft))
+      await Promise.all([reloadSummary(), reloadOverview()])
     } catch {
       toast.error('Unable to reach the server')
     } finally {
@@ -626,10 +781,7 @@ export default function ShopDrawingBoqForm({
       toast.success('BOQ deleted')
       setDeleteOpen(false)
       resetBoqDraft()
-      const summaryRes = await apiFetch<ProjectShopDrawingBoqItemSummary[]>(
-        `/project/${projectId}/shop-drawing/boq/summary`,
-      )
-      if (summaryRes.success) setSummary(summaryRes.data ?? [])
+      await Promise.all([reloadSummary(), reloadOverview()])
     } catch {
       toast.error('Unable to reach the server')
     } finally {
@@ -708,7 +860,7 @@ export default function ShopDrawingBoqForm({
   function addBase() {
     const next = emptyPart()
     const baseKey = next.bases[0]!.key
-    setParts((prev) => [...prev, next])
+    setParts((prev) => [next, ...prev])
     setActiveBaseKey(baseKey)
   }
 
@@ -726,7 +878,7 @@ export default function ShopDrawingBoqForm({
 
   function baseListLabel(base: DraftBase, index: number): string {
     const material = materials.find((m) => m.id === base.line.materialItemId)
-    return material?.name?.trim() || `Base ${index + 1}`
+    return material?.name?.trim() || `Core ${index + 1}`
   }
 
   function renderFinishingRow(
@@ -737,10 +889,13 @@ export default function ShopDrawingBoqForm({
     removeLabel: string,
   ) {
     return (
-      <div key={finishing.key} className="space-y-1">
+      <div
+        key={finishing.key}
+        className="space-y-1 rounded-sm border border-(--line)/80 bg-(--surface) p-2"
+      >
         <div className="flex items-center justify-between gap-2">
           <p className="text-[11px] font-medium text-(--muted)">{zoneLabel}</p>
-          {canManage ? (
+          {canManage && !contentFrozen ? (
             <Button
               type="button"
               variant="ghost"
@@ -771,9 +926,10 @@ export default function ShopDrawingBoqForm({
           }
           materials={materials}
           makeQty={makeQty}
-          canManage={canManage}
+          canManage={canManage && !contentFrozen}
           disabled={loadingBoq}
           allowEmpty={false}
+          maxLines={1}
           compact
         />
       </div>
@@ -787,11 +943,10 @@ export default function ShopDrawingBoqForm({
     : 'Select a Shop Drawing item and file version'
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <p className={cn('text-sm', hintClassName)}>Internal</p>
-          <h1 className="text-2xl font-medium tracking-tight">
+          <h1 className={pageTitleClassName}>
             Shop Drawing BOQ
           </h1>
         </div>
@@ -820,6 +975,14 @@ export default function ShopDrawingBoqForm({
           />
         </div>
       </div>
+
+      {projectId ? (
+        <ProjectCostingStatusStrip
+          projectId={projectId}
+          rab={rab}
+          surface="boq"
+        />
+      ) : null}
 
       {!projectId ? (
         <p className={hintClassName}>
@@ -852,11 +1015,26 @@ export default function ShopDrawingBoqForm({
           ) : null}
         </div>
       ) : (
-        <div className="border border-(--line)">
+        <div className="grid w-full min-w-0 overflow-hidden border border-(--line)">
           <div className="space-y-3 border-b border-(--line) px-4 py-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="min-w-0 text-base font-medium tracking-tight">
-                {sheetTitle}
+              <h2
+                className={cn(
+                  'min-w-0 inline-flex flex-wrap items-center gap-2',
+                  sectionTitleClassName,
+                )}
+              >
+                <span>{sheetTitle}</span>
+                {selectedAddedInChange ? (
+                  <span
+                    className={cn(
+                      'inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+                      changeKindBadgeClass('added'),
+                    )}
+                  >
+                    Added in change
+                  </span>
+                ) : null}
               </h2>
               {loadingBoq ? (
                 <span
@@ -913,7 +1091,9 @@ export default function ShopDrawingBoqForm({
                   id="shop-drawing-boq-make-qty"
                   value={makeQty}
                   onChange={(e) => setMakeQty(e.target.value)}
-                  disabled={!canManage || loadingBoq || !fileId}
+                  disabled={
+                    !canManage || loadingBoq || !fileId || contentFrozen
+                  }
                   inputMode="decimal"
                   placeholder="1"
                   className="h-9"
@@ -945,59 +1125,72 @@ export default function ShopDrawingBoqForm({
                 </div>
               ) : null}
             </div>
+            {contentFrozen ? (
+              <p className={cn('text-xs', hintClassName)}>
+                Frozen while RAB is locked. Use Open RAB above to start a change,
+                then return here to edit. New shop drawing uploads are still
+                allowed (empty BOQ).
+              </p>
+            ) : rab?.changeDraft ? (
+              <p className={cn('text-xs', hintClassName)}>
+                Change in progress — edits save into the draft. When materials
+                need prices, open RAB to price and commit.
+              </p>
+            ) : null}
           </div>
 
-          {itemId && versions.length === 0 ? (
-            <div className="space-y-3 px-4 py-6">
-              <p className={cn('text-sm', hintClassName)}>
-                This item has no file versions yet.
-                {canManage ? ' Upload a file to open its BOQ.' : ''}
-              </p>
-              {canManage ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5"
-                  onClick={openUpload}
-                >
-                  <Upload className="size-3.5" aria-hidden />
-                  Upload
-                </Button>
-              ) : null}
+          <Tabs
+            value={section}
+            onValueChange={setSection}
+            className="min-w-0 max-w-full gap-0"
+          >
+            <div className="border-b border-(--line) px-4 py-2">
+              <TabsList variant="line">
+                <TabsTrigger value="main">Main</TabsTrigger>
+                <TabsTrigger value="lighting">Lighting</TabsTrigger>
+                <TabsTrigger value="mounting">Mounting</TabsTrigger>
+                <TabsTrigger value="other">Other</TabsTrigger>
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+              </TabsList>
             </div>
-          ) : !fileId ? (
-            <p className={cn('px-4 py-6 text-sm', hintClassName)}>
-              Select a file version to open its BOQ.
-            </p>
-          ) : (
-            <>
-              <Tabs
-                value={section}
-                onValueChange={setSection}
-                className="gap-0"
-              >
-                <div className="border-b border-(--line) px-4 py-2">
-                  <TabsList variant="line">
-                    <TabsTrigger value="main">Main</TabsTrigger>
-                    <TabsTrigger value="lighting">Lighting</TabsTrigger>
-                    <TabsTrigger value="mounting">Mounting</TabsTrigger>
-                    <TabsTrigger value="other">Other</TabsTrigger>
-                  </TabsList>
-                </div>
 
-                <TabsContent value="main" className="mt-0 space-y-4 p-4">
-                  <div className="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)_minmax(16rem,20rem)]">
+            <TabsContent value="main" className="mt-0 space-y-4 p-4">
+              {itemId && versions.length === 0 ? (
+                <div className="space-y-3">
+                  <p className={cn('text-sm', hintClassName)}>
+                    This item has no file versions yet.
+                    {canManage ? ' Upload a file to open its BOQ.' : ''}
+                  </p>
+                  {canManage ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={openUpload}
+                    >
+                      <Upload className="size-3.5" aria-hidden />
+                      Upload
+                    </Button>
+                  ) : null}
+                </div>
+              ) : !fileId ? (
+                <p className={cn('text-sm', hintClassName)}>
+                  Select a file version to edit its BOQ.
+                </p>
+              ) : (
+                <>
+                  <div className="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)_minmax(12rem,16rem)]">
                     <aside className="min-w-0 space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-1">
-                        <p className="text-sm font-medium">Bases</p>
+                        <p className="text-sm font-medium">Cores</p>
                         {canManage ? (
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
                             className="h-7 gap-1 px-2"
-                            disabled={loadingBoq}
+                            disabled={loadingBoq || contentFrozen}
                             onClick={addBase}
                           >
                             <Plus className="size-3.5" aria-hidden />
@@ -1008,7 +1201,7 @@ export default function ShopDrawingBoqForm({
                       {flatBases.length === 0 ? (
                         <div className="space-y-2">
                           <p className={cn('text-sm', hintClassName)}>
-                            No bases yet
+                            No cores yet
                           </p>
                           {canManage ? (
                             <Button
@@ -1016,11 +1209,11 @@ export default function ShopDrawingBoqForm({
                               variant="outline"
                               size="sm"
                               className="h-8 gap-1.5"
-                              disabled={loadingBoq}
+                              disabled={loadingBoq || contentFrozen}
                               onClick={addBase}
                             >
                               <Plus className="size-3.5" aria-hidden />
-                              Add base
+                              Add core
                             </Button>
                           ) : null}
                         </div>
@@ -1028,7 +1221,7 @@ export default function ShopDrawingBoqForm({
                         <ul className="space-y-0.5">
                           {flatBases.map(({ base }, index) => {
                             const selected = base.key === activeBaseKey
-                            const finishCount = base.finishings.length
+                            const layerCount = base.finishings.length
                             return (
                               <li key={base.key}>
                                 <button
@@ -1050,10 +1243,8 @@ export default function ShopDrawingBoqForm({
                                       hintClassName,
                                     )}
                                   >
-                                    {finishCount}{' '}
-                                    {finishCount === 1
-                                      ? 'finishing'
-                                      : 'finishings'}
+                                    {layerCount}{' '}
+                                    {layerCount === 1 ? 'layer' : 'layers'}
                                   </span>
                                 </button>
                               </li>
@@ -1061,7 +1252,9 @@ export default function ShopDrawingBoqForm({
                           })}
                         </ul>
                       )}
-                      {canManage && activeBaseEntry ? (
+                      {canManage &&
+                      activeBaseEntry &&
+                      !contentFrozen ? (
                         <Button
                           type="button"
                           variant="ghost"
@@ -1085,41 +1278,55 @@ export default function ShopDrawingBoqForm({
                       {!activeSandwich ? (
                         <p className={cn('text-sm', hintClassName)}>
                           {flatBases.length === 0
-                            ? 'Add a base to start the sandwich.'
-                            : 'Select a base'}
+                            ? 'Add a core to start the sandwich.'
+                            : 'Select a core'}
                         </p>
                       ) : (
-                        <div className="space-y-2">
-                          {activeSandwich.topFinishings.map((finishing) =>
-                            renderFinishingRow(
-                              activeSandwich.partKey,
-                              activeSandwich.base,
-                              finishing,
-                              'Finishing · top',
-                              'Remove top finishing',
-                            ),
-                          )}
+                        <div className="space-y-3">
+                          <p className={cn('text-sm', hintClassName)}>
+                            Stack reads outside → core → outside (matches
+                            preview).
+                          </p>
 
-                          {canManage ? (
-                            <button
-                              type="button"
-                              className="text-xs text-(--muted) hover:text-(--ink)"
-                              disabled={loadingBoq}
-                              onClick={() =>
-                                addFinishing(
-                                  activeSandwich.partKey,
-                                  activeSandwich.base.key,
-                                  'top',
-                                )
-                              }
-                            >
-                              + Top finishing
-                            </button>
-                          ) : null}
+                          <div className="space-y-2 rounded-sm border border-(--line) p-3">
+                            <p className="text-[11px] font-medium tracking-wide text-(--muted)">
+                              Above core
+                            </p>
+                            {canManage ? (
+                              <button
+                                type="button"
+                                className="text-xs text-(--muted) hover:text-(--ink)"
+                                disabled={loadingBoq}
+                                onClick={() =>
+                                  addFinishing(
+                                    activeSandwich.partKey,
+                                    activeSandwich.base.key,
+                                    'top',
+                                  )
+                                }
+                              >
+                                + Add layer above
+                              </button>
+                            ) : null}
+                            {activeSandwich.topFinishings.map((finishing) =>
+                              renderFinishingRow(
+                                activeSandwich.partKey,
+                                activeSandwich.base,
+                                finishing,
+                                `Layer above · ${finishing.finishingOrder}`,
+                                'Remove layer above',
+                              ),
+                            )}
+                            {activeSandwich.topFinishings.length === 0 ? (
+                              <p className={cn('text-xs', hintClassName)}>
+                                No layers above this core.
+                              </p>
+                            ) : null}
+                          </div>
 
-                          <div className="space-y-1">
-                            <p className="text-[11px] font-medium text-(--muted)">
-                              Base material
+                          <div className="space-y-1 rounded-sm border border-(--ink)/20 bg-(--surface) p-3">
+                            <p className="text-[11px] font-medium tracking-wide text-(--muted)">
+                              Core material
                             </p>
                             <ShopDrawingBoqLinesEditor
                               lines={[activeSandwich.base.line]}
@@ -1134,47 +1341,56 @@ export default function ShopDrawingBoqForm({
                               makeQty={makeQty}
                               canManage={canManage}
                               disabled={loadingBoq}
-                              showSpec
                               allowEmpty={false}
                               maxLines={1}
                               compact
                             />
                           </div>
 
-                          {canManage ? (
-                            <button
-                              type="button"
-                              className="text-xs text-(--muted) hover:text-(--ink)"
-                              disabled={loadingBoq}
-                              onClick={() =>
-                                addFinishing(
-                                  activeSandwich.partKey,
-                                  activeSandwich.base.key,
-                                  'bottom',
-                                )
-                              }
-                            >
-                              + Bottom finishing
-                            </button>
-                          ) : null}
-
-                          {activeSandwich.bottomFinishings.map((finishing) =>
-                            renderFinishingRow(
-                              activeSandwich.partKey,
-                              activeSandwich.base,
-                              finishing,
-                              'Finishing · bottom',
-                              'Remove bottom finishing',
-                            ),
-                          )}
+                          <div className="space-y-2 rounded-sm border border-(--line) p-3">
+                            <p className="text-[11px] font-medium tracking-wide text-(--muted)">
+                              Below core
+                            </p>
+                            {activeSandwich.bottomFinishings.map((finishing) =>
+                              renderFinishingRow(
+                                activeSandwich.partKey,
+                                activeSandwich.base,
+                                finishing,
+                                `Layer below · ${finishing.finishingOrder}`,
+                                'Remove layer below',
+                              ),
+                            )}
+                            {activeSandwich.bottomFinishings.length === 0 ? (
+                              <p className={cn('text-xs', hintClassName)}>
+                                No layers below this core.
+                              </p>
+                            ) : null}
+                            {canManage ? (
+                              <button
+                                type="button"
+                                className="text-xs text-(--muted) hover:text-(--ink)"
+                                disabled={loadingBoq}
+                                onClick={() =>
+                                  addFinishing(
+                                    activeSandwich.partKey,
+                                    activeSandwich.base.key,
+                                    'bottom',
+                                  )
+                                }
+                              >
+                                + Add layer below
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       )}
                     </div>
 
                     <aside className="h-fit border border-(--line) p-3 lg:sticky lg:top-4">
-                      <ShopDrawingBoqStackViewer
+                      <ShopDrawingBoqSandwichPreview
                         parts={parts}
                         materials={materials}
+                        activeBaseKey={activeBaseKey}
                       />
                     </aside>
                   </div>
@@ -1186,37 +1402,53 @@ export default function ShopDrawingBoqForm({
                       onChange={setAssemblyLines}
                       materials={materials}
                       makeQty={makeQty}
-                      canManage={canManage}
+                      canManage={canManage && !contentFrozen}
                       disabled={loadingBoq}
                     />
                   </div>
-                </TabsContent>
+                </>
+              )}
+            </TabsContent>
 
-                <TabsContent value="lighting" className="mt-0 p-4">
-                  <ShopDrawingBoqLinesEditor
-                    lines={lightingLines}
-                    onChange={setLightingLines}
-                    materials={materials}
-                    makeQty={makeQty}
-                    canManage={canManage}
-                    disabled={loadingBoq}
-                  />
-                </TabsContent>
+            <TabsContent value="lighting" className="mt-0 p-4">
+              {!fileId ? (
+                <p className={cn('text-sm', hintClassName)}>
+                  Select a file version to edit its BOQ.
+                </p>
+              ) : (
+                <ShopDrawingBoqLinesEditor
+                  lines={lightingLines}
+                  onChange={setLightingLines}
+                  materials={materials}
+                  makeQty={makeQty}
+                  canManage={canManage && !contentFrozen}
+                  disabled={loadingBoq}
+                />
+              )}
+            </TabsContent>
 
-                <TabsContent value="mounting" className="mt-0 space-y-3 p-4">
+            <TabsContent value="mounting" className="mt-0 space-y-3 p-4">
+              {!fileId ? (
+                <p className={cn('text-sm', hintClassName)}>
+                  Select a file version to edit its BOQ.
+                </p>
+              ) : (
+                <>
                   <div className="max-w-xs space-y-1">
                     <p className="text-[11px] text-(--muted)">How mounted</p>
                     <Combobox
                       value={mountingType}
                       onValueChange={(value) =>
-                        setMountingType(value as ProjectShopDrawingBoqMountingType)
+                        setMountingType(
+                          value as ProjectShopDrawingBoqMountingType,
+                        )
                       }
                       options={MOUNTING_TYPES}
                       placeholder="Type"
                       searchPlaceholder="Type…"
                       emptyText="No types."
                       className="w-full sm:w-full"
-                      disabled={!canManage || loadingBoq}
+                      disabled={!canManage || loadingBoq || contentFrozen}
                     />
                   </div>
                   <ShopDrawingBoqLinesEditor
@@ -1227,64 +1459,82 @@ export default function ShopDrawingBoqForm({
                     canManage={canManage}
                     disabled={loadingBoq}
                   />
-                </TabsContent>
+                </>
+              )}
+            </TabsContent>
 
-                <TabsContent value="other" className="mt-0 p-4">
-                  <ShopDrawingBoqLinesEditor
-                    lines={otherLines}
-                    onChange={setOtherLines}
-                    materials={materials}
-                    makeQty={makeQty}
-                    canManage={canManage}
-                    disabled={loadingBoq}
-                  />
-                </TabsContent>
-              </Tabs>
+            <TabsContent value="other" className="mt-0 p-4">
+              {!fileId ? (
+                <p className={cn('text-sm', hintClassName)}>
+                  Select a file version to edit its BOQ.
+                </p>
+              ) : (
+                <ShopDrawingBoqLinesEditor
+                  lines={otherLines}
+                  onChange={setOtherLines}
+                  materials={materials}
+                  makeQty={makeQty}
+                  canManage={canManage && !contentFrozen}
+                  disabled={loadingBoq}
+                />
+              )}
+            </TabsContent>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-(--line) px-4 py-2.5">
-                {canManage ? (
-                  <>
-                    <p className={cn('text-xs', hintClassName)}>
-                      Totals = qty/unit × make qty · save writes all sections
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {boqId ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8"
-                          disabled={deleting || loadingBoq}
-                          onClick={() => setDeleteOpen(true)}
-                        >
-                          Delete BOQ
-                        </Button>
-                      ) : null}
+            <TabsContent
+              value="overview"
+              className="mt-0 grid w-full min-w-0 p-4"
+            >
+              <ShopDrawingBoqStackViewer
+                summary={summary}
+                overview={overview}
+              />
+            </TabsContent>
+          </Tabs>
+
+          {fileId && section !== 'overview' ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-(--line) px-4 py-2.5">
+              {canManage ? (
+                <>
+                  <p className={cn('text-xs', hintClassName)}>
+                    Totals = qty/unit × make qty · save writes all sections
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {boqId && !contentFrozen ? (
                       <Button
                         type="button"
+                        variant="ghost"
                         size="sm"
                         className="h-8"
-                        disabled={saving || loadingBoq}
-                        onClick={() => void onSave()}
+                        disabled={deleting || loadingBoq}
+                        onClick={() => setDeleteOpen(true)}
                       >
-                        {saving ? (
-                          <LoaderCircle
-                            className="size-3.5 animate-spin"
-                            aria-hidden
-                          />
-                        ) : null}
-                        Save BOQ
+                        Delete BOQ
                       </Button>
-                    </div>
-                  </>
-                ) : (
-                  <p className={cn('text-sm', hintClassName)}>
-                    View only — project.manage required to edit.
-                  </p>
-                )}
-              </div>
-            </>
-          )}
+                    ) : null}
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8"
+                      disabled={saving || loadingBoq || contentFrozen}
+                      onClick={() => void onSave()}
+                    >
+                      {saving ? (
+                        <LoaderCircle
+                          className="size-3.5 animate-spin"
+                          aria-hidden
+                        />
+                      ) : null}
+                      Save BOQ
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className={cn('text-sm', hintClassName)}>
+                  View only — project.manage required to edit.
+                </p>
+              )}
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -1381,8 +1631,8 @@ export default function ShopDrawingBoqForm({
               {selectedItem ? ` · ${selectedItem.name}` : ''}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Any file type up to 20MB. Matching content reuses the existing
-              blob and adds a new version marked as same.
+              Any file type up to 20MB. Identical files are reused instead of
+              stored twice.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -1417,7 +1667,7 @@ export default function ShopDrawingBoqForm({
                   htmlFor="shop-drawing-boq-force-different"
                   className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
                 >
-                  This file is fucking different
+                  Save as a new file even if content matches
                 </label>
                 <button
                   type="button"
@@ -1439,10 +1689,8 @@ export default function ShopDrawingBoqForm({
                   id="shop-drawing-boq-force-different-info"
                   className={cn('text-xs leading-relaxed', hintClassName)}
                 >
-                  Kami cek apakah file sama atau beda lewat hash (kode unik dari
-                  isi file). Kalau hash-nya sama, kami pakai file yang sudah
-                  ada. Centang kotak ini kalau kamu mau lewati pengecekan dan
-                  tetap simpan sebagai file baru.
+                  We skip saving a duplicate when the file content already
+                  exists. Check this to always keep a separate copy.
                 </p>
               ) : null}
             </div>

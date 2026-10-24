@@ -129,6 +129,11 @@ type Props = {
   maxLines?: number
   /** Tighter padding, hide # column — for sandwich stacks. */
   compact?: boolean
+  /**
+   * First N lines are frozen (RAB locked): view-only, cannot remove.
+   * New lines after the prefix remain editable.
+   */
+  frozenPrefixCount?: number
 }
 
 export default function ShopDrawingBoqLinesEditor({
@@ -142,6 +147,7 @@ export default function ShopDrawingBoqLinesEditor({
   allowEmpty = true,
   maxLines,
   compact = false,
+  frozenPrefixCount = 0,
 }: Props) {
   const cell = compact ? 'px-2 py-1.5' : 'px-3 py-2.5'
   const head = compact ? 'px-2 py-1.5' : 'px-3 py-2'
@@ -181,7 +187,7 @@ export default function ShopDrawingBoqLinesEditor({
         <table
           className={cn(
             'w-full border-collapse text-left text-sm',
-            compact ? 'min-w-[28rem]' : 'min-w-[36rem]',
+            compact ? 'min-w-[32rem]' : 'min-w-[40rem]',
           )}
         >
           <thead>
@@ -224,7 +230,7 @@ export default function ShopDrawingBoqLinesEditor({
               const uomSymbol = selectedUom?.symbol
               const uomOptions = lineUoms.map((u) => ({
                 value: u.id,
-                label: `${u.symbol} — ${u.name}`,
+                label: u.symbol || u.name,
               }))
               const modes = formulaOptionsFor(
                 selectedUom?.formulas,
@@ -232,7 +238,9 @@ export default function ShopDrawingBoqLinesEditor({
               )
               const varCount = formulaVariableCount(line.formula)
               const qtyPreview = computedQtyDisplay(line)
-              const editing = editingKey === line.key
+              const lineFrozen = index < frozenPrefixCount
+              const lineEditable = canManage && !lineFrozen
+              const editing = editingKey === line.key && lineEditable
               const qtyView =
                 varCount <= 1
                   ? qtyPreview
@@ -246,6 +254,7 @@ export default function ShopDrawingBoqLinesEditor({
                   className={cn(
                     'border-b border-(--line) last:border-b-0',
                     editing && 'bg-(--surface)/50',
+                    lineFrozen && 'opacity-90',
                   )}
                 >
                   {compact ? null : (
@@ -259,17 +268,29 @@ export default function ShopDrawingBoqLinesEditor({
                     </td>
                   )}
 
-                  {editing && canManage ? (
+                  {editing && lineEditable ? (
                     <>
                       <td
                         className={cn(cell, 'align-top')}
-                        colSpan={showSpec ? 3 : 2}
+                        colSpan={showSpec ? 4 : 3}
                       >
-                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem]">
-                          <div className="space-y-1">
-                            <p className="text-[11px] text-(--muted)">
-                              Material
-                            </p>
+                        <div
+                          className={cn(
+                            'flex flex-nowrap items-center gap-2',
+                            !compact && 'items-end',
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              'min-w-0 shrink space-y-1',
+                              compact ? 'w-[14rem] max-w-[50%]' : 'w-[18rem]',
+                            )}
+                          >
+                            {compact ? null : (
+                              <p className="text-[11px] text-(--muted)">
+                                Material
+                              </p>
+                            )}
                             <Combobox
                               value={line.materialItemId}
                               onValueChange={(value) => {
@@ -300,11 +321,14 @@ export default function ShopDrawingBoqLinesEditor({
                               searchPlaceholder="Search materials…"
                               emptyText="No materials."
                               className="w-full sm:w-full"
+                              contentClassName="w-[min(28rem,calc(100vw-2rem))] min-w-[min(28rem,calc(100vw-2rem))]"
                               aria-label={`Material line ${index + 1}`}
                             />
                           </div>
-                          <div className="space-y-1">
-                            <p className="text-[11px] text-(--muted)">UOM</p>
+                          <div className="w-24 shrink-0 space-y-1">
+                            {compact ? null : (
+                              <p className="text-[11px] text-(--muted)">UOM</p>
+                            )}
                             <Combobox
                               value={line.itemUomId}
                               onValueChange={(value) => {
@@ -335,133 +359,138 @@ export default function ShopDrawingBoqLinesEditor({
                               aria-label={`UOM line ${index + 1}`}
                             />
                           </div>
-                        </div>
-                        {showSpec ? (
-                          <div className="mt-2 space-y-1">
-                            <p className="text-[11px] text-(--muted)">
-                              Spec / dimension
-                            </p>
-                            <Input
-                              value={line.spec ?? ''}
-                              onChange={(e) =>
-                                onChange(
-                                  lines.map((row, i) =>
-                                    i === index
-                                      ? { ...row, spec: e.target.value }
-                                      : row,
-                                  ),
-                                )
-                              }
-                              disabled={disabled}
-                              placeholder="Jenis + ukuran"
-                              className="h-9"
-                            />
-                          </div>
-                        ) : null}
-                        <div className="mt-3 space-y-1.5">
-                          {modes.length > 1 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {modes.map((expr) => {
-                                const active = line.formula === expr
-                                return (
-                                  <button
-                                    key={expr}
-                                    type="button"
-                                    className={cn(
-                                      'rounded border px-2 py-0.5 font-mono text-xs',
-                                      active
-                                        ? 'border-(--ink) bg-(--ink) text-white'
-                                        : 'border-(--line) text-(--muted) hover:border-(--ink)/40',
-                                    )}
-                                    onClick={() =>
-                                      onChange(
-                                        lines.map((row, i) =>
-                                          i === index
-                                            ? {
-                                                ...row,
-                                                formula: expr,
-                                                inputs: emptyInputsFor(expr),
-                                              }
-                                            : row,
-                                        ),
-                                      )
-                                    }
-                                  >
-                                    {formatFormulaLabel(expr)}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          ) : null}
-                          {varCount <= 1 ? (
-                            <div className="flex flex-wrap items-center gap-2">
+                          {showSpec ? (
+                            <div className="w-36 shrink-0 space-y-1">
+                              {compact ? null : (
+                                <p className="text-[11px] text-(--muted)">
+                                  Spec / dimension
+                                </p>
+                              )}
                               <Input
-                                value={line.inputs.v1}
+                                value={line.spec ?? ''}
                                 onChange={(e) =>
                                   onChange(
                                     lines.map((row, i) =>
                                       i === index
-                                        ? {
-                                            ...row,
-                                            inputs: { v1: e.target.value },
-                                          }
+                                        ? { ...row, spec: e.target.value }
                                         : row,
                                     ),
                                   )
                                 }
                                 disabled={disabled}
-                                inputMode="decimal"
-                                placeholder="Qty"
-                                className="h-9 w-32"
+                                placeholder="Jenis + ukuran"
+                                className="h-9"
                               />
-                              {uomSymbol ? (
-                                <span className="text-sm text-(--muted)">
-                                  {uomSymbol}
-                                </span>
-                              ) : null}
                             </div>
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              {Array.from({ length: varCount }, (_, n) => {
-                                const key = `v${n + 1}` as UomVar
-                                return (
-                                  <div
-                                    key={key}
-                                    className="flex items-center gap-1.5"
-                                  >
-                                    {n > 0 ? (
-                                      <span className="text-(--muted)">×</span>
-                                    ) : null}
-                                    <Input
-                                      value={line.inputs[key] ?? ''}
-                                      onChange={(e) =>
+                          ) : null}
+                          <div className="min-w-0 shrink-0 space-y-1">
+                            {compact ? null : (
+                              <p className="text-[11px] text-(--muted)">Qty</p>
+                            )}
+                            {modes.length > 1 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {modes.map((expr) => {
+                                  const active = line.formula === expr
+                                  return (
+                                    <button
+                                      key={expr}
+                                      type="button"
+                                      className={cn(
+                                        'rounded border px-2 py-0.5 font-mono text-xs',
+                                        active
+                                          ? 'border-(--ink) bg-(--ink) text-white'
+                                          : 'border-(--line) text-(--muted) hover:border-(--ink)/40',
+                                      )}
+                                      onClick={() =>
                                         onChange(
                                           lines.map((row, i) =>
                                             i === index
                                               ? {
                                                   ...row,
-                                                  inputs: {
-                                                    ...row.inputs,
-                                                    [key]: e.target.value,
-                                                  },
+                                                  formula: expr,
+                                                  inputs: emptyInputsFor(expr),
                                                 }
                                               : row,
                                           ),
                                         )
                                       }
-                                      disabled={disabled}
-                                      inputMode="decimal"
-                                      className="h-9 w-24"
-                                    />
-                                  </div>
-                                )
-                              })}
-                              <span className="pl-1 text-sm tabular-nums text-(--muted)">
-                                = {qtyPreview}
-                                {uomSymbol ? ` ${uomSymbol}` : ''}
-                              </span>
-                            </div>
-                          )}
+                                    >
+                                      {formatFormulaLabel(expr)}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            ) : null}
+                            {varCount <= 1 ? (
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  value={line.inputs.v1}
+                                  onChange={(e) =>
+                                    onChange(
+                                      lines.map((row, i) =>
+                                        i === index
+                                          ? {
+                                              ...row,
+                                              inputs: { v1: e.target.value },
+                                            }
+                                          : row,
+                                      ),
+                                    )
+                                  }
+                                  disabled={disabled}
+                                  inputMode="decimal"
+                                  placeholder="Qty"
+                                  className="h-9 w-20"
+                                />
+                                {uomSymbol ? (
+                                  <span className="shrink-0 text-sm text-(--muted)">
+                                    {uomSymbol}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <div className="flex flex-nowrap items-center gap-1.5">
+                                {Array.from({ length: varCount }, (_, n) => {
+                                  const key = `v${n + 1}` as UomVar
+                                  return (
+                                    <div
+                                      key={key}
+                                      className="flex items-center gap-1.5"
+                                    >
+                                      {n > 0 ? (
+                                        <span className="text-(--muted)">×</span>
+                                      ) : null}
+                                      <Input
+                                        value={line.inputs[key] ?? ''}
+                                        onChange={(e) =>
+                                          onChange(
+                                            lines.map((row, i) =>
+                                              i === index
+                                                ? {
+                                                    ...row,
+                                                    inputs: {
+                                                      ...row.inputs,
+                                                      [key]: e.target.value,
+                                                    },
+                                                  }
+                                                : row,
+                                            ),
+                                          )
+                                        }
+                                        disabled={disabled}
+                                        inputMode="decimal"
+                                        className="h-9 w-16"
+                                      />
+                                    </div>
+                                  )
+                                })}
+                                <span className="shrink-0 pl-0.5 text-sm tabular-nums text-(--muted)">
+                                  = {qtyPreview}
+                                  {uomSymbol ? ` ${uomSymbol}` : ''}
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className={cn(cell, 'align-top tabular-nums')}>
@@ -475,9 +504,9 @@ export default function ShopDrawingBoqLinesEditor({
                           type="button"
                           className={cn(
                             'block w-full text-left',
-                            canManage && 'hover:opacity-80',
+                            lineEditable && 'hover:opacity-80',
                           )}
-                          disabled={!canManage || disabled}
+                          disabled={!lineEditable || disabled}
                           onClick={() => setEditingKey(line.key)}
                         >
                           <span className="font-medium">
@@ -511,47 +540,56 @@ export default function ShopDrawingBoqLinesEditor({
 
                   {canManage ? (
                     <td className={cn(compact ? 'px-1 py-1' : 'px-1 py-2', 'align-top')}>
-                      <div className="flex items-center justify-end gap-0.5">
-                        {editing ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2"
-                            disabled={disabled || !isLineComplete(line)}
-                            onClick={() => setEditingKey(null)}
-                          >
-                            <Check className="size-3.5" aria-hidden />
-                          </Button>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2"
-                            disabled={disabled}
-                            onClick={() => setEditingKey(line.key)}
-                          >
-                            <Pencil className="size-3.5" aria-hidden />
-                          </Button>
-                        )}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2"
-                          disabled={
-                            disabled ||
-                            (!allowEmpty && lines.length <= 1)
-                          }
-                          onClick={() => {
-                            onChange(lines.filter((_, i) => i !== index))
-                            if (editingKey === line.key) setEditingKey(null)
-                          }}
+                      {lineFrozen ? (
+                        <span
+                          className={cn('px-1 text-[10px]', hintClassName)}
+                          title="Frozen after RAB lock"
                         >
-                          <Trash2 className="size-3.5" aria-hidden />
-                        </Button>
-                      </div>
+                          Locked
+                        </span>
+                      ) : (
+                        <div className="flex items-center justify-end gap-0.5">
+                          {editing ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2"
+                              disabled={disabled || !isLineComplete(line)}
+                              onClick={() => setEditingKey(null)}
+                            >
+                              <Check className="size-3.5" aria-hidden />
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2"
+                              disabled={disabled}
+                              onClick={() => setEditingKey(line.key)}
+                            >
+                              <Pencil className="size-3.5" aria-hidden />
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2"
+                            disabled={
+                              disabled ||
+                              (!allowEmpty && lines.length <= 1)
+                            }
+                            onClick={() => {
+                              onChange(lines.filter((_, i) => i !== index))
+                              if (editingKey === line.key) setEditingKey(null)
+                            }}
+                          >
+                            <Trash2 className="size-3.5" aria-hidden />
+                          </Button>
+                        </div>
+                      )}
                     </td>
                   ) : null}
                 </tr>
@@ -575,7 +613,7 @@ export default function ShopDrawingBoqLinesEditor({
             }}
           >
             <Plus className="size-3.5" aria-hidden />
-            Add line
+            {compact ? 'Add material' : 'Add line'}
           </Button>
         </div>
       ) : null}

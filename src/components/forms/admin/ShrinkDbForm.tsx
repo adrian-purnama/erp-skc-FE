@@ -24,7 +24,11 @@ import {
   type ShrinkSection,
 } from '#/lib/shrinkDb'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
-import { cardClassName, hintClassName } from '#/lib/ui-classes'
+import {
+  cardClassName,
+  hintClassName,
+  sectionTitleClassName,
+} from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
 const POLL_MS = 1500
@@ -248,10 +252,9 @@ export default function ShrinkDbForm() {
     <div className="space-y-8">
       <section className={cn(cardClassName, 'space-y-3 px-4 py-4')}>
         <div>
-          <h2 className="text-base font-medium">1. Audit log cleanup</h2>
-          <p className={`mt-1 text-sm ${hintClassName}`}>
-            Deletes older audit entries for each entity, keeping only the latest
-            row so the current value can still be tracked.
+          <h2 className={sectionTitleClassName}>1. Audit log cleanup</h2>
+          <p className={`mt-1 ${hintClassName}`}>
+            Keep the latest change per item; remove older history.
           </p>
         </div>
         <Button
@@ -267,22 +270,19 @@ export default function ShrinkDbForm() {
 
       <section className={cn(cardClassName, 'space-y-3 px-4 py-4')}>
         <div>
-          <h2 className="text-base font-medium">
+          <h2 className={sectionTitleClassName}>
             2. Project documents &amp; shop drawings
           </h2>
-          <p className={`mt-1 text-sm ${hintClassName}`}>
-            Soft-deletes every non-current version (marks{' '}
-            <code className="text-xs">deletedReason: shrink_db</code>), then
-            removes unreferenced GridFS blobs. Current versions are never
-            touched. Excluded projects are skipped entirely.
+          <p className={`mt-1 ${hintClassName}`}>
+            Remove old file versions that are no longer current. Current files
+            stay. Excluded projects are skipped.
           </p>
         </div>
 
         <div className="space-y-2">
           <p className="text-sm font-medium">Exclude projects</p>
-          <p className={`text-sm ${hintClassName}`}>
-            Optional. Search by name or project number, then select. Default:
-            none.
+          <p className={hintClassName}>
+            Optional. Search by name or number, then select.
           </p>
           <ListSearchInput
             value={projectQuery}
@@ -426,14 +426,14 @@ export default function ShrinkDbForm() {
           <ul className={`space-y-1 text-sm ${hintClassName}`}>
             <li>Audit rows deleted: {result.auditDeleted}</li>
             <li>
-              Document versions soft-deleted:{' '}
+              Document versions removed:{' '}
               {result.documentVersionsSoftDeleted}
             </li>
             <li>
-              Shop drawing versions soft-deleted:{' '}
+              Shop drawing versions removed:{' '}
               {result.shopDrawingVersionsSoftDeleted}
             </li>
-            <li>Blobs purged: {result.blobsPurged}</li>
+            <li>Unused files purged: {result.blobsPurged}</li>
             {result.errors.length > 0 ? (
               <li className="text-red-700">
                 Errors: {result.errors.join('; ')}
@@ -456,18 +456,17 @@ export default function ShrinkDbForm() {
 
       {orphans ? (
         <section className={cn(cardClassName, 'space-y-3 px-4 py-4')}>
-          <h2 className="text-base font-medium">Orphan check</h2>
+          <h2 className={sectionTitleClassName}>Orphan check</h2>
           <ul className={`space-y-1 text-sm ${hintClassName}`}>
             <li>
-              Shrink soft-delete blobs finished this pass:{' '}
-              {orphans.shrinkBlobsPurged}
+              Unused files cleared this pass: {orphans.shrinkBlobsPurged}
             </li>
             <li>
-              Unmatched GridFS blobs (report only):{' '}
+              Files in storage with no record (report only):{' '}
               {orphans.unmatchedBlobIds.length}
             </li>
             <li>
-              Scopes with no current version (never auto-deleted):{' '}
+              Items missing a current file (not auto-deleted):{' '}
               {orphans.scopesMissingCurrent.length}
             </li>
           </ul>
@@ -487,7 +486,7 @@ export default function ShrinkDbForm() {
               disabled={running || busy}
               onClick={() => setPurgeOpen(true)}
             >
-              Delete {orphans.unmatchedBlobIds.length} unmatched blob(s)
+              Delete {orphans.unmatchedBlobIds.length} unmatched file(s)
             </Button>
           ) : null}
         </section>
@@ -516,9 +515,8 @@ export default function ShrinkDbForm() {
                 ) : (
                   <>
                     <p>
-                      Soft-deletes non-current document and shop drawing
-                      versions (except excluded projects), then purges
-                      unreferenced blobs.
+                      Removes old document and shop drawing versions (except
+                      excluded projects), then clears unused stored files.
                     </p>
                     <p>
                       Excluded projects:{' '}
@@ -552,10 +550,10 @@ export default function ShrinkDbForm() {
       <AlertDialog open={purgeOpen} onOpenChange={setPurgeOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete unmatched GridFS blobs?</AlertDialogTitle>
+            <AlertDialogTitle>Delete unmatched files?</AlertDialogTitle>
             <AlertDialogDescription>
               {orphans?.unmatchedBlobIds.length ?? 0} file(s) in storage have no
-              matching DB record. This cannot be undone.
+              matching record. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

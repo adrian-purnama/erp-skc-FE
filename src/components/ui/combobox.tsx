@@ -29,6 +29,8 @@ type ComboboxProps = {
   searchPlaceholder?: string
   emptyText?: string
   className?: string
+  /** Extra classes for the dropdown panel (e.g. wider than the trigger). */
+  contentClassName?: string
   disabled?: boolean
   'aria-label'?: string
 }
@@ -41,6 +43,7 @@ export function Combobox({
   searchPlaceholder = 'Search…',
   emptyText = 'No results.',
   className,
+  contentClassName,
   disabled = false,
   'aria-label': ariaLabel,
 }: ComboboxProps) {
@@ -73,7 +76,10 @@ export function Combobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] p-0"
+        className={cn(
+          'w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] p-0',
+          contentClassName,
+        )}
         align="start"
       >
         <Command shouldFilter>
@@ -97,7 +103,9 @@ export function Combobox({
                       value === option.value ? 'opacity-100' : 'opacity-0',
                     )}
                   />
-                  <span className="truncate">{option.label}</span>
+                  <span className="min-w-0 whitespace-normal break-words">
+                    {option.label}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>

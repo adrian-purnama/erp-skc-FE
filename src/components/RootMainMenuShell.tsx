@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import RootMainMenu from '#/components/RootMainMenu'
 import { Button } from '#/components/ui/button'
+import { Tabs, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { SideNavProvider, useSideNav } from '#/context/sideNavContext'
 import { cn } from '#/lib/utils'
 
@@ -62,20 +63,21 @@ function RootMainMenuShellInner({ children }: { children: ReactNode }) {
             </div>
 
             {!collapsed && hasDetails ? (
-              <div className="flex flex-col gap-0.5 rounded-md bg-(--surface) p-0.5">
-                <ModeTab
-                  active={mode === 'menu'}
-                  onClick={() => setMode('menu')}
-                  label="Menu"
-                  icon={<Menu className="size-3.5" aria-hidden />}
-                />
-                <ModeTab
-                  active={mode === 'details'}
-                  onClick={() => setMode('details')}
-                  label="Project"
-                  icon={<FolderKanban className="size-3.5" aria-hidden />}
-                />
-              </div>
+              <Tabs
+                value={mode}
+                onValueChange={(v) => setMode(v === 'details' ? 'details' : 'menu')}
+              >
+                <TabsList className="w-full">
+                  <TabsTrigger value="menu" className="flex-1 gap-1.5">
+                    <Menu className="size-3.5" aria-hidden />
+                    Menu
+                  </TabsTrigger>
+                  <TabsTrigger value="details" className="flex-1 gap-1.5">
+                    <FolderKanban className="size-3.5" aria-hidden />
+                    Project
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
             ) : null}
           </div>
 
@@ -102,34 +104,5 @@ function RootMainMenuShellInner({ children }: { children: ReactNode }) {
 
       <div className="min-w-0 flex-1 bg-(--surface)">{children}</div>
     </div>
-  )
-}
-
-function ModeTab({
-  active,
-  onClick,
-  label,
-  icon,
-}: {
-  active: boolean
-  onClick: () => void
-  label: string
-  icon: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'inline-flex w-full items-center gap-2 rounded-[5px] px-2.5 py-1.5 text-xs font-medium transition',
-        active
-          ? 'bg-white text-(--ink) shadow-sm'
-          : 'text-(--muted) hover:text-(--ink)',
-      )}
-      aria-pressed={active}
-    >
-      {icon}
-      <span className="truncate">{label}</span>
-    </button>
   )
 }

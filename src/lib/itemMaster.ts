@@ -1,3 +1,7 @@
+export const ITEM_TYPES = ['material', 'labour'] as const
+
+export type ItemType = (typeof ITEM_TYPES)[number]
+
 export type TreeFolderNode = {
   type: 'folder'
   id: string
@@ -12,6 +16,7 @@ export type TreeItemNode = {
   itemId: string
   name: string
   description: string
+  itemType: ItemType
   isActive: boolean
 }
 
@@ -46,6 +51,7 @@ export type ItemOut = {
   itemId: string
   name: string
   description: string
+  itemType: ItemType
   folderId: string | null
   baseUomId: string | null
   vendorIds: string[]
@@ -82,6 +88,7 @@ export type ItemListRow = {
   itemId: string
   name: string
   description: string
+  itemType: ItemType
   folderId: string | null
   folderPath: string
   isActive: boolean
@@ -98,6 +105,46 @@ export function flattenFolders(
     const label = prefix ? `${prefix} / ${node.code}` : node.code
     result.push({ id: node.id, label: `${label} — ${node.name}` })
     result.push(...flattenFolders(node.children, label))
+  }
+  return result
+}
+
+/** Human-readable folder path using names only (e.g. "ITEM / Metal Materials"). */
+export function folderNamePath(
+  nodes: TreeNode[],
+  folderId: string | null,
+): string {
+  if (folderId === null) return 'Root'
+
+  function walk(
+    list: TreeNode[],
+    path: string[],
+  ): string[] | null {
+    for (const node of list) {
+      if (node.type !== 'folder') continue
+      const next = [...path, node.name]
+      if (node.id === folderId) return next
+      const found = walk(node.children, next)
+      if (found) return found
+    }
+    return null
+  }
+
+  const parts = walk(nodes, [])
+  return parts?.join(' / ') ?? 'Selected folder'
+}
+
+/** Folder picker options labeled by name path (e.g. "ITEM / Metal Materials"). */
+export function flattenFolderNameOptions(
+  nodes: TreeNode[],
+  pathPrefix = '',
+): Array<{ id: string; label: string }> {
+  const result: Array<{ id: string; label: string }> = []
+  for (const node of nodes) {
+    if (node.type !== 'folder') continue
+    const label = pathPrefix ? `${pathPrefix} / ${node.name}` : node.name
+    result.push({ id: node.id, label })
+    result.push(...flattenFolderNameOptions(node.children, label))
   }
   return result
 }
@@ -122,6 +169,7 @@ export function flattenItems(
       itemId: node.itemId,
       name: node.name,
       description: node.description,
+      itemType: node.itemType ?? 'material',
       folderId,
       folderPath: folderPath || 'Root',
       isActive: node.isActive !== false,

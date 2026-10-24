@@ -137,8 +137,40 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
+[data-theme='app'] .text-page-title {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+[data-theme='app'] .text-section-title {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+[data-theme='app'] .text-body {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--ink);
+}
+
 [data-theme='app'] .text-hint {
   font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--muted);
+}
+
+[data-theme='app'] .text-meta {
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 

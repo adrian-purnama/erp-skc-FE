@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import ItemMasterForm from '#/components/forms/ItemMasterForm'
+import ItemMasterForm from '#/components/forms/item-master/ItemMasterForm'
 import { requirePermissionBeforeLoad } from '#/lib/requirePermissionBeforeLoad'
 
 export const Route = createFileRoute('/_authenticated/dashboard/item-master/')({

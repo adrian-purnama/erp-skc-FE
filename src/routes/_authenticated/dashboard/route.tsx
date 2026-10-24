@@ -9,7 +9,7 @@ export const Route = createFileRoute('/_authenticated/dashboard')({
 function DashboardLayout() {
   return (
     <RootMainMenuShell>
-      <main className="px-6 py-10 sm:px-8">
+      <main className="min-w-0 overflow-x-hidden px-6 py-10 sm:px-8">
         <div className={dashboardPageClassName}>
           <Outlet />
         </div>

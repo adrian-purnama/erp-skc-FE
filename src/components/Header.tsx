@@ -80,6 +80,9 @@ export default function Header() {
   const ctaPrimaryClass =
     'rounded-[var(--radius-sm)] bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white no-underline transition hover:opacity-90'
 
+  // Client quotation verification pages are for outsiders: no app chrome.
+  if (pathname.startsWith('/q/')) return null
+
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--line)] bg-white/95 text-[var(--ink)] backdrop-blur-sm">
       <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-2">

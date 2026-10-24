@@ -686,8 +686,8 @@ export default function ProjectDocumentsPanel({
                 : 'document'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Any file type, maximum 20MB. Matching content reuses the existing
-              blob and adds a new version marked as same.
+              Any file type, max 20MB. Identical files are reused instead of
+              stored twice.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -745,7 +745,7 @@ export default function ProjectDocumentsPanel({
                   htmlFor="force-different"
                   className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
                 >
-                  This file is fucking different
+                  Save as a new file even if content matches
                 </label>
                 <button
                   type="button"
@@ -767,10 +767,8 @@ export default function ProjectDocumentsPanel({
                   id="force-different-info"
                   className={cn('text-xs leading-relaxed', hintClassName)}
                 >
-                  Kami cek apakah file sama atau beda lewat hash (kode unik dari
-                  isi file). Kalau hash-nya sama, kami pakai file yang sudah
-                  ada. Centang kotak ini kalau kamu mau lewati pengecekan dan
-                  tetap simpan sebagai file baru.
+                  We skip saving a duplicate when the file content already
+                  exists. Check this to always keep a separate copy.
                 </p>
               ) : null}
             </div>

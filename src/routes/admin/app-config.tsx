@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import AppConfigForm from '#/components/forms/AppConfigForm'
 import { requirePermissionBeforeLoad } from '#/lib/requirePermissionBeforeLoad'
-import { hintClassName } from '#/lib/ui-classes'
+import { hintClassName, pageTitleClassName } from '#/lib/ui-classes'
 
 export const Route = createFileRoute('/admin/app-config')({
   beforeLoad: () => requirePermissionBeforeLoad('admin.config.view'),
@@ -10,11 +10,11 @@ export const Route = createFileRoute('/admin/app-config')({
 
 function AdminAppConfigPage() {
   return (
-    <div className="mx-auto w-full max-w-2xl text-[var(--ink)]">
-      <div className="mb-8">
-        <h1 className="text-2xl font-medium tracking-tight">App config</h1>
+    <div className="space-y-8">
+      <div>
+        <h1 className={pageTitleClassName}>App config</h1>
         <p className={`mt-2 ${hintClassName}`}>
-          Update branding and whether login or registration stays open.
+          Branding and whether login or registration stays open.
         </p>
       </div>
 

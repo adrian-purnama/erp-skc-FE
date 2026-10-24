@@ -12,6 +12,7 @@ import {
   cardClassName,
   hintClassName,
   inputClassName,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -310,14 +311,13 @@ export default function RoleEditor({ mode, roleKey, duplicateFrom }: Props) {
 
   return (
     <div className="pb-24 text-[var(--ink)]">
-      <h1 className="mb-6 text-2xl font-medium tracking-tight">
+      <h1 className={cn('mb-6', pageTitleClassName)}>
         {mode === 'create' ? 'New role' : name || 'Edit role'}
       </h1>
 
       {systemLocked ? (
         <div className={`${cardClassName} mb-6 border-[var(--accent)] bg-[var(--surface)] p-4 text-sm`}>
-          System roles lock permissions and includes. Name and description can
-          still be edited.
+          System roles lock permissions; name and description stay editable.
         </div>
       ) : null}
 
@@ -371,8 +371,7 @@ export default function RoleEditor({ mode, roleKey, duplicateFrom }: Props) {
           <div>
             <p className="mb-1.5 text-sm">Includes roles</p>
             <p className={`mb-2 text-xs ${hintClassName}`}>
-              Max one level: only roles that do not include other roles are
-              listed.
+              Only roles that do not include other roles.
             </p>
             <div className="space-y-2">
               {includeOptions.map((role) => (

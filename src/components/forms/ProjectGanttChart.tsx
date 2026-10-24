@@ -13,7 +13,11 @@ import {
   ymdInJakarta,
   type ProjectCalendarEvent,
 } from '#/lib/projectCalendar'
-import { buttonOutlineClassName, hintClassName } from '#/lib/ui-classes'
+import {
+  buttonOutlineClassName,
+  hintClassName,
+  metaTextClassName,
+} from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
 type Scale = 'day' | 'week' | 'month'
@@ -288,7 +292,7 @@ export default function ProjectGanttChart({ events, onSelectEvent }: Props) {
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-md border border-(--line) bg-white">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-(--line) px-3 py-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="text-[10px] font-medium tracking-wide text-(--muted) uppercase">
+          <span className={metaTextClassName}>
             Scale
           </span>
           <Combobox
@@ -352,7 +356,12 @@ export default function ProjectGanttChart({ events, onSelectEvent }: Props) {
 
       <div className="flex min-h-0 w-full min-w-0 max-h-[min(420px,60vh)] overflow-hidden">
         <div className="z-10 w-40 shrink-0 border-r border-(--line) bg-white sm:w-48">
-          <div className="flex h-12 items-end border-b border-(--line) px-3 pb-2 text-[10px] font-medium tracking-wide text-(--muted) uppercase">
+          <div
+            className={cn(
+              'flex h-12 items-end border-b border-(--line) px-3 pb-2',
+              metaTextClassName,
+            )}
+          >
             Event
           </div>
           <ul>

@@ -5,9 +5,13 @@ import { LoaderCircle } from 'lucide-react'
 import ProjectCalendarPanel from '#/components/forms/ProjectCalendarPanel'
 import ProjectDocumentsPanel from '#/components/forms/ProjectDocumentsPanel'
 import ProjectPhaseSteps from '#/components/forms/ProjectPhaseSteps'
+import ProjectPipelineHeader from '#/components/forms/ProjectPipelineHeader'
+import ProjectQuotationForm from '#/components/forms/ProjectQuotationForm'
+import ProjectRabForm from '#/components/forms/ProjectRabForm'
 import ProjectShopDrawingPanel from '#/components/forms/ProjectShopDrawingPanel'
 import ProjectSideNavPanel from '#/components/forms/ProjectSideNavPanel'
 import ProjectStatusChip from '#/components/forms/ProjectStatusChip'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { useAuth } from '#/context/authContext'
 import { useSideNav } from '#/context/sideNavContext'
 import { apiFetch } from '#/lib/api'
@@ -22,7 +26,12 @@ import {
   type ProjectPhase,
   type ProjectStatus,
 } from '#/lib/project'
-import { buttonOutlineClassName, hintClassName } from '#/lib/ui-classes'
+import {
+  buttonOutlineClassName,
+  hintClassName,
+  sectionTitleClassName,
+} from '#/lib/ui-classes'
+import type { PipelineStage } from '#/lib/projectPipeline'
 import { cn } from '#/lib/utils'
 
 type Props = {
@@ -37,6 +46,9 @@ export default function ProjectDashboard({ projectId }: Props) {
   const [project, setProject] = useState<ProjectDetail | null>(null)
   const [statusSaving, setStatusSaving] = useState(false)
   const [activePhase, setActivePhase] = useState<ProjectPhase>('tender')
+  const [internalTab, setInternalTab] = useState<PipelineStage>('boq')
+  const [pipelineKey, setPipelineKey] = useState(0)
+  const bumpPipeline = useCallback(() => setPipelineKey((k) => k + 1), [])
 
   const saveStatus = useCallback(
     async (patch: {
@@ -201,14 +213,14 @@ export default function ProjectDashboard({ projectId }: Props) {
         {activePhase === 'tender' ? (
           <div className="space-y-10">
             <section className="space-y-3">
-              <h2 className="text-xl font-medium tracking-tight">Documents</h2>
+              <h2 className={sectionTitleClassName}>Documents</h2>
               <ProjectDocumentsPanel
                 projectId={project.id}
                 canManage={canManage}
               />
             </section>
             <section className="space-y-3">
-              <h2 className="text-xl font-medium tracking-tight">Calendar</h2>
+              <h2 className={sectionTitleClassName}>Calendar</h2>
               <ProjectCalendarPanel
                 projectId={project.id}
                 canManage={canManage}
@@ -216,36 +228,48 @@ export default function ProjectDashboard({ projectId }: Props) {
             </section>
           </div>
         ) : activePhase === 'internal' ? (
-          <div className="space-y-10">
-            <section className="space-y-3">
-              <h2 className="text-sm font-medium tracking-tight">
-                Shop Drawing
-              </h2>
-              <ProjectShopDrawingPanel
-                projectId={project.id}
-                canManage={canManage}
-              />
-            </section>
-            <section className="space-y-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="text-sm font-medium tracking-tight">RAB</h2>
-                <Link
-                  to="/dashboard/internal/rab"
-                  search={{ projectId: project.id }}
-                  className={cn(
-                    buttonOutlineClassName,
-                    'inline-flex h-8 items-center no-underline',
-                  )}
-                >
-                  Open RAB
-                </Link>
-              </div>
-              <p className={cn('text-sm', hintClassName)}>
-                Rencana Anggaran Biaya — draft qty from Shop Drawing BOQ, fill
-                prices, then lock permanently. New BOQ items appear as extra
-                lines after lock.
-              </p>
-            </section>
+          <div className="space-y-5">
+            <ProjectPipelineHeader
+              projectId={project.id}
+              refreshKey={pipelineKey}
+              active={internalTab}
+              onSelect={setInternalTab}
+            />
+            <Tabs
+              value={internalTab}
+              onValueChange={(v) => setInternalTab(v as PipelineStage)}
+            >
+              <TabsList>
+                <TabsTrigger value="boq">Shop Drawing &amp; BOQ</TabsTrigger>
+                <TabsTrigger value="rab">RAB</TabsTrigger>
+                {can('quotation.view') ? (
+                  <TabsTrigger value="quotation">Quotation</TabsTrigger>
+                ) : null}
+              </TabsList>
+              <TabsContent value="boq" className="pt-3">
+                <ProjectShopDrawingPanel
+                  projectId={project.id}
+                  canManage={canManage}
+                  onChanged={bumpPipeline}
+                />
+              </TabsContent>
+              <TabsContent value="rab" className="pt-3">
+                <ProjectRabForm
+                  projectId={project.id}
+                  embedded
+                  onChanged={bumpPipeline}
+                />
+              </TabsContent>
+              {can('quotation.view') ? (
+                <TabsContent value="quotation" className="pt-3">
+                  <ProjectQuotationForm
+                    projectId={project.id}
+                    embedded
+                    onChanged={bumpPipeline}
+                  />
+                </TabsContent>
+              ) : null}
+            </Tabs>
           </div>
         ) : (
           <div className="rounded-md border border-(--line) px-4 py-10 text-center">

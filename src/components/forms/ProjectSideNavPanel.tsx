@@ -17,7 +17,7 @@ import {
   type ProjectLoseReason,
   type ProjectStatus,
 } from '#/lib/project'
-import { hintClassName } from '#/lib/ui-classes'
+import { hintClassName, metaTextClassName } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
 type Props = {
@@ -85,7 +85,7 @@ export default function ProjectSideNavPanel({
         </div>
 
         <div className="space-y-1.5 px-1">
-          <p className="text-[10px] font-medium tracking-wide text-(--muted) uppercase">
+          <p className={metaTextClassName}>
             Status
           </p>
           {canManage ? (
@@ -218,7 +218,7 @@ export default function ProjectSideNavPanel({
           ) : null}
 
           <div className="space-y-0.5">
-            <p className="text-[10px] font-medium tracking-wide text-(--muted) uppercase">
+            <p className={metaTextClassName}>
               Customer
             </p>
             <p className="truncate text-(--ink)/75">
@@ -227,7 +227,7 @@ export default function ProjectSideNavPanel({
           </div>
 
           <div className="space-y-0.5">
-            <p className="text-[10px] font-medium tracking-wide text-(--muted) uppercase">
+            <p className={metaTextClassName}>
               Contact
             </p>
             <p className="text-(--ink)/65">

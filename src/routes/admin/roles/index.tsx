@@ -21,6 +21,7 @@ import {
   cardClassName,
   hintClassName,
   inputClassName,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -120,10 +121,10 @@ function AdminRolesPage() {
   }
 
   return (
-    <div className="w-full text-[var(--ink)]">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="space-y-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-medium tracking-tight">Roles</h1>
+          <h1 className={pageTitleClassName}>Roles</h1>
           <p className={`mt-2 ${hintClassName}`}>
             Bundle permissions and assign them to users.
           </p>

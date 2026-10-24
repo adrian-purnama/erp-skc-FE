@@ -10,6 +10,7 @@ import {
   cardClassName,
   hintClassName,
   inputClassNameCompact,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -73,7 +74,7 @@ export default function ResetPasswordForm() {
   if (!hasRequiredParams) {
     return (
       <div className={`${cardClassName} w-full p-6 sm:p-8`}>
-        <h1 className="mb-6 text-2xl font-medium text-[var(--ink)]">Reset password</h1>
+        <h1 className={cn('mb-6', pageTitleClassName)}>Reset password</h1>
         <p className={`mb-6 ${hintClassName}`}>
           This reset link is invalid or incomplete. Request a new one to continue.
         </p>
@@ -86,7 +87,7 @@ export default function ResetPasswordForm() {
 
   return (
     <div className={`${cardClassName} w-full p-6 sm:p-8`}>
-      <h1 className="mb-6 text-2xl font-medium text-[var(--ink)]">Reset password</h1>
+      <h1 className={cn('mb-6', pageTitleClassName)}>Reset password</h1>
 
       <form className="w-full space-y-4" onSubmit={handleSubmit}>
         <div className="w-full">

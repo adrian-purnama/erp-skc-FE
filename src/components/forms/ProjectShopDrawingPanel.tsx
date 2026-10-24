@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import toast from 'react-hot-toast'
 import {
@@ -8,6 +8,7 @@ import {
   History,
   Info,
   LoaderCircle,
+  Lock,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -48,14 +49,42 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { apiDownload, apiFetch, apiUpload } from '#/lib/api'
 import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
-import type { ProjectShopDrawingFile, ProjectShopDrawingItem } from '#/lib/project'
-import { hintClassName } from '#/lib/ui-classes'
+import type {
+  ProjectRab,
+  ProjectShopDrawingFile,
+  ProjectShopDrawingItem,
+} from '#/lib/project'
+import { buttonOutlineClassName, hintClassName } from '#/lib/ui-classes'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
 import { cn } from '#/lib/utils'
 
 type Props = {
   projectId: string
   canManage: boolean
+  /** Called after items reload (upload, BOQ state, version switch, …). */
+  onChanged?: () => void
+}
+
+function BoqBadge({
+  tone,
+  label,
+}: {
+  tone: 'ok' | 'warn' | 'locked'
+  label: string
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+        tone === 'ok' && 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+        tone === 'warn' && 'bg-amber-50 text-amber-900 ring-amber-200',
+        tone === 'locked' && 'bg-(--surface) text-(--ink) ring-(--line)',
+      )}
+    >
+      {tone === 'locked' ? <Lock className="size-3" aria-hidden /> : null}
+      {label}
+    </span>
+  )
 }
 
 function formatBytes(n: number): string {
@@ -84,8 +113,13 @@ function auditUploadedLine(doc: ProjectShopDrawingFile): string {
   return `Uploaded at ${formatWhen(doc.uploadedAt)} by ${doc.uploadedByName || 'Unknown'}`
 }
 
-
-export default function ProjectShopDrawingPanel({ projectId, canManage }: Props) {
+export default function ProjectShopDrawingPanel({
+  projectId,
+  canManage,
+  onChanged,
+}: Props) {
+  const onChangedRef = useRef(onChanged)
+  onChangedRef.current = onChanged
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<ProjectShopDrawingItem[]>([])
   const [query, setQuery] = useState('')
@@ -96,6 +130,7 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
   const [busyItemId, setBusyItemId] = useState<string | null>(null)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
   const [usingId, setUsingId] = useState<string | null>(null)
+  const [rab, setRab] = useState<ProjectRab | null>(null)
   const [deleteFileTarget, setDeleteFileTarget] =
     useState<ProjectShopDrawingFile | null>(null)
   const [deleteItemTarget, setDeleteItemTarget] =
@@ -108,9 +143,7 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
   const [showHashInfo, setShowHashInfo] = useState(false)
 
   const [nameDialog, setNameDialog] = useState<
-    | { mode: 'create' }
-    | { mode: 'rename'; item: ProjectShopDrawingItem }
-    | null
+    { mode: 'create' } | { mode: 'rename'; item: ProjectShopDrawingItem } | null
   >(null)
   const [nameDraft, setNameDraft] = useState('')
   const [nameBusy, setNameBusy] = useState(false)
@@ -118,14 +151,20 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const response = await apiFetch<ProjectShopDrawingItem[]>(
-        `/project/${projectId}/shop-drawing`,
-      )
+      const [response, rabRes] = await Promise.all([
+        apiFetch<ProjectShopDrawingItem[]>(
+          `/project/${projectId}/shop-drawing`,
+        ),
+        apiFetch<ProjectRab | null>(`/project/${projectId}/rab`),
+      ])
       if (!response.success || !response.data) {
         toast.error(response.message || 'Failed to load Shop Drawing items')
         return
       }
       setItems(response.data)
+      if (rabRes.success) setRab(rabRes.data ?? null)
+      else setRab(null)
+      onChangedRef.current?.()
     } catch {
       toast.error('Unable to reach the server')
     } finally {
@@ -136,6 +175,8 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
   useEffect(() => {
     void load()
   }, [load])
+
+  const versionSwitchBlocked = rab?.status === 'locked' && !rab.changeDraft
 
   function closeUploadDialog() {
     if (busyItemId) return
@@ -227,7 +268,9 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
       toast.success(
         response.data.linked
           ? 'Linked to existing file'
-          : 'File uploaded',
+          : versionSwitchBlocked
+            ? 'File uploaded (current version unchanged — open a RAB change to switch)'
+            : 'File uploaded',
       )
       setUploadItemId(null)
       setPendingFile(null)
@@ -253,6 +296,12 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
 
   async function onUseVersion(doc: ProjectShopDrawingFile) {
     if (!canManage || doc.isDeleted || doc.isCurrent) return
+    if (versionSwitchBlocked) {
+      toast.error(
+        'RAB is locked — open a change on RAB before switching the current version',
+      )
+      return
+    }
     setUsingId(doc.id)
     try {
       const response = await apiFetch<ProjectShopDrawingFile>(
@@ -340,7 +389,11 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
     setPage(1)
   }, [debounced])
 
-  const { pageItems, totalPages, page: safePage } = useMemo(
+  const {
+    pageItems,
+    totalPages,
+    page: safePage,
+  } = useMemo(
     () => paginate(filtered, page, DEFAULT_PAGE_SIZE),
     [filtered, page],
   )
@@ -388,29 +441,52 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
         cell: (item) => {
           const current = item.current
           if (!current) {
-            return <span className={hintClassName}>—</span>
-          }
-          return (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span
-                className={cn(
-                  'text-xs',
-                  current.hasBoq ? 'text-(--ink)' : hintClassName,
-                )}
-              >
-                {current.hasBoq ? 'BOQ' : 'No BOQ'}
+            return (
+              <span className={cn('text-xs', hintClassName)}>
+                Upload a file first
               </span>
-              <Link
-                to="/dashboard/internal/shop-drawing-boq"
-                search={{
-                  projectId,
-                  itemId: item.id,
-                  fileId: current.id,
-                }}
-                className="inline-flex h-7 items-center px-2 text-xs underline-offset-4 hover:underline"
-              >
-                {current.hasBoq ? 'Edit BOQ' : 'Add BOQ'}
-              </Link>
+            )
+          }
+          const frozen = rab?.status === 'locked' && !rab.changeDraft
+          const editable = canManage && !frozen
+          const label = current.hasBoq
+            ? editable
+              ? 'Edit'
+              : 'View'
+            : 'Add BOQ'
+          return (
+            <div className="flex items-center gap-2">
+              {current.hasBoq ? (
+                frozen ? (
+                  <BoqBadge tone="locked" label="Frozen" />
+                ) : (
+                  <BoqBadge tone="ok" label="Ready" />
+                )
+              ) : (
+                <BoqBadge tone="warn" label="Missing" />
+              )}
+              {current.hasBoq || editable ? (
+                <Link
+                  to="/dashboard/internal/shop-drawing-boq"
+                  search={{
+                    projectId,
+                    itemId: item.id,
+                    fileId: current.id,
+                  }}
+                  className={cn(
+                    buttonOutlineClassName,
+                    'inline-flex h-7 items-center gap-1 px-2 text-xs no-underline',
+                  )}
+                  aria-label={`${label} BOQ for ${item.name}`}
+                >
+                  {current.hasBoq ? (
+                    <Pencil className="size-3" aria-hidden />
+                  ) : (
+                    <Plus className="size-3" aria-hidden />
+                  )}
+                  {label}
+                </Link>
+              ) : null}
             </div>
           )
         },
@@ -515,7 +591,7 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
           ) : null,
       },
     ],
-    [busyItemId, canManage, projectId],
+    [busyItemId, canManage, projectId, rab],
   )
 
   const uploading = busyItemId !== null
@@ -530,9 +606,8 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className={cn('text-sm', hintClassName)}>
-          Named items with versioned files (any type, max 20MB). Same hash
-          reuse and revision history as documents.
+        <p className={hintClassName}>
+          Shop drawing items and their files (max 20MB).
         </p>
         {canManage ? (
           <Button
@@ -644,9 +719,8 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
               {historyItem ? `${historyItem.name} history` : 'History'}
             </DialogTitle>
             <DialogDescription>
-              Expand a version to download, delete it permanently, or make it
-              the current file. Deleted versions are removed and cannot be
-              restored.
+              Open a version to download, delete, or make it current. Deletes
+              cannot be undone.
             </DialogDescription>
           </DialogHeader>
           {historyVersions.length === 0 ? (
@@ -677,7 +751,9 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
                           {' · '}
                           {doc.originalFilename}
                         </span>
-                        <span className={cn('block text-[11px]', hintClassName)}>
+                        <span
+                          className={cn('block text-[11px]', hintClassName)}
+                        >
                           {formatBytes(doc.sizeBytes)}
                           {doc.sameAsVersion != null
                             ? ` · same as v${doc.sameAsVersion}`
@@ -709,24 +785,38 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
                             Download
                           </Button>
                           {canManage && !doc.isCurrent ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 gap-1.5 px-2 text-xs"
-                              disabled={usingId === doc.id}
-                              onClick={() => void onUseVersion(doc)}
-                            >
-                              {usingId === doc.id ? (
-                                <LoaderCircle
-                                  className="size-3.5 animate-spin"
-                                  aria-hidden
-                                />
-                              ) : (
-                                <Check className="size-3.5" aria-hidden />
-                              )}
-                              Use this version
-                            </Button>
+                            <div className="flex flex-col gap-0.5">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1.5 px-2 text-xs"
+                                disabled={
+                                  usingId === doc.id || versionSwitchBlocked
+                                }
+                                title={
+                                  versionSwitchBlocked
+                                    ? 'Open a change on RAB before switching version'
+                                    : undefined
+                                }
+                                onClick={() => void onUseVersion(doc)}
+                              >
+                                {usingId === doc.id ? (
+                                  <LoaderCircle
+                                    className="size-3.5 animate-spin"
+                                    aria-hidden
+                                  />
+                                ) : (
+                                  <Check className="size-3.5" aria-hidden />
+                                )}
+                                Use this version
+                              </Button>
+                              {versionSwitchBlocked ? (
+                                <p className={cn('text-[11px]', hintClassName)}>
+                                  Open a change on RAB to switch current version
+                                </p>
+                              ) : null}
+                            </div>
                           ) : null}
                           {canManage ? (
                             <Button
@@ -811,7 +901,9 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deletingItem}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deletingItem}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               disabled={deletingItem}
@@ -838,8 +930,8 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
               Upload{uploadItem ? ` · ${uploadItem.name}` : ''}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Any file type up to 20MB. Matching content reuses the existing
-              blob and adds a new version marked as same.
+              Any file type up to 20MB. Identical files are reused instead of
+              stored twice.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -874,7 +966,7 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
                   htmlFor="shopDrawing-force-different"
                   className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
                 >
-                  This file is fucking different
+                  Save as a new file even if content matches
                 </label>
                 <button
                   type="button"
@@ -896,10 +988,8 @@ export default function ProjectShopDrawingPanel({ projectId, canManage }: Props)
                   id="shopDrawing-force-different-info"
                   className={cn('text-xs leading-relaxed', hintClassName)}
                 >
-                  Kami cek apakah file sama atau beda lewat hash (kode unik dari
-                  isi file). Kalau hash-nya sama, kami pakai file yang sudah
-                  ada. Centang kotak ini kalau kamu mau lewati pengecekan dan
-                  tetap simpan sebagai file baru.
+                  We skip saving a duplicate when the file content already
+                  exists. Check this to always keep a separate copy.
                 </p>
               ) : null}
             </div>

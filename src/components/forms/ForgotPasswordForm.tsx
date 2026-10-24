@@ -8,7 +8,9 @@ import {
   cardClassName,
   hintClassName,
   inputClassNameCompact,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
+import { cn } from '#/lib/utils'
 
 export default function ForgotPasswordForm() {
   const [email, setEmail] = useState('')
@@ -47,7 +49,7 @@ export default function ForgotPasswordForm() {
 
   return (
     <div className={`${cardClassName} w-full p-6 sm:p-8`}>
-      <h1 className="mb-6 text-2xl font-medium text-[var(--ink)]">Forgot password</h1>
+      <h1 className={cn('mb-6', pageTitleClassName)}>Forgot password</h1>
 
       {sent ? (
         <p className={`leading-relaxed ${hintClassName}`}>

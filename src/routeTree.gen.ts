@@ -23,6 +23,7 @@ import { Route as AdminAppConfigRouteImport } from './routes/admin/app-config'
 import { Route as AdminAuditRouteImport } from './routes/admin/audit'
 import { Route as AdminPermissionsRouteImport } from './routes/admin/permissions'
 import { Route as AdminShrinkDbRouteImport } from './routes/admin/shrink-db'
+import { Route as QTokenRouteImport } from './routes/q/$token'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AdminRolesIndexRouteImport } from './routes/admin/roles/index'
 import { Route as AdminRolesKeyRouteImport } from './routes/admin/roles/$key'
@@ -36,10 +37,12 @@ import { Route as AuthenticatedDashboardItemMasterIndexRouteImport } from './rou
 import { Route as AuthenticatedDashboardProjectsIndexRouteImport } from './routes/_authenticated/dashboard/projects/index'
 import { Route as AuthenticatedDashboardProjectsProjectIdRouteRouteImport } from './routes/_authenticated/dashboard/projects/$projectId/route'
 import { Route as AuthenticatedDashboardProjectsNewRouteImport } from './routes/_authenticated/dashboard/projects/new'
+import { Route as AuthenticatedDashboardTermOfPaymentIndexRouteImport } from './routes/_authenticated/dashboard/term-of-payment/index'
 import { Route as AuthenticatedDashboardUomIndexRouteImport } from './routes/_authenticated/dashboard/uom/index'
 import { Route as AuthenticatedDashboardVendorsIndexRouteImport } from './routes/_authenticated/dashboard/vendors/index'
 import { Route as AuthenticatedDashboardVendorsVendorIdRouteImport } from './routes/_authenticated/dashboard/vendors/$vendorId'
 import { Route as AuthenticatedDashboardVendorsNewRouteImport } from './routes/_authenticated/dashboard/vendors/new'
+import { Route as AuthenticatedDashboardInternalQuotationIndexRouteImport } from './routes/_authenticated/dashboard/internal/quotation/index'
 import { Route as AuthenticatedDashboardInternalRabIndexRouteImport } from './routes/_authenticated/dashboard/internal/rab/index'
 import { Route as AuthenticatedDashboardInternalShopDrawingBoqIndexRouteImport } from './routes/_authenticated/dashboard/internal/shop-drawing-boq/index'
 import { Route as AuthenticatedDashboardProjectsProjectIdIndexRouteImport } from './routes/_authenticated/dashboard/projects/$projectId/index'
@@ -116,6 +119,11 @@ const AdminShrinkDbRoute = AdminShrinkDbRouteImport.update({
   path: '/shrink-db',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const QTokenRoute = QTokenRouteImport.update({
+  id: '/q/$token',
+  path: '/q/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedDashboardIndexRoute =
   AuthenticatedDashboardIndexRouteImport.update({
     id: '/',
@@ -189,6 +197,12 @@ const AuthenticatedDashboardProjectsNewRoute =
     path: '/projects/new',
     getParentRoute: () => AuthenticatedDashboardRouteRoute,
   } as any)
+const AuthenticatedDashboardTermOfPaymentIndexRoute =
+  AuthenticatedDashboardTermOfPaymentIndexRouteImport.update({
+    id: '/term-of-payment/',
+    path: '/term-of-payment/',
+    getParentRoute: () => AuthenticatedDashboardRouteRoute,
+  } as any)
 const AuthenticatedDashboardUomIndexRoute =
   AuthenticatedDashboardUomIndexRouteImport.update({
     id: '/uom/',
@@ -211,6 +225,12 @@ const AuthenticatedDashboardVendorsNewRoute =
   AuthenticatedDashboardVendorsNewRouteImport.update({
     id: '/vendors/new',
     path: '/vendors/new',
+    getParentRoute: () => AuthenticatedDashboardRouteRoute,
+  } as any)
+const AuthenticatedDashboardInternalQuotationIndexRoute =
+  AuthenticatedDashboardInternalQuotationIndexRouteImport.update({
+    id: '/internal/quotation/',
+    path: '/internal/quotation/',
     getParentRoute: () => AuthenticatedDashboardRouteRoute,
   } as any)
 const AuthenticatedDashboardInternalRabIndexRoute =
@@ -262,6 +282,7 @@ export interface FileRoutesByFullPath {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/shrink-db': typeof AdminShrinkDbRoute
+  '/q/$token': typeof QTokenRoute
   '/admin/': typeof AdminIndexRoute
   '/admin/roles/$key': typeof AdminRolesKeyRoute
   '/admin/roles/new': typeof AdminRolesNewRoute
@@ -278,9 +299,11 @@ export interface FileRoutesByFullPath {
   '/dashboard/customers/': typeof AuthenticatedDashboardCustomersIndexRoute
   '/dashboard/item-master/': typeof AuthenticatedDashboardItemMasterIndexRoute
   '/dashboard/projects/': typeof AuthenticatedDashboardProjectsIndexRoute
+  '/dashboard/term-of-payment/': typeof AuthenticatedDashboardTermOfPaymentIndexRoute
   '/dashboard/uom/': typeof AuthenticatedDashboardUomIndexRoute
   '/dashboard/vendors/': typeof AuthenticatedDashboardVendorsIndexRoute
   '/dashboard/projects/$projectId/edit': typeof AuthenticatedDashboardProjectsProjectIdEditRoute
+  '/dashboard/internal/quotation/': typeof AuthenticatedDashboardInternalQuotationIndexRoute
   '/dashboard/internal/rab/': typeof AuthenticatedDashboardInternalRabIndexRoute
   '/dashboard/internal/shop-drawing-boq/': typeof AuthenticatedDashboardInternalShopDrawingBoqIndexRoute
   '/dashboard/projects/$projectId/': typeof AuthenticatedDashboardProjectsProjectIdIndexRoute
@@ -297,6 +320,7 @@ export interface FileRoutesByTo {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/shrink-db': typeof AdminShrinkDbRoute
+  '/q/$token': typeof QTokenRoute
   '/admin': typeof AdminIndexRoute
   '/admin/roles/$key': typeof AdminRolesKeyRoute
   '/admin/roles/new': typeof AdminRolesNewRoute
@@ -312,9 +336,11 @@ export interface FileRoutesByTo {
   '/dashboard/customers': typeof AuthenticatedDashboardCustomersIndexRoute
   '/dashboard/item-master': typeof AuthenticatedDashboardItemMasterIndexRoute
   '/dashboard/projects': typeof AuthenticatedDashboardProjectsIndexRoute
+  '/dashboard/term-of-payment': typeof AuthenticatedDashboardTermOfPaymentIndexRoute
   '/dashboard/uom': typeof AuthenticatedDashboardUomIndexRoute
   '/dashboard/vendors': typeof AuthenticatedDashboardVendorsIndexRoute
   '/dashboard/projects/$projectId/edit': typeof AuthenticatedDashboardProjectsProjectIdEditRoute
+  '/dashboard/internal/quotation': typeof AuthenticatedDashboardInternalQuotationIndexRoute
   '/dashboard/internal/rab': typeof AuthenticatedDashboardInternalRabIndexRoute
   '/dashboard/internal/shop-drawing-boq': typeof AuthenticatedDashboardInternalShopDrawingBoqIndexRoute
   '/dashboard/projects/$projectId': typeof AuthenticatedDashboardProjectsProjectIdIndexRoute
@@ -336,6 +362,7 @@ export interface FileRoutesById {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/shrink-db': typeof AdminShrinkDbRoute
+  '/q/$token': typeof QTokenRoute
   '/admin/': typeof AdminIndexRoute
   '/admin/roles/$key': typeof AdminRolesKeyRoute
   '/admin/roles/new': typeof AdminRolesNewRoute
@@ -352,9 +379,11 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/customers/': typeof AuthenticatedDashboardCustomersIndexRoute
   '/_authenticated/dashboard/item-master/': typeof AuthenticatedDashboardItemMasterIndexRoute
   '/_authenticated/dashboard/projects/': typeof AuthenticatedDashboardProjectsIndexRoute
+  '/_authenticated/dashboard/term-of-payment/': typeof AuthenticatedDashboardTermOfPaymentIndexRoute
   '/_authenticated/dashboard/uom/': typeof AuthenticatedDashboardUomIndexRoute
   '/_authenticated/dashboard/vendors/': typeof AuthenticatedDashboardVendorsIndexRoute
   '/_authenticated/dashboard/projects/$projectId/edit': typeof AuthenticatedDashboardProjectsProjectIdEditRoute
+  '/_authenticated/dashboard/internal/quotation/': typeof AuthenticatedDashboardInternalQuotationIndexRoute
   '/_authenticated/dashboard/internal/rab/': typeof AuthenticatedDashboardInternalRabIndexRoute
   '/_authenticated/dashboard/internal/shop-drawing-boq/': typeof AuthenticatedDashboardInternalShopDrawingBoqIndexRoute
   '/_authenticated/dashboard/projects/$projectId/': typeof AuthenticatedDashboardProjectsProjectIdIndexRoute
@@ -375,6 +404,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/permissions'
     | '/admin/shrink-db'
+    | '/q/$token'
     | '/admin/'
     | '/admin/roles/$key'
     | '/admin/roles/new'
@@ -391,9 +421,11 @@ export interface FileRouteTypes {
     | '/dashboard/customers/'
     | '/dashboard/item-master/'
     | '/dashboard/projects/'
+    | '/dashboard/term-of-payment/'
     | '/dashboard/uom/'
     | '/dashboard/vendors/'
     | '/dashboard/projects/$projectId/edit'
+    | '/dashboard/internal/quotation/'
     | '/dashboard/internal/rab/'
     | '/dashboard/internal/shop-drawing-boq/'
     | '/dashboard/projects/$projectId/'
@@ -410,6 +442,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/permissions'
     | '/admin/shrink-db'
+    | '/q/$token'
     | '/admin'
     | '/admin/roles/$key'
     | '/admin/roles/new'
@@ -425,9 +458,11 @@ export interface FileRouteTypes {
     | '/dashboard/customers'
     | '/dashboard/item-master'
     | '/dashboard/projects'
+    | '/dashboard/term-of-payment'
     | '/dashboard/uom'
     | '/dashboard/vendors'
     | '/dashboard/projects/$projectId/edit'
+    | '/dashboard/internal/quotation'
     | '/dashboard/internal/rab'
     | '/dashboard/internal/shop-drawing-boq'
     | '/dashboard/projects/$projectId'
@@ -448,6 +483,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/permissions'
     | '/admin/shrink-db'
+    | '/q/$token'
     | '/admin/'
     | '/admin/roles/$key'
     | '/admin/roles/new'
@@ -464,9 +500,11 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/customers/'
     | '/_authenticated/dashboard/item-master/'
     | '/_authenticated/dashboard/projects/'
+    | '/_authenticated/dashboard/term-of-payment/'
     | '/_authenticated/dashboard/uom/'
     | '/_authenticated/dashboard/vendors/'
     | '/_authenticated/dashboard/projects/$projectId/edit'
+    | '/_authenticated/dashboard/internal/quotation/'
     | '/_authenticated/dashboard/internal/rab/'
     | '/_authenticated/dashboard/internal/shop-drawing-boq/'
     | '/_authenticated/dashboard/projects/$projectId/'
@@ -479,6 +517,7 @@ export interface RootRouteChildren {
   AuthRouteRoute: typeof AuthRouteRouteWithChildren
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
+  QTokenRoute: typeof QTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -581,6 +620,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminShrinkDbRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/q/$token': {
+      id: '/q/$token'
+      path: '/q/$token'
+      fullPath: '/q/$token'
+      preLoaderRoute: typeof QTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/dashboard/': {
       id: '/_authenticated/dashboard/'
       path: '/'
@@ -672,6 +718,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardProjectsNewRouteImport
       parentRoute: typeof AuthenticatedDashboardRouteRoute
     }
+    '/_authenticated/dashboard/term-of-payment/': {
+      id: '/_authenticated/dashboard/term-of-payment/'
+      path: '/term-of-payment'
+      fullPath: '/dashboard/term-of-payment/'
+      preLoaderRoute: typeof AuthenticatedDashboardTermOfPaymentIndexRouteImport
+      parentRoute: typeof AuthenticatedDashboardRouteRoute
+    }
     '/_authenticated/dashboard/uom/': {
       id: '/_authenticated/dashboard/uom/'
       path: '/uom'
@@ -698,6 +751,13 @@ declare module '@tanstack/react-router' {
       path: '/vendors/new'
       fullPath: '/dashboard/vendors/new'
       preLoaderRoute: typeof AuthenticatedDashboardVendorsNewRouteImport
+      parentRoute: typeof AuthenticatedDashboardRouteRoute
+    }
+    '/_authenticated/dashboard/internal/quotation/': {
+      id: '/_authenticated/dashboard/internal/quotation/'
+      path: '/internal/quotation'
+      fullPath: '/dashboard/internal/quotation/'
+      preLoaderRoute: typeof AuthenticatedDashboardInternalQuotationIndexRouteImport
       parentRoute: typeof AuthenticatedDashboardRouteRoute
     }
     '/_authenticated/dashboard/internal/rab/': {
@@ -792,8 +852,10 @@ interface AuthenticatedDashboardRouteRouteChildren {
   AuthenticatedDashboardCustomersIndexRoute: typeof AuthenticatedDashboardCustomersIndexRoute
   AuthenticatedDashboardItemMasterIndexRoute: typeof AuthenticatedDashboardItemMasterIndexRoute
   AuthenticatedDashboardProjectsIndexRoute: typeof AuthenticatedDashboardProjectsIndexRoute
+  AuthenticatedDashboardTermOfPaymentIndexRoute: typeof AuthenticatedDashboardTermOfPaymentIndexRoute
   AuthenticatedDashboardUomIndexRoute: typeof AuthenticatedDashboardUomIndexRoute
   AuthenticatedDashboardVendorsIndexRoute: typeof AuthenticatedDashboardVendorsIndexRoute
+  AuthenticatedDashboardInternalQuotationIndexRoute: typeof AuthenticatedDashboardInternalQuotationIndexRoute
   AuthenticatedDashboardInternalRabIndexRoute: typeof AuthenticatedDashboardInternalRabIndexRoute
   AuthenticatedDashboardInternalShopDrawingBoqIndexRoute: typeof AuthenticatedDashboardInternalShopDrawingBoqIndexRoute
   AuthenticatedDashboardTenderCalendarIndexRoute: typeof AuthenticatedDashboardTenderCalendarIndexRoute
@@ -821,9 +883,13 @@ const AuthenticatedDashboardRouteRouteChildren: AuthenticatedDashboardRouteRoute
       AuthenticatedDashboardItemMasterIndexRoute,
     AuthenticatedDashboardProjectsIndexRoute:
       AuthenticatedDashboardProjectsIndexRoute,
+    AuthenticatedDashboardTermOfPaymentIndexRoute:
+      AuthenticatedDashboardTermOfPaymentIndexRoute,
     AuthenticatedDashboardUomIndexRoute: AuthenticatedDashboardUomIndexRoute,
     AuthenticatedDashboardVendorsIndexRoute:
       AuthenticatedDashboardVendorsIndexRoute,
+    AuthenticatedDashboardInternalQuotationIndexRoute:
+      AuthenticatedDashboardInternalQuotationIndexRoute,
     AuthenticatedDashboardInternalRabIndexRoute:
       AuthenticatedDashboardInternalRabIndexRoute,
     AuthenticatedDashboardInternalShopDrawingBoqIndexRoute:
@@ -886,6 +952,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRouteRoute: AuthRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AdminRouteRoute: AdminRouteRouteWithChildren,
+  QTokenRoute: QTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

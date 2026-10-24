@@ -2,13 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import toast from 'react-hot-toast'
 import { ChevronDown, LoaderCircle } from 'lucide-react'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '#/components/ui/select'
+import { Combobox } from '#/components/ui/combobox'
 import type { AdminPermission, AdminRole } from '#/lib/adminUser'
 import { apiFetch } from '#/lib/api'
 import { requirePermissionBeforeLoad } from '#/lib/requirePermissionBeforeLoad'
@@ -18,6 +12,7 @@ import {
   cardClassName,
   hintClassName,
   inputClassName,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -135,9 +130,9 @@ function AdminPermissionsPage() {
   return (
     <div className="w-full text-[var(--ink)]">
       <div className="mb-6">
-        <h1 className="text-2xl font-medium tracking-tight">Permissions</h1>
+        <h1 className={pageTitleClassName}>Permissions</h1>
         <p className={`mt-2 ${hintClassName}`}>
-          Read-only reference of curated permissions and the last route scan.
+          Curated permissions and the latest route scan.
         </p>
       </div>
 
@@ -195,43 +190,34 @@ function AdminPermissionsPage() {
               onChange={(e) => setQ(e.target.value)}
               aria-label="Search permissions"
             />
-            <Select
+            <Combobox
               value={status || 'all'}
               onValueChange={(value) =>
                 setStatus(value === 'all' ? '' : value)
               }
-            >
-              <SelectTrigger className="w-full sm:w-[160px]" aria-label="Status filter">
-                <SelectValue placeholder="All statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="active">active</SelectItem>
-                <SelectItem value="unused">unused</SelectItem>
-                <SelectItem value="deprecated">deprecated</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
+              options={[
+                { value: 'all', label: 'All statuses' },
+                { value: 'active', label: 'active' },
+                { value: 'unused', label: 'unused' },
+                { value: 'deprecated', label: 'deprecated' },
+              ]}
+              placeholder="All statuses"
+              className="w-full sm:w-[160px]"
+              aria-label="Status filter"
+            />
+            <Combobox
               value={category || 'all'}
               onValueChange={(value) =>
                 setCategory(value === 'all' ? '' : value)
               }
-            >
-              <SelectTrigger
-                className="w-full sm:w-[180px]"
-                aria-label="Category filter"
-              >
-                <SelectValue placeholder="All categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All categories</SelectItem>
-                {categories.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={[
+                { value: 'all', label: 'All categories' },
+                ...categories.map((c) => ({ value: c, label: c })),
+              ]}
+              placeholder="All categories"
+              className="w-full sm:w-[180px]"
+              aria-label="Category filter"
+            />
           </div>
 
           {Object.entries(filteredGroups).map(([cat, perms]) => {
@@ -376,51 +362,39 @@ function AdminPermissionsPage() {
                 placeholder="Search routes…"
                 aria-label="Search scan routes"
               />
-              <Select
+              <Combobox
                 value={scanAuth || 'all'}
                 onValueChange={(value) =>
                   setScanAuth(value === 'all' ? '' : value)
                 }
-              >
-                <SelectTrigger
-                  className="w-full sm:w-[160px]"
-                  aria-label="Auth type filter"
-                >
-                  <SelectValue placeholder="All auth types" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All auth types</SelectItem>
-                  <SelectItem value="permission">permission</SelectItem>
-                  <SelectItem value="auth">auth</SelectItem>
-                  <SelectItem value="public">public</SelectItem>
-                  <SelectItem value="none">none</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select
+                options={[
+                  { value: 'all', label: 'All auth types' },
+                  { value: 'permission', label: 'permission' },
+                  { value: 'auth', label: 'auth' },
+                  { value: 'public', label: 'public' },
+                  { value: 'none', label: 'none' },
+                ]}
+                placeholder="All auth types"
+                className="w-full sm:w-[160px]"
+                aria-label="Auth type filter"
+              />
+              <Combobox
                 value={scanCat || 'all'}
                 onValueChange={(value) =>
                   setScanCat(value === 'all' ? '' : value)
                 }
-              >
-                <SelectTrigger
-                  className="w-full sm:w-[180px]"
-                  aria-label="Category filter"
-                >
-                  <SelectValue placeholder="All categories" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All categories</SelectItem>
-                  {[
+                options={[
+                  { value: 'all', label: 'All categories' },
+                  ...[
                     ...new Set(
                       (report?.scan?.routes ?? []).map((r) => r.category),
                     ),
-                  ].map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  ].map((c) => ({ value: c, label: c })),
+                ]}
+                placeholder="All categories"
+                className="w-full sm:w-[180px]"
+                aria-label="Category filter"
+              />
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] border-collapse text-left text-sm">

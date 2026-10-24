@@ -11,7 +11,9 @@ import {
   cardClassName,
   hintClassName,
   inputClassNameCompact,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
+import { cn } from '#/lib/utils'
 
 interface LoginResponse {
   email: string
@@ -23,8 +25,8 @@ export default function LoginForm() {
   const { login } = useAuth()
   const { openRegister, firstRegister } = useBranding()
   const showRegister = openRegister || firstRegister
-  const [email, setEmail] = useState('adrianpurnama209@gmail.com')
-  const [password, setPassword] = useState('Love4dr14n')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -61,7 +63,7 @@ export default function LoginForm() {
 
   return (
     <div className={`${cardClassName} w-full p-6 sm:p-8`}>
-      <h1 className="mb-6 text-2xl font-medium text-[var(--ink)]">Sign in</h1>
+      <h1 className={cn('mb-6', pageTitleClassName)}>Sign in</h1>
 
       <form className="w-full space-y-4" onSubmit={handleSubmit}>
         <div className="w-full">

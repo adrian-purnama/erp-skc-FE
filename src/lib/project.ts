@@ -209,6 +209,8 @@ export type ProjectShopDrawingBoqFinishPlacement = 'top' | 'bottom'
 export type ProjectShopDrawingBoqMountingType =
   | 'mounted'
   | 'hanging'
+  | 'pylon'
+  | 'blade'
   | 'freestanding'
   | 'other'
 
@@ -223,6 +225,9 @@ export type ProjectShopDrawingBoqLine = {
   inputs: ProjectShopDrawingBoqLineInputs
   qtyPerUnit: string
   totalQty: string
+  addedAt: string | null
+  addedBy: string | null
+  addReason: string | null
 }
 
 export type ProjectShopDrawingBoqFinishing = {
@@ -278,6 +283,10 @@ export type ProjectShopDrawingBoq = {
   lighting: ProjectShopDrawingBoqLighting
   mounting: ProjectShopDrawingBoqMounting
   other: ProjectShopDrawingBoqOther
+  contentFrozen: boolean
+  contentFrozenAt: string | null
+  rabLocked: boolean
+  changeDraftOpen: boolean
   warnings: string[]
 }
 
@@ -334,10 +343,27 @@ export type ProjectRabLine = {
   tarifId: string | null
   lineTotal: string | null
   hasTarif: boolean
-  origin: 'lock' | 'append' | null
+  origin: 'lock' | 'append' | 'labour' | null
   addedAt: string | null
   addedBy: ProjectRabUserRef | null
+  addReason: string | null
   priceEditable: boolean
+}
+
+export type ProjectRabLabourItem = {
+  id: string
+  itemId: string
+  name: string
+  description: string
+  baseUomId: string | null
+  uoms: ProjectShopDrawingBoqMaterialUom[]
+}
+
+export type AddProjectRabLabourLine = {
+  itemId: string
+  itemUomId: string
+  totalQty: string
+  unitPrice?: string | null
 }
 
 export type ProjectRabItemGroup = {
@@ -348,17 +374,106 @@ export type ProjectRabItemGroup = {
   lines: ProjectRabLine[]
 }
 
+export type ProjectRabChangeDraftRef = {
+  id: string
+  reason: string
+  openedAt: string
+  openedBy: ProjectRabUserRef
+}
+
+export type ProjectRabChangeSummary = {
+  id: string
+  projectId: string
+  reason: string
+  status: 'draft' | 'committed' | 'discarded'
+  openedAt: string
+  openedBy: ProjectRabUserRef
+  committedAt: string | null
+  committedBy: ProjectRabUserRef | null
+  /** Present when status is committed. */
+  revision: number | null
+}
+
+export type ProjectRabLineChangeKind = 'added' | 'removed' | 'changed'
+
+export type ProjectRabChangeLineDiff = {
+  key: string
+  kind: ProjectRabLineChangeKind
+  materialName: string | null
+  oldTotalQty: string | null
+  newTotalQty: string | null
+  oldUnitPrice: string | null
+  newUnitPrice: string | null
+}
+
+export type ProjectRabChangeBoqDiff = {
+  shopDrawingItemId: string
+  shopDrawingFileId: string
+  shopDrawingItemName: string
+  fileVersion: number | null
+  kind: 'added' | 'removed'
+}
+
+/** An item whose counted (current) file version was switched. */
+export type ProjectRabChangeVersionDiff = {
+  shopDrawingItemId: string
+  shopDrawingItemName: string
+  fromFileId: string | null
+  fromVersion: number | null
+  toFileId: string | null
+  toVersion: number | null
+}
+
+export type ProjectRabChangeBoqMaterialDiff = {
+  shopDrawingFileId: string
+  shopDrawingItemId: string
+  key: string
+  kind: ProjectRabLineChangeKind
+  oldTotalQty: string | null
+  newTotalQty: string | null
+}
+
+export type ProjectRabChangeDiff = {
+  lineDiff: ProjectRabChangeLineDiff[]
+  boqDiff: ProjectRabChangeBoqDiff[]
+  versionDiff: ProjectRabChangeVersionDiff[]
+  boqMaterialDiff: ProjectRabChangeBoqMaterialDiff[]
+}
+
+export type ProjectRabChangeDetail = ProjectRabChangeSummary & {
+  lineDiff: Array<
+    ProjectRabChangeLineDiff & {
+      materialItemId: string | null
+      materialCode: string | null
+      uomSymbol: string | null
+    }
+  >
+  boqDiff: ProjectRabChangeBoqDiff[]
+  versionDiff: ProjectRabChangeVersionDiff[]
+  boqMaterialDiff: ProjectRabChangeBoqMaterialDiff[]
+  baselineGrandTotal: string | null
+  grandTotal: string | null
+  lines: ProjectRabLine[]
+}
+
 export type ProjectRab = {
   id: string
   projectId: string
   status: 'draft' | 'locked'
   lockedAt: string | null
   lockedBy: ProjectRabUserRef | null
+  changeDraft: ProjectRabChangeDraftRef | null
+  baselineGrandTotal: string | null
+  changeDiff: ProjectRabChangeDiff | null
   groups: ProjectRabItemGroup[]
   grandTotal: string | null
+  /** Latest committed change revision; 0 if locked with no commits. */
+  currentRevision: number
 }
 
 export type ProjectRabElaborationLine = {
+  materialItemId: string
+  itemUomId: string
   materialName: string
   materialCode: string
   uomSymbol: string
@@ -373,6 +488,8 @@ export type ProjectRabElaborationBlock = {
 }
 
 export type ProjectRabElaborationDoc = {
+  shopDrawingItemId: string
+  shopDrawingFileId: string
   shopDrawingItemName: string
   fileVersion: number
   originalFilename: string

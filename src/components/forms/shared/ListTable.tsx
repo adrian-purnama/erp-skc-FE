@@ -46,7 +46,12 @@ export function ListSearchInput({
   'aria-label'?: string
 }) {
   return (
-    <div className={cn('relative min-w-[12rem] max-w-md flex-1', className)}>
+    <div
+      className={cn(
+        'relative min-w-0 w-full max-w-md flex-1 basis-[12rem]',
+        className,
+      )}
+    >
       <Search
         className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-(--muted)"
         aria-hidden
@@ -56,7 +61,7 @@ export function ListSearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={cn(inputClassName, 'pl-10')}
+        className={cn(inputClassName, 'w-full min-w-0 pl-10')}
         autoComplete="off"
         aria-label={ariaLabel}
       />
@@ -79,7 +84,7 @@ export default function ListTable<T>({
   return (
     <div className="space-y-3">
       {filters ? (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 sm:gap-3">
           {filters}
         </div>
       ) : null}

@@ -64,6 +64,7 @@ import {
   buttonOutlineClassName,
   hintClassName,
   inputClassName,
+  metaTextClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -806,7 +807,7 @@ function ReminderCard({
     <section className="flex flex-col rounded-md border border-(--line) bg-white">
       <header className="flex items-baseline justify-between gap-2 border-b border-(--line) px-3 py-2">
         <div className="flex items-baseline gap-2">
-          <h3 className="text-[10px] font-medium tracking-wide text-(--muted) uppercase">
+          <h3 className={metaTextClassName}>
             {label}
           </h3>
           {count > 0 ? (

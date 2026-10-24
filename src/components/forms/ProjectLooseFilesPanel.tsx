@@ -796,8 +796,8 @@ export default function ProjectLooseFilesPanel({
               Upload {PROJECT_LOOSE_FILE_KIND_LABELS[kind]}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Any file type, maximum 20MB each. Matching content reuses the
-              existing blob unless you force a new file.
+              Any file type, max 20MB each. Identical files are reused unless
+              you choose to save a new copy.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -877,7 +877,7 @@ export default function ProjectLooseFilesPanel({
                   htmlFor="forcon-map-force-different"
                   className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
                 >
-                  This file is fucking different
+                  Save as a new file even if content matches
                 </label>
                 <button
                   type="button"
@@ -899,10 +899,8 @@ export default function ProjectLooseFilesPanel({
                   id="forcon-map-force-different-info"
                   className={cn('text-xs leading-relaxed', hintClassName)}
                 >
-                  Kami cek apakah file sama atau beda lewat hash (kode unik dari
-                  isi file). Kalau hash-nya sama, kami pakai file yang sudah
-                  ada. Centang kotak ini kalau kamu mau lewati pengecekan dan
-                  tetap simpan sebagai file baru.
+                  We skip saving a duplicate when the file content already
+                  exists. Check this to always keep a separate copy.
                 </p>
               ) : null}
             </div>

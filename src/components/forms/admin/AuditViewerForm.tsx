@@ -21,13 +21,6 @@ import {
   PopoverTrigger,
 } from '#/components/ui/popover'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '#/components/ui/select'
-import {
   actionLabel,
   changeSummary,
   shortId,
@@ -43,7 +36,11 @@ import {
 } from '#/lib/auditDiff'
 import { apiFetch } from '#/lib/api'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
-import { cardClassName, hintClassName } from '#/lib/ui-classes'
+import {
+  cardClassName,
+  hintClassName,
+  sectionTitleClassName,
+} from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
 const PAGE_SIZE = 25
@@ -352,10 +349,7 @@ export default function AuditViewerForm() {
     <div className="space-y-6">
       <section className="space-y-3">
         <div>
-          <h2 className="text-base font-medium text-[var(--ink)]">Filters</h2>
-          <p className={`mt-1 text-sm ${hintClassName}`}>
-            Browse append-only change history per collection.
-          </p>
+          <h2 className={sectionTitleClassName}>Filters</h2>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -379,22 +373,21 @@ export default function AuditViewerForm() {
 
           <div className="space-y-1 text-sm">
             <span className={hintClassName}>Action</span>
-            <Select
+            <Combobox
               value={action || 'all'}
               onValueChange={(value) =>
                 setAction(value === 'all' ? '' : (value as AuditAction))
               }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="All" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="A">Created</SelectItem>
-                <SelectItem value="U">Updated</SelectItem>
-                <SelectItem value="D">Deleted</SelectItem>
-              </SelectContent>
-            </Select>
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'A', label: 'Created' },
+                { value: 'U', label: 'Updated' },
+                { value: 'D', label: 'Deleted' },
+              ]}
+              placeholder="All"
+              className="w-full"
+              aria-label="Action"
+            />
           </div>
 
           <div className="space-y-1 text-sm">

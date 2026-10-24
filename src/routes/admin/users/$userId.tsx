@@ -11,6 +11,7 @@ import {
   buttonClassName,
   cardClassName,
   hintClassName,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -181,11 +182,9 @@ function AdminUserDetailPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl text-[var(--ink)]">
-      <div className="mb-8">
-        <h1 className="text-2xl font-medium tracking-tight">
-          {detail?.email ?? 'User'}
-        </h1>
+    <div className="space-y-8">
+      <div>
+        <h1 className={pageTitleClassName}>{detail?.email ?? 'User'}</h1>
         {detail ? (
           <p className={`mt-2 ${hintClassName}`}>
             Created {new Date(detail.accountCreatedAt).toLocaleDateString()}

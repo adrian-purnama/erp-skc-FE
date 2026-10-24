@@ -1,7 +1,11 @@
 import ProjectDocumentsPanel from '#/components/forms/ProjectDocumentsPanel'
 import TenderProjectPicker from '#/components/forms/TenderProjectPicker'
 import { useAuth } from '#/context/authContext'
-import { hintClassName } from '#/lib/ui-classes'
+import {
+  hintClassName,
+  metaTextClassName,
+  pageTitleClassName,
+} from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
 type Props = {
@@ -19,15 +23,14 @@ export default function TenderDocumentsForm({
   return (
     <div className="space-y-8">
       <div>
-        <p className={cn('mb-2 text-sm', hintClassName)}>Tender</p>
-        <h1 className="text-2xl font-medium tracking-tight">Tender Document</h1>
+        <h1 className={pageTitleClassName}>Tender Document</h1>
         <p className={cn('mt-2', hintClassName)}>
           Select a project to manage its tender documents.
         </p>
       </div>
 
       <div className="max-w-md space-y-2">
-        <p className="text-[10px] font-medium tracking-wide text-(--muted) uppercase">
+        <p className={metaTextClassName}>
           Project
         </p>
         <TenderProjectPicker

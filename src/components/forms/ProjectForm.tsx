@@ -8,13 +8,6 @@ import ListTable, {
 } from '#/components/forms/shared/ListTable'
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '#/components/ui/select'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import type { CustomerListItem } from '#/lib/customer'
@@ -41,6 +34,7 @@ import {
   buttonOutlineClassName,
   hintClassName,
   inputClassName,
+  pageTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -178,10 +172,9 @@ function ProjectList({ canManage }: { canManage: boolean }) {
   return (
     <div className="space-y-8">
       <div>
-        <p className={cn('mb-2 text-sm', hintClassName)}>Projects</p>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-medium tracking-tight">
+            <h1 className={pageTitleClassName}>
               Project Dashboard
             </h1>
             <p className={`mt-2 ${hintClassName}`}>
@@ -448,30 +441,7 @@ function ProjectEditor({
   return (
     <div className="space-y-8">
       <div>
-        <p className={cn('mb-2 text-sm', hintClassName)}>
-          <Link
-            to="/dashboard/projects"
-            className="underline-offset-4 hover:underline"
-          >
-            Projects
-          </Link>
-          {mode === 'edit' && projectId ? (
-            <>
-              {' / '}
-              <Link
-                to="/dashboard/projects/$projectId"
-                params={{ projectId }}
-                className="underline-offset-4 hover:underline"
-              >
-                {projectNumber || 'Dashboard'}
-              </Link>
-              {' / Edit'}
-            </>
-          ) : (
-            ' / New'
-          )}
-        </p>
-        <h1 className="text-2xl font-medium tracking-tight">
+        <h1 className={pageTitleClassName}>
           {mode === 'create' ? 'New project' : 'Edit project'}
         </h1>
         <p className={`mt-2 ${hintClassName}`}>
@@ -608,26 +578,22 @@ function ProjectEditor({
 
           <div className="space-y-1.5">
             <span className="text-sm font-medium">Gender</span>
-            <Select
+            <Combobox
               value={gender}
               onValueChange={(value) => {
                 if (PROJECT_GENDERS.includes(value as ProjectGender)) {
                   setGender(value as ProjectGender)
                 }
               }}
+              options={PROJECT_GENDERS.map((g) => ({
+                value: g,
+                label: g === 'male' ? 'Male' : 'Female',
+              }))}
+              placeholder="Gender"
+              className="w-full"
               disabled={!canManage || saving}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Gender" />
-              </SelectTrigger>
-              <SelectContent>
-                {PROJECT_GENDERS.map((g) => (
-                  <SelectItem key={g} value={g}>
-                    {g === 'male' ? 'Male' : 'Female'}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              aria-label="Gender"
+            />
           </div>
 
           <div className="space-y-2">

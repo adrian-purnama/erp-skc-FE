@@ -7,7 +7,11 @@ import type { AdminUser } from '#/lib/adminUser'
 import { apiFetch } from '#/lib/api'
 import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
-import { cardClassName, hintClassName, inputClassName } from '#/lib/ui-classes'
+import {
+  cardClassName,
+  hintClassName,
+  inputClassName,
+} from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
 export default function UsersAdminForm() {
@@ -60,15 +64,8 @@ export default function UsersAdminForm() {
   }, [safePage, page])
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <section className="space-y-4">
-        <div>
-          <h2 className="text-base font-medium text-[var(--ink)]">Users</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            Browse users by default. Filter by email as you type.
-          </p>
-        </div>
-
         <div className="relative">
           <Search
             className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--muted)]"
