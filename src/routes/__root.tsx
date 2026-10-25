@@ -2,6 +2,7 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { Toaster } from 'react-hot-toast'
+import { DocumentBrandingHead } from '../components/DocumentBrandingHead'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
 import { AuthProvider } from '../context/authContext'
@@ -38,6 +39,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-[var(--surface)] text-[var(--ink)] antialiased">
         <AuthProvider>
           <BrandingProvider>
+            <DocumentBrandingHead />
             <Header />
             <div data-theme="app" className="bg-[var(--surface)] text-[var(--ink)]">
               {children}

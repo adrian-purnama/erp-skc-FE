@@ -12,6 +12,7 @@ const DEFAULT_APP_NAME = 'Enterprise Resource Management'
 
 export interface Branding {
   appName: string
+  description: string
   /** Absolute URL to the logo image, or null if none */
   appLogo: string | null
   openLogin: boolean
@@ -28,6 +29,7 @@ const BrandingContext = createContext<BrandingContextValue | null>(null)
 
 const DEFAULT_BRANDING: Branding = {
   appName: DEFAULT_APP_NAME,
+  description: '',
   appLogo: null,
   openLogin: true,
   openRegister: true,
@@ -38,6 +40,7 @@ async function fetchBranding(): Promise<Branding> {
   try {
     const body = await apiFetch<{
       appName: string
+      description: string
       appLogo: string | null
       openLogin: boolean
       openRegister: boolean
@@ -50,6 +53,7 @@ async function fetchBranding(): Promise<Branding> {
 
     return {
       appName: body.data.appName || DEFAULT_APP_NAME,
+      description: body.data.description ?? '',
       appLogo: toAbsoluteMediaUrl(body.data.appLogo),
       openLogin: body.data.openLogin ?? true,
       openRegister: body.data.openRegister ?? true,

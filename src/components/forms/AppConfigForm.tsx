@@ -15,6 +15,7 @@ import { cn } from '#/lib/utils'
 
 export type AppConfigData = {
   appName: string
+  description: string
   openLogin: boolean
   openRegister: boolean
   appLogo: string | null
@@ -135,6 +136,7 @@ export default function AppConfigForm() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [appName, setAppName] = useState('')
+  const [description, setDescription] = useState('')
   const [openLogin, setOpenLogin] = useState(true)
   const [openRegister, setOpenRegister] = useState(true)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
@@ -163,6 +165,7 @@ export default function AppConfigForm() {
         if (cancelled) return
         const data = response.data
         setAppName(data.appName)
+        setDescription(data.description ?? '')
         setOpenLogin(data.openLogin)
         setOpenRegister(data.openRegister)
         const logoUrl = toAbsoluteMediaUrl(data.appLogo)
@@ -238,6 +241,7 @@ export default function AppConfigForm() {
         method: 'PATCH',
         body: JSON.stringify({
           appName: appName.trim(),
+          description: description.trim(),
           openLogin,
           openRegister,
           companyName: companyName.trim(),
@@ -307,7 +311,7 @@ export default function AppConfigForm() {
         <div>
           <h2 className={sectionTitleClassName}>Branding</h2>
           <p className={`mt-1 ${hintClassName}`}>
-            Name and logo shown in the header and public pages.
+            Name, description, and logo used in the header, tab title, and link previews.
           </p>
         </div>
 
@@ -323,6 +327,25 @@ export default function AppConfigForm() {
             className={inputClassName}
             required
           />
+        </div>
+
+        <div>
+          <label
+            htmlFor="app-description"
+            className="mb-1.5 block text-sm text-[var(--ink)]"
+          >
+            App description
+          </label>
+          <textarea
+            id="app-description"
+            rows={3}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            className={inputClassName}
+          />
+          <p className={`mt-1 ${hintClassName}`}>
+            Used for SEO and link previews.
+          </p>
         </div>
 
         <ImagePicker
