@@ -12,6 +12,7 @@ const TOKEN_KEY = 'sapai_token'
 
 export interface AuthUser {
   email: string
+  fullName: string
   roles: string[]
   permissions: string[]
 }
@@ -88,6 +89,7 @@ async function fetchValidatedUser(): Promise<AuthUser | null> {
 
     return {
       email: body.data.email,
+      fullName: body.data.fullName ?? '',
       roles: body.data.roles ?? [],
       permissions: body.data.permissions ?? [],
     }

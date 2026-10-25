@@ -183,9 +183,9 @@ export default function ProjectPipelineHeader({
         )}
       >
         <div className="flex min-w-0 items-center gap-2 text-sm">
-          <span className={metaTextClassName}>
+        {/* <span className={metaTextClassName}>
             Next
-          </span>
+          </span> */}
           <button
             type="button"
             onClick={() => onSelect(next.stage)}

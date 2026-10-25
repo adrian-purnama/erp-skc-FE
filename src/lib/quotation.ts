@@ -21,6 +21,42 @@ export type QuotationLine = {
   unitPrice: string
   priceOverridden: boolean
   lineTotal: string
+  /** Issued: snapshot. Draft: the shop drawing item's current category. */
+  category: string | null
+}
+
+/** Category group for printing; an empty list means the quotation is flat. */
+export type QuotationSection = {
+  title: string
+  /** "I", "II", … for the SUB TOTAL row. */
+  numeral: string
+  /** Indexes into `lines`, in printed order. */
+  lineIndexes: number[]
+  subtotal: string
+}
+
+/** Lines in printed order, with section header / subtotal rows when grouped. */
+export type QuotationPrintRow<L> =
+  | { type: 'line'; no: number; line: L }
+  | { type: 'section'; title: string }
+  | { type: 'subtotal'; label: string; amount: string }
+
+export function quotationPrintRows<L>(
+  lines: L[],
+  sections: QuotationSection[],
+): QuotationPrintRow<L>[] {
+  if (sections.length === 0) {
+    return lines.map((line, i) => ({ type: 'line', no: i + 1, line }))
+  }
+  return sections.flatMap((s): QuotationPrintRow<L>[] => [
+    { type: 'section', title: s.title },
+    ...s.lineIndexes.map((idx, i): QuotationPrintRow<L> => ({
+      type: 'line',
+      no: i + 1,
+      line: lines[idx]!,
+    })),
+    { type: 'subtotal', label: `SUB TOTAL ${s.numeral}`, amount: s.subtotal },
+  ])
 }
 
 export type QuotationTotals = {
@@ -69,6 +105,9 @@ export type Quotation = QuotationSummary & {
   customer: { customerId: string; name: string; address: string; npwp: string }
   contact: ProjectCustomerContact
   lines: QuotationLine[]
+  sections: QuotationSection[]
+  /** Issuer full name printed under "Hormat kami" (issued only). */
+  issuedByName: string | null
   totals: QuotationTotals
   rabOutdated: boolean
   /** Client link (also the QR on the PDF); null for drafts. */
@@ -112,6 +151,8 @@ export type PublicQuotation = {
     unitPrice: string
     lineTotal: string
   }>
+  sections: QuotationSection[]
+  issuedByName: string | null
   discountType: QuotationDiscountType
   discountValue: string
   taxPercent: string

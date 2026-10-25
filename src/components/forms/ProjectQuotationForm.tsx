@@ -7,9 +7,12 @@ import {
   FilePlus2,
   LoaderCircle,
   RefreshCw,
+  Repeat2,
   RotateCcw,
   Send,
   Trash2,
+  Plus,
+  X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { formatCostingWhen } from '#/components/forms/costingStatus'
@@ -26,6 +29,7 @@ import {
 } from '#/components/ui/alert-dialog'
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
+import { RupiahInput } from '#/components/ui/rupiah-input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,9 +38,11 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { useAuth } from '#/context/authContext'
 import { apiDownload, apiFetch } from '#/lib/api'
+import { jakartaDateKey } from '#/lib/jakartaDate'
 import {
   QUOTATION_STATUS_LABELS,
   formatRupiah,
+  quotationPrintRows,
   type Quotation,
   type QuotationDiscountType,
   type QuotationHeaderPatch,
@@ -97,6 +103,21 @@ function headerFromQuotation(q: Quotation): HeaderForm {
   }
 }
 
+/** Quick-add notes; each becomes one printed line. */
+const NOTE_TEMPLATES = ['Penawaran harga tidak termasuk PPh (1.75%)']
+
+/** Notes are stored one per line; blank items are dropped on save. */
+function notesToList(notes: string): string[] {
+  return notes === '' ? [] : notes.split(/\r?\n/)
+}
+
+function cleanNotes(notes: string): string {
+  return notesToList(notes)
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
 function headerPatch(form: HeaderForm, q: Quotation): QuotationHeaderPatch {
   const base = headerFromQuotation(q)
   const patch: QuotationHeaderPatch = {}
@@ -118,7 +139,8 @@ function headerPatch(form: HeaderForm, q: Quotation): QuotationHeaderPatch {
     patch.discountValue = form.discountValue
   }
   if (form.taxPercent !== base.taxPercent) patch.taxPercent = form.taxPercent
-  if (form.notes !== base.notes) patch.notes = form.notes
+  const notes = cleanNotes(form.notes)
+  if (notes !== cleanNotes(base.notes)) patch.notes = notes
   return patch
 }
 
@@ -151,7 +173,7 @@ export default function ProjectQuotationForm({
   embedded = false,
   onChanged,
 }: Props) {
-  const { can } = useAuth()
+  const { can, user, refreshAuth } = useAuth()
   const canManage = can('quotation.manage')
 
   const [overview, setOverview] = useState<QuotationOverview | null>(null)
@@ -162,6 +184,15 @@ export default function ProjectQuotationForm({
   const [quotationLoading, setQuotationLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [issueOpen, setIssueOpen] = useState(false)
+  const [fullNameOpen, setFullNameOpen] = useState(false)
+  const [fullNameDraft, setFullNameDraft] = useState('')
+  const [fullNameSaving, setFullNameSaving] = useState(false)
+  /** Which confirm dialog to open once the full name is saved. */
+  const [afterFullName, setAfterFullName] = useState<'issue' | 'reissue'>(
+    'issue',
+  )
+  const [reissueOpen, setReissueOpen] = useState(false)
+  const [reissueValidUntil, setReissueValidUntil] = useState('')
   const [discardOpen, setDiscardOpen] = useState(false)
   const [terms, setTerms] = useState<TermOfPaymentOption[]>([])
 
@@ -314,15 +345,95 @@ export default function ProjectQuotationForm({
     }
   }
 
-  async function issue() {
-    if (!quotation || !projectId) return
-    const next = await mutate(
-      `/quotation/${quotation.id}/issue`,
-      { method: 'POST' },
-      'Quotation issued',
+  function askFullName(next: 'issue' | 'reissue') {
+    setAfterFullName(next)
+    setFullNameDraft(user?.fullName ?? '')
+    setFullNameOpen(true)
+  }
+
+  function openConfirm(kind: 'issue' | 'reissue') {
+    if (kind === 'issue') {
+      setIssueOpen(true)
+      return
+    }
+    // Keep the old date if still valid, else a fresh 30 days.
+    const today = jakartaDateKey(new Date())
+    const current = quotation?.validUntil ?? ''
+    setReissueValidUntil(
+      current >= today
+        ? current
+        : jakartaDateKey(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
     )
-    setIssueOpen(false)
-    if (next) await loadOverview(projectId, next.id)
+    setReissueOpen(true)
+  }
+
+  /** Issuing prints the issuer's full name under "Hormat kami". */
+  function requestIssue(kind: 'issue' | 'reissue') {
+    if (!user?.fullName.trim()) {
+      askFullName(kind)
+      return
+    }
+    openConfirm(kind)
+  }
+
+  async function saveFullName() {
+    const fullName = fullNameDraft.trim()
+    if (!fullName) return
+    setFullNameSaving(true)
+    try {
+      const res = await apiFetch<{ fullName: string }>('/auth/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ fullName }),
+      })
+      if (!res.success) {
+        toast.error(res.message || 'Failed to save full name')
+        return
+      }
+      await refreshAuth()
+      setFullNameOpen(false)
+      openConfirm(afterFullName)
+    } catch {
+      toast.error('Unable to reach the server')
+    } finally {
+      setFullNameSaving(false)
+    }
+  }
+
+  async function issue(kind: 'issue' | 'reissue') {
+    if (!quotation || !projectId) return
+    const close = kind === 'issue' ? setIssueOpen : setReissueOpen
+    setBusy(true)
+    try {
+      const response = await apiFetch<Quotation | { code: string } | null>(
+        `/quotation/${quotation.id}/${kind}`,
+        kind === 'issue'
+          ? { method: 'POST' }
+          : {
+              method: 'POST',
+              body: JSON.stringify({ validUntil: reissueValidUntil }),
+            },
+      )
+      const data = response.data
+      if (!response.success || !data || !('id' in data)) {
+        if (data && 'code' in data && data.code === 'FULL_NAME_REQUIRED') {
+          close(false)
+          askFullName(kind)
+          return
+        }
+        toast.error(response.message || `Failed to ${kind} quotation`)
+        return
+      }
+      applyQuotation(data)
+      toast.success(
+        kind === 'issue' ? 'Quotation issued' : 'Quotation re-issued',
+      )
+      close(false)
+      await loadOverview(projectId, data.id)
+    } catch {
+      toast.error('Unable to reach the server')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function discard() {
@@ -537,7 +648,10 @@ export default function ProjectQuotationForm({
                     'Resynced from RAB',
                   )
                 }
-                onIssue={() => setIssueOpen(true)}
+                onIssue={() => requestIssue('issue')}
+                onReissue={
+                  canManage ? () => requestIssue('reissue') : undefined
+                }
                 onDiscard={() => setDiscardOpen(true)}
                 onExport={(format) => void exportFile(format)}
               />
@@ -570,10 +684,112 @@ export default function ProjectQuotationForm({
               disabled={busy}
               onClick={(e) => {
                 e.preventDefault()
-                void issue()
+                void issue('issue')
               }}
             >
               Issue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={fullNameOpen}
+        onOpenChange={(next) => {
+          if (!fullNameSaving) setFullNameOpen(next)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Full name required</AlertDialogTitle>
+            <AlertDialogDescription>
+              Full name is required to issue. It is printed under “Hormat kami”
+              on the quotation. This can be changed later in your profile on the
+              top right.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Full name</span>
+            <input
+              type="text"
+              value={fullNameDraft}
+              autoFocus
+              maxLength={120}
+              disabled={fullNameSaving}
+              className={cn(inputClassName, 'w-full')}
+              onChange={(e) => setFullNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void saveFullName()
+                }
+              }}
+            />
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={fullNameSaving}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={fullNameSaving || !fullNameDraft.trim()}
+              onClick={(e) => {
+                e.preventDefault()
+                void saveFullName()
+              }}
+            >
+              {fullNameSaving ? 'Saving…' : 'Save & continue'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={reissueOpen}
+        onOpenChange={(next) => {
+          if (!busy) setReissueOpen(next)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Re-issue {quotation?.quotationNumber}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This revision becomes the issued one again and the current issued
+              revision is marked superseded. Its lines, prices and client link
+              (QR) stay the same; the issue date and signer are updated to today
+              and you.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {quotation &&
+          overview &&
+          quotation.rabRevision !== overview.currentRabRevision ? (
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              Priced from RAB rev {quotation.rabRevision}; the RAB is now at rev{' '}
+              {overview.currentRabRevision}.
+            </p>
+          ) : null}
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Valid until</span>
+            <input
+              type="date"
+              value={reissueValidUntil}
+              min={jakartaDateKey(new Date())}
+              onChange={(e) => setReissueValidUntil(e.target.value)}
+              className={cn(inputClassName, 'w-full')}
+              disabled={busy}
+            />
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy || !reissueValidUntil}
+              onClick={(e) => {
+                e.preventDefault()
+                void issue('reissue')
+              }}
+            >
+              Re-issue
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -622,6 +838,8 @@ type DetailProps = {
   ) => Promise<Quotation | null>
   onResync: () => void
   onIssue: () => void
+  /** Set when the user may bring a superseded revision back. */
+  onReissue?: () => void
   onDiscard: () => void
   onExport: (format: ExportFormat) => void
 }
@@ -636,6 +854,7 @@ function QuotationDetail({
   onPatchLine,
   onResync,
   onIssue,
+  onReissue,
   onDiscard,
   onExport,
 }: DetailProps) {
@@ -716,6 +935,18 @@ function QuotationDetail({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {q.status === 'superseded' && onReissue ? (
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={busy}
+              onClick={onReissue}
+            >
+              <Repeat2 className="size-3.5" aria-hidden />
+              Re-issue
+            </Button>
+          ) : null}
           {editable ? (
             <>
               <Button
@@ -896,16 +1127,11 @@ function QuotationDetail({
               />
             </div>
           </div>
-          <label className="block space-y-1.5 sm:col-span-2">
-            <span className="text-sm font-medium">Notes</span>
-            <textarea
-              value={form.notes}
-              onChange={(e) => set('notes', e.target.value)}
-              className={cn(inputClassName, 'min-h-24 w-full resize-y')}
-              disabled={!editable}
-              placeholder="Scope, exclusions, delivery terms…"
-            />
-          </label>
+          <NotesListField
+            notes={form.notes}
+            editable={editable}
+            onChange={(next) => set('notes', next)}
+          />
         </div>
         {editable ? (
           <div className="flex items-center gap-2">
@@ -949,69 +1175,213 @@ function QuotationDetail({
               </tr>
             </thead>
             <tbody>
-              {q.lines.map((line, idx) => (
-                <QuotationLineRow
-                  key={line.key}
-                  index={idx + 1}
-                  line={line}
-                  editable={editable}
-                  busy={busy}
-                  onPatch={(p) => onPatchLine(line, p)}
-                />
-              ))}
+              {quotationPrintRows(q.lines, q.sections).map((row) =>
+                row.type === 'line' ? (
+                  <QuotationLineRow
+                    key={row.line.key}
+                    index={row.no}
+                    line={row.line}
+                    editable={editable}
+                    busy={busy}
+                    onPatch={(p) => onPatchLine(row.line, p)}
+                  />
+                ) : row.type === 'section' ? (
+                  <tr
+                    key={`section:${row.title}`}
+                    className="border-t border-(--line) bg-(--surface)"
+                  >
+                    <th
+                      colSpan={7}
+                      scope="colgroup"
+                      className="px-3 py-1.5 text-center text-xs font-semibold tracking-wide"
+                    >
+                      {row.title}
+                    </th>
+                  </tr>
+                ) : (
+                  <tr
+                    key={`subtotal:${row.label}`}
+                    className="border-t border-(--line) bg-(--surface) text-xs font-semibold"
+                  >
+                    <td colSpan={6} className="px-3 py-1.5 text-right">
+                      {row.label}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {formatRupiah(row.amount)}
+                    </td>
+                  </tr>
+                ),
+              )}
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="flex flex-col-reverse gap-6 md:flex-row md:items-start md:justify-between">
+        <MarginInsight quotation={q} />
+        <dl className="grid w-full max-w-sm grid-cols-[1fr_auto] gap-x-6 gap-y-1 self-end text-sm md:self-start">
+          <dt>Subtotal</dt>
+          <dd className="text-right tabular-nums">
+            {formatRupiah(q.totals.subtotal)}
+          </dd>
+          {Number(q.totals.discountAmount) > 0 ? (
+            <>
+              <dt>
+                Discount
+                {q.discountType === 'percent' ? ` ${q.discountValue}%` : ''}
+              </dt>
+              <dd className="text-right tabular-nums">
+                −{formatRupiah(q.totals.discountAmount)}
+              </dd>
+              <dt>DPP</dt>
+              <dd className="text-right tabular-nums">
+                {formatRupiah(q.totals.taxBase)}
+              </dd>
+            </>
+          ) : null}
+          <dt>PPN {q.taxPercent}%</dt>
+          <dd className="text-right tabular-nums">
+            {formatRupiah(q.totals.taxAmount)}
+          </dd>
+          <dt className="border-t border-(--line) pt-1 font-medium">Total</dt>
+          <dd className="border-t border-(--line) pt-1 text-right font-medium tabular-nums">
+            {formatRupiah(q.totals.grandTotal)}
+          </dd>
+        </dl>
+      </div>
+    </div>
+  )
+}
+
+/** Below this margin (% of selling price) the deal is flagged as thin. */
+const THIN_MARGIN_PERCENT = 10
+
+function marginTone(percent: number) {
+  if (percent < 0) {
+    return { text: 'text-red-600 dark:text-red-400', bar: 'bg-red-500' }
+  }
+  if (percent < THIN_MARGIN_PERCENT) {
+    return { text: 'text-amber-700 dark:text-amber-300', bar: 'bg-amber-500' }
+  }
+  return {
+    text: 'text-emerald-700 dark:text-emerald-400',
+    bar: 'bg-emerald-500',
+  }
+}
+
+function formatPercent(n: number): string {
+  return `${n.toLocaleString('id-ID', { maximumFractionDigits: 1 })}%`
+}
+
+/** Cost vs selling price (before PPN): one bar, cost grey + margin coloured. */
+function MarginBar({
+  cost,
+  sell,
+  className,
+}: {
+  cost: number
+  sell: number
+  className?: string
+}) {
+  const margin = sell - cost
+  const whole = Math.max(cost, sell, 1)
+  const tone = marginTone(sell > 0 ? (margin / sell) * 100 : -100)
+  // Profit: cost + margin = sell. Loss: sell + loss = cost (loss shown red).
+  const base = (Math.min(cost, sell) / whole) * 100
+  const rest = (Math.abs(margin) / whole) * 100
+  return (
+    <div
+      className={cn(
+        'flex h-2.5 w-full overflow-hidden rounded-full bg-(--line)',
+        className,
+      )}
+      aria-hidden
+    >
+      <div className="h-full bg-(--muted)/50" style={{ width: `${base}%` }} />
+      <div className={cn('h-full', tone.bar)} style={{ width: `${rest}%` }} />
+    </div>
+  )
+}
+
+/** Internal only: how much of the price is RAB cost vs margin (never printed). */
+function MarginInsight({ quotation: q }: { quotation: Quotation }) {
+  const cost = Number(q.totals.costTotal)
+  const sell = Number(q.totals.taxBase)
+  const margin = Number(q.totals.margin)
+  const marginPercent = sell > 0 ? (margin / sell) * 100 : 0
+  const markupPercent = cost > 0 ? (margin / cost) * 100 : 0
+  const tone = marginTone(marginPercent)
+
+  const sections = q.sections.map((section) => {
+    let sCost = 0
+    let sSell = 0
+    for (const idx of section.lineIndexes) {
+      const line = q.lines[idx]!
+      sCost += Number(line.qty) * Number(line.costUnitPrice)
+      sSell += Number(line.lineTotal)
+    }
+    return {
+      title: section.title,
+      cost: sCost,
+      sell: sSell,
+      percent: sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0,
+    }
+  })
+
+  return (
+    <section
+      className="w-full max-w-md space-y-3 rounded-md border border-(--line) p-4 text-sm"
+      aria-label="Margin insight"
+    >
+      <div>
         <p className={cn('text-xs', hintClassName)}>
-          Cost per unit is internal and is not printed on the export.
+          {margin < 0 ? 'Loss' : 'Margin'} (before PPN) · internal
+        </p>
+        <p className={cn('text-2xl font-semibold tabular-nums', tone.text)}>
+          {formatPercent(marginPercent)}
         </p>
       </div>
 
-      <dl className="ml-auto grid max-w-sm grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm">
-        <dt>Subtotal</dt>
-        <dd className="text-right tabular-nums">
-          {formatRupiah(q.totals.subtotal)}
-        </dd>
-        {Number(q.totals.discountAmount) > 0 ? (
-          <>
-            <dt>
-              Discount
-              {q.discountType === 'percent' ? ` ${q.discountValue}%` : ''}
-            </dt>
-            <dd className="text-right tabular-nums">
-              −{formatRupiah(q.totals.discountAmount)}
-            </dd>
-            <dt>DPP</dt>
-            <dd className="text-right tabular-nums">
-              {formatRupiah(q.totals.taxBase)}
-            </dd>
-          </>
-        ) : null}
-        <dt>PPN {q.taxPercent}%</dt>
-        <dd className="text-right tabular-nums">
-          {formatRupiah(q.totals.taxAmount)}
-        </dd>
-        <dt className="border-t border-(--line) pt-1 font-medium">Total</dt>
-        <dd className="border-t border-(--line) pt-1 text-right font-medium tabular-nums">
-          {formatRupiah(q.totals.grandTotal)}
-        </dd>
-        <dt className={cn('pt-2 text-xs', hintClassName)}>RAB cost</dt>
-        <dd
-          className={cn('pt-2 text-right text-xs tabular-nums', hintClassName)}
-        >
-          {formatRupiah(q.totals.costTotal)}
-        </dd>
-        <dt className={cn('text-xs', hintClassName)}>Margin (before PPN)</dt>
-        <dd
-          className={cn(
-            'text-right text-xs tabular-nums',
-            Number(q.totals.margin) < 0 ? 'text-red-600' : hintClassName,
-          )}
-        >
-          {formatRupiah(q.totals.margin)}
-        </dd>
+      <MarginBar cost={cost} sell={sell} />
+
+      <dl className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <dt className={hintClassName}>RAB cost</dt>
+          <dd className="tabular-nums">{formatRupiah(q.totals.costTotal)}</dd>
+        </div>
+        <div>
+          <dt className={hintClassName}>{margin < 0 ? 'Loss' : 'Margin'}</dt>
+          <dd className={cn('tabular-nums', tone.text)}>
+            {formatRupiah(q.totals.margin)}
+          </dd>
+        </div>
+        <div>
+          <dt className={hintClassName}>Markup on cost</dt>
+          <dd className="tabular-nums">{formatPercent(markupPercent)}</dd>
+        </div>
       </dl>
-    </div>
+
+      {sections.length > 1 ? (
+        <div className="space-y-2 border-t border-(--line) pt-3">
+          <p className={cn('text-xs', hintClassName)}>
+            Per category (before discount)
+          </p>
+          {sections.map((s) => (
+            <div key={s.title} className="space-y-1">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="truncate font-medium">{s.title}</span>
+                <span
+                  className={cn('tabular-nums', marginTone(s.percent).text)}
+                >
+                  {formatPercent(s.percent)}
+                </span>
+              </div>
+              <MarginBar cost={s.cost} sell={s.sell} className="h-1.5" />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
   )
 }
 
@@ -1067,11 +1437,6 @@ function QuotationLineRow({
         ) : (
           line.description
         )}
-        {line.kind === 'labour' ? (
-          <span className={cn('block text-xs', hintClassName)}>
-            Sum of RAB labour lines
-          </span>
-        ) : null}
       </td>
       <td className="px-3 py-2 text-right tabular-nums">{line.qty}</td>
       <td className="px-3 py-2">
@@ -1098,18 +1463,15 @@ function QuotationLineRow({
       <td className="px-3 py-2 text-right">
         {editable ? (
           <div className="flex items-center justify-end gap-1">
-            <input
-              inputMode="numeric"
+            <RupiahInput
               value={price}
-              onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))}
+              onValueChange={setPrice}
               onBlur={() => {
                 if (price === line.unitPrice) return
                 commit({ unitPrice: price === '' ? null : price })
               }}
-              className={cn(
-                inputClassNameCompact,
-                'w-28 text-right tabular-nums',
-              )}
+              wrapperClassName="w-40"
+              className="h-8 text-right"
               disabled={busy}
               aria-label={`Line ${index} unit price`}
             />
@@ -1138,5 +1500,99 @@ function QuotationLineRow({
         {formatRupiah(line.lineTotal)}
       </td>
     </tr>
+  )
+}
+
+function NotesListField({
+  notes,
+  editable,
+  onChange,
+}: {
+  notes: string
+  editable: boolean
+  onChange: (notes: string) => void
+}) {
+  const items = notesToList(notes)
+  const update = (next: string[]) => onChange(next.join('\n'))
+  const present = new Set(items.map((n) => n.trim()))
+
+  return (
+    <div className="space-y-2 sm:col-span-2">
+      <span className="text-sm font-medium">Notes</span>
+      {items.length === 0 && !editable ? (
+        <p className={cn('text-sm', hintClassName)}>No notes.</p>
+      ) : null}
+      <ol className="space-y-1.5">
+        {items.map((note, i) => (
+          <li key={i} className="flex items-center gap-2">
+            <span className="w-5 shrink-0 text-right text-sm tabular-nums text-(--muted)">
+              {i + 1}.
+            </span>
+            {editable ? (
+              <>
+                <input
+                  value={note}
+                  autoFocus={note === '' && i === items.length - 1}
+                  onChange={(e) =>
+                    update(items.map((n, j) => (j === i ? e.target.value : n)))
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      update([...items, ''])
+                    }
+                  }}
+                  placeholder="Scope, exclusions, delivery terms…"
+                  className={cn(inputClassName, 'min-w-0 flex-1')}
+                  aria-label={`Note ${i + 1}`}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  aria-label={`Remove note ${i + 1}`}
+                  onClick={() => update(items.filter((_, j) => j !== i))}
+                >
+                  <X className="size-3.5" aria-hidden />
+                </Button>
+              </>
+            ) : (
+              <span className="text-sm">{note}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {editable ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => update([...items, ''])}
+          >
+            <Plus className="size-3.5" aria-hidden />
+            Add note
+          </Button>
+          {NOTE_TEMPLATES.filter((t) => !present.has(t)).map((t) => (
+            <Button
+              key={t}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs text-(--muted)"
+              title="Quick add"
+              onClick={() =>
+                update([...items.filter((n) => n.trim() !== ''), t])
+              }
+            >
+              <Plus className="size-3" aria-hidden />
+              {t}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }

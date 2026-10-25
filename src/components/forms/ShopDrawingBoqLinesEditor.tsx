@@ -3,6 +3,7 @@ import { Check, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
 import { Input } from '#/components/ui/input'
+import type { ItemCategoryOut } from '#/lib/itemMaster'
 import type { ProjectShopDrawingBoqMaterial } from '#/lib/project'
 import {
   formulaVariableCount,
@@ -120,6 +121,7 @@ type Props = {
   lines: DraftLine[]
   onChange: (lines: DraftLine[]) => void
   materials: ProjectShopDrawingBoqMaterial[]
+  categories?: ItemCategoryOut[]
   makeQty: string
   canManage: boolean
   disabled?: boolean
@@ -140,6 +142,7 @@ export default function ShopDrawingBoqLinesEditor({
   lines,
   onChange,
   materials,
+  categories = [],
   makeQty,
   canManage,
   disabled = false,
@@ -160,6 +163,11 @@ export default function ShopDrawingBoqLinesEditor({
   const materialOptions = materials.map((m) => ({
     value: m.id,
     label: `${m.itemId} — ${m.name}`,
+    categoryIds: m.categoryIds ?? [],
+  }))
+  const materialCategories = categories.map((c) => ({
+    value: c.id,
+    label: c.name,
   }))
 
   function uomsFor(materialItemId: string) {
@@ -317,6 +325,11 @@ export default function ShopDrawingBoqLinesEditor({
                                 )
                               }}
                               options={materialOptions}
+                              categories={
+                                materialCategories.length > 0
+                                  ? materialCategories
+                                  : undefined
+                              }
                               placeholder="Select material"
                               searchPlaceholder="Search materials…"
                               emptyText="No materials."

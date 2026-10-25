@@ -5,6 +5,7 @@ import { API_BASE_URL, apiFetch } from '#/lib/api'
 import {
   formatRupiah,
   formatYmdLong,
+  quotationPrintRows,
   type PublicQuotation,
   type PublicQuotationLink,
 } from '#/lib/quotation'
@@ -315,28 +316,52 @@ function QuotationDocument({
               </tr>
             </thead>
             <tbody>
-              {q.lines.map((l, i) => (
-                <tr key={i}>
-                  <td className="border border-(--line) px-2 py-1.5 text-center tabular-nums">
-                    {i + 1}
-                  </td>
-                  <td className="border border-(--line) px-2 py-1.5">
-                    {l.description}
-                  </td>
-                  <td className="border border-(--line) px-2 py-1.5 text-center tabular-nums">
-                    {l.qty}
-                  </td>
-                  <td className="border border-(--line) px-2 py-1.5 text-center">
-                    {l.uom}
-                  </td>
-                  <td className="border border-(--line) px-2 py-1.5 text-right tabular-nums">
-                    {formatRupiah(l.unitPrice)}
-                  </td>
-                  <td className="border border-(--line) px-2 py-1.5 text-right tabular-nums">
-                    {formatRupiah(l.lineTotal)}
-                  </td>
-                </tr>
-              ))}
+              {quotationPrintRows(q.lines, q.sections).map((row, i) =>
+                row.type === 'section' ? (
+                  <tr key={i} className="bg-(--surface)">
+                    <th
+                      colSpan={6}
+                      scope="colgroup"
+                      className="border border-(--line) px-2 py-1.5 text-center text-xs font-semibold tracking-wide"
+                    >
+                      {row.title}
+                    </th>
+                  </tr>
+                ) : row.type === 'subtotal' ? (
+                  <tr key={i} className="bg-(--surface) font-semibold">
+                    <td
+                      colSpan={5}
+                      className="border border-(--line) px-2 py-1.5 text-right"
+                    >
+                      {row.label}
+                    </td>
+                    <td className="border border-(--line) px-2 py-1.5 text-right tabular-nums">
+                      {formatRupiah(row.amount)}
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={i}>
+                    <td className="border border-(--line) px-2 py-1.5 text-center tabular-nums">
+                      {row.no}
+                    </td>
+                    <td className="border border-(--line) px-2 py-1.5">
+                      {row.line.description}
+                    </td>
+                    <td className="border border-(--line) px-2 py-1.5 text-center tabular-nums">
+                      {row.line.qty}
+                    </td>
+                    <td className="border border-(--line) px-2 py-1.5 text-center">
+                      {row.line.uom}
+                    </td>
+                    <td className="border border-(--line) px-2 py-1.5 text-right tabular-nums">
+                      {formatRupiah(row.line.unitPrice)}
+                    </td>
+                    <td className="border border-(--line) px-2 py-1.5 text-right tabular-nums">
+                      {formatRupiah(row.line.lineTotal)}
+                    </td>
+                  </tr>
+                ),
+              )}
             </tbody>
           </table>
         </div>
@@ -385,6 +410,14 @@ function QuotationDocument({
             {q.notes ? <p className="whitespace-pre-line">{q.notes}</p> : null}
           </section>
         ) : null}
+
+        <section className="ml-auto w-56 text-center">
+          <p>Hormat kami,</p>
+          <p className="font-semibold">{q.company.name}</p>
+          <p className="mt-12 font-semibold underline underline-offset-2">
+            {q.issuedByName ?? '(....................................)'}
+          </p>
+        </section>
       </article>
     </div>
   )

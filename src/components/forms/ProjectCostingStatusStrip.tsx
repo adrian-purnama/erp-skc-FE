@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { ArrowRight, Lock } from 'lucide-react'
+import { ArrowRight, Lock, LockOpen } from 'lucide-react'
 import {
   changeDraftSubtitle,
   costingLockState,
@@ -43,35 +43,44 @@ export default function ProjectCostingStatusStrip({
         className,
       )}
     >
-      <div className="min-w-0 flex flex-col gap-0.5 text-xs">
+      <div className="flex min-w-0 items-center gap-3">
         <span
-          className={cn(
-            'inline-flex items-center gap-1 font-medium',
-            state === 'draft' ? hintClassName : 'text-(--ink)',
-          )}
+          className="flex shrink-0 items-center justify-center text-(--ink)"
+          title={state === 'locked' ? 'Locked' : 'Unlocked — editable'}
         >
-          {state !== 'draft' ? (
-            <Lock className="size-3 shrink-0" aria-hidden />
-          ) : null}
-          {costingStateLabel(state)}
-          {state === 'locked' && rab?.lockedBy ? (
-            <span className={cn('font-normal', hintClassName)}>
-              · {rab.lockedBy.name}
-              {rab.lockedAt ? ` · ${formatCostingWhen(rab.lockedAt)}` : ''}
+          {state === 'locked' ? (
+            <Lock className="size-7" aria-hidden />
+          ) : (
+            <LockOpen className="size-7" aria-hidden />
+          )}
+        </span>
+        <div className="min-w-0 flex flex-col gap-0.5 text-xs">
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 text-sm font-semibold',
+              state === 'draft' ? hintClassName : 'text-(--ink)',
+            )}
+          >
+            {costingStateLabel(state)}
+            {state === 'locked' && rab?.lockedBy ? (
+              <span className={cn('font-normal', hintClassName)}>
+                · {rab.lockedBy.name}
+                {rab.lockedAt ? ` · ${formatCostingWhen(rab.lockedAt)}` : ''}
+              </span>
+            ) : null}
+          </span>
+          {draft ? (
+            <span className={hintClassName}>{changeDraftSubtitle(draft)}</span>
+          ) : state === 'draft' ? (
+            <span className={hintClassName}>
+              Fill Shop Drawing BOQ and RAB prices, then lock on RAB.
+            </span>
+          ) : state === 'locked' ? (
+            <span className={hintClassName}>
+              BOQ and RAB are frozen. Open a change on RAB to edit.
             </span>
           ) : null}
-        </span>
-        {draft ? (
-          <span className={hintClassName}>{changeDraftSubtitle(draft)}</span>
-        ) : state === 'draft' ? (
-          <span className={hintClassName}>
-            Fill Shop Drawing BOQ and RAB prices, then lock on RAB.
-          </span>
-        ) : state === 'locked' ? (
-          <span className={hintClassName}>
-            BOQ and RAB are frozen. Open a change on RAB to edit.
-          </span>
-        ) : null}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

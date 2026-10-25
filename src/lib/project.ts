@@ -194,6 +194,8 @@ export type ProjectShopDrawingFile = {
 export type ProjectShopDrawingItem = {
   id: string
   name: string
+  /** Free-text group; the project's category list is derived from its items. */
+  category: string | null
   current: ProjectShopDrawingFile | null
   versions: ProjectShopDrawingFile[]
 }
@@ -307,6 +309,7 @@ export type ProjectShopDrawingBoqMaterial = {
   itemId: string
   name: string
   description: string
+  categoryIds: string[]
   baseUomId: string | null
   uoms: ProjectShopDrawingBoqMaterialUom[]
 }

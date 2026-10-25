@@ -11,6 +11,7 @@ import {
 import toast from 'react-hot-toast'
 import { changeKindBadgeClass } from '#/components/forms/costingStatus'
 import ProjectCostingStatusStrip from '#/components/forms/ProjectCostingStatusStrip'
+import ProjectShopDrawingPanel from '#/components/forms/ProjectShopDrawingPanel'
 import TenderProjectPicker from '#/components/forms/TenderProjectPicker'
 import ShopDrawingBoqLinesEditor, {
   emptyLine,
@@ -45,6 +46,7 @@ import { Input } from '#/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { useAuth } from '#/context/authContext'
 import { apiFetch, apiUpload } from '#/lib/api'
+import type { ItemCategoryOut } from '#/lib/itemMaster'
 import type {
   ProjectRab,
   ProjectShopDrawingBoq,
@@ -201,6 +203,7 @@ export default function ShopDrawingBoqForm({
   const [summary, setSummary] = useState<ProjectShopDrawingBoqItemSummary[]>([])
   const [overview, setOverview] = useState<ProjectShopDrawingBoq[]>([])
   const [materials, setMaterials] = useState<ProjectShopDrawingBoqMaterial[]>([])
+  const [categories, setCategories] = useState<ItemCategoryOut[]>([])
   const [loadingSummary, setLoadingSummary] = useState(false)
   const [loadingBoq, setLoadingBoq] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -343,6 +346,7 @@ export default function ShopDrawingBoqForm({
       setSummary([])
       setOverview([])
       setMaterials([])
+      setCategories([])
       setRab(null)
       return
     }
@@ -350,7 +354,7 @@ export default function ShopDrawingBoqForm({
     async function load() {
       setLoadingSummary(true)
       try {
-        const [summaryRes, materialsRes, overviewRes, rabRes] =
+        const [summaryRes, materialsRes, overviewRes, rabRes, categoriesRes] =
           await Promise.all([
             apiFetch<ProjectShopDrawingBoqItemSummary[]>(
               `/project/${projectId}/shop-drawing/boq/summary`,
@@ -362,6 +366,7 @@ export default function ShopDrawingBoqForm({
               `/project/${projectId}/shop-drawing/boq/overview`,
             ),
             apiFetch<ProjectRab | null>(`/project/${projectId}/rab`),
+            apiFetch<ItemCategoryOut[]>('/item-categories'),
           ])
         if (cancelled) return
         if (!summaryRes.success) {
@@ -384,6 +389,11 @@ export default function ShopDrawingBoqForm({
         }
         if (rabRes.success) setRab(rabRes.data ?? null)
         else setRab(null)
+        if (categoriesRes.success && categoriesRes.data) {
+          setCategories(categoriesRes.data)
+        } else {
+          setCategories([])
+        }
       } catch {
         if (!cancelled) toast.error('Unable to reach the server')
       } finally {
@@ -558,6 +568,26 @@ export default function ShopDrawingBoqForm({
     onSelectionChange({
       itemId: itemId || undefined,
       fileId: next || undefined,
+    })
+  }
+
+  function backToItems() {
+    setItemId('')
+    setFileId('')
+    resetBoqDraft()
+    onSelectionChange({
+      itemId: undefined,
+      fileId: undefined,
+    })
+  }
+
+  function openItemFromList(item: ProjectShopDrawingItem) {
+    const nextFileId = item.current?.id
+    setItemId(item.id)
+    setFileId(nextFileId ?? '')
+    onSelectionChange({
+      itemId: item.id,
+      fileId: nextFileId,
     })
   }
 
@@ -925,6 +955,7 @@ export default function ShopDrawingBoqForm({
             })
           }
           materials={materials}
+          categories={categories}
           makeQty={makeQty}
           canManage={canManage && !contentFrozen}
           disabled={loadingBoq}
@@ -988,54 +1019,55 @@ export default function ShopDrawingBoqForm({
         <p className={hintClassName}>
           Choose a project to edit Shop Drawing BOQs.
         </p>
+      ) : !itemId ? (
+        <ProjectShopDrawingPanel
+          projectId={projectId}
+          canManage={canManage}
+          onChanged={() => {
+            void reloadSummary()
+            void reloadOverview()
+          }}
+          onSelectItem={openItemFromList}
+        />
       ) : loadingSummary ? (
         <p className={cn('flex items-center gap-2 text-sm', hintClassName)}>
           <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
           Loading Shop Drawing items…
         </p>
-      ) : summary.length === 0 ? (
-        <div className="space-y-3">
-          <p className={hintClassName}>
-            No Shop Drawing items yet.
-            {canManage
-              ? ' Add an item, then upload a file to start a BOQ.'
-              : ''}
-          </p>
-          {canManage ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5"
-              onClick={openAddItem}
-            >
-              <Plus className="size-3.5" aria-hidden />
-              Add item
-            </Button>
-          ) : null}
-        </div>
       ) : (
         <div className="grid w-full min-w-0 overflow-hidden border border-(--line)">
           <div className="space-y-3 border-b border-(--line) px-4 py-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2
-                className={cn(
-                  'min-w-0 inline-flex flex-wrap items-center gap-2',
-                  sectionTitleClassName,
-                )}
-              >
-                <span>{sheetTitle}</span>
-                {selectedAddedInChange ? (
-                  <span
-                    className={cn(
-                      'inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
-                      changeKindBadgeClass('added'),
-                    )}
-                  >
-                    Added in change
-                  </span>
-                ) : null}
-              </h2>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5"
+                  onClick={backToItems}
+                >
+                  <ArrowLeft className="size-3.5" aria-hidden />
+                  Back to items
+                </Button>
+                <h2
+                  className={cn(
+                    'min-w-0 inline-flex flex-wrap items-center gap-2',
+                    sectionTitleClassName,
+                  )}
+                >
+                  <span>{sheetTitle}</span>
+                  {selectedAddedInChange ? (
+                    <span
+                      className={cn(
+                        'inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+                        changeKindBadgeClass('added'),
+                      )}
+                    >
+                      Added in change
+                    </span>
+                  ) : null}
+                </h2>
+              </div>
               {loadingBoq ? (
                 <span
                   className={cn(
@@ -1338,6 +1370,7 @@ export default function ShopDrawingBoqForm({
                                 )
                               }
                               materials={materials}
+                              categories={categories}
                               makeQty={makeQty}
                               canManage={canManage}
                               disabled={loadingBoq}
@@ -1401,6 +1434,7 @@ export default function ShopDrawingBoqForm({
                       lines={assemblyLines}
                       onChange={setAssemblyLines}
                       materials={materials}
+                      categories={categories}
                       makeQty={makeQty}
                       canManage={canManage && !contentFrozen}
                       disabled={loadingBoq}
@@ -1420,6 +1454,7 @@ export default function ShopDrawingBoqForm({
                   lines={lightingLines}
                   onChange={setLightingLines}
                   materials={materials}
+                  categories={categories}
                   makeQty={makeQty}
                   canManage={canManage && !contentFrozen}
                   disabled={loadingBoq}
@@ -1455,6 +1490,7 @@ export default function ShopDrawingBoqForm({
                     lines={mountingLines}
                     onChange={setMountingLines}
                     materials={materials}
+                    categories={categories}
                     makeQty={makeQty}
                     canManage={canManage}
                     disabled={loadingBoq}
@@ -1473,6 +1509,7 @@ export default function ShopDrawingBoqForm({
                   lines={otherLines}
                   onChange={setOtherLines}
                   materials={materials}
+                  categories={categories}
                   makeQty={makeQty}
                   canManage={canManage && !contentFrozen}
                   disabled={loadingBoq}
@@ -1487,6 +1524,8 @@ export default function ShopDrawingBoqForm({
               <ShopDrawingBoqStackViewer
                 summary={summary}
                 overview={overview}
+                materials={materials}
+                categories={categories}
               />
             </TabsContent>
           </Tabs>

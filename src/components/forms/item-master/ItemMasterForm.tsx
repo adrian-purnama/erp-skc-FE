@@ -47,6 +47,7 @@ import {
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
 import { Combobox } from '#/components/ui/combobox'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { useAuth } from '#/context/authContext'
 import { apiDownload, apiFetch, apiUpload } from '#/lib/api'
 import {
@@ -56,6 +57,7 @@ import {
   flattenItems,
   folderNamePath,
   type FolderOut,
+  type ItemCategoryOut,
   type ItemListRow,
   type ItemOut,
   type ItemType,
@@ -78,6 +80,7 @@ import {
 } from './constants'
 import { FolderForm } from './FolderForm'
 import { FolderNav } from './FolderNav'
+import { ItemCategoryForm } from './ItemCategoryForm'
 import { ItemForm } from './ItemForm'
 import { MoveForm } from './MoveForm'
 
@@ -100,6 +103,9 @@ type TypeFilter = 'all' | ItemType
 type StatusFilter = 'all' | 'enabled' | 'disabled'
 /** `all` = every item; `root` = folderId null; otherwise folder mongo id (direct children). */
 type FolderFilter = 'all' | 'root' | string
+/** `all` = every item; `none` = no category; otherwise category mongo id. */
+type CategoryFilter = 'all' | 'none' | string
+type BrowseTab = 'items' | 'categories'
 
 const FOLDER_ROOT = '__root__'
 
@@ -211,6 +217,9 @@ export default function ItemMasterForm() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [folderFilter, setFolderFilter] = useState<FolderFilter>('all')
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
+  const [browseTab, setBrowseTab] = useState<BrowseTab>('items')
+  const [categories, setCategories] = useState<ItemCategoryOut[]>([])
   const [itemPage, setItemPage] = useState(1)
   const bulkFileRef = useRef<HTMLInputElement>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
@@ -225,6 +234,11 @@ export default function ItemMasterForm() {
     [tree],
   )
   const itemRows = useMemo(() => flattenItems(tree), [tree])
+  const categoryNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const cat of categories) map.set(cat.id, cat.name)
+    return map
+  }, [categories])
 
   const folderFilterOptions = useMemo(
     () => [
@@ -233,6 +247,15 @@ export default function ItemMasterForm() {
       ...folderOptions.map((f) => ({ value: f.id, label: f.label })),
     ],
     [folderOptions],
+  )
+
+  const categoryFilterOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All categories' },
+      { value: 'none', label: 'No category' },
+      ...categories.map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [categories],
   )
 
   const filteredItems = useMemo(() => {
@@ -246,6 +269,14 @@ export default function ItemMasterForm() {
       ) {
         return false
       }
+      if (categoryFilter === 'none' && row.categoryIds.length > 0) return false
+      if (
+        categoryFilter !== 'all' &&
+        categoryFilter !== 'none' &&
+        !row.categoryIds.includes(categoryFilter)
+      ) {
+        return false
+      }
       if (typeFilter !== 'all' && row.itemType !== typeFilter) return false
       if (statusFilter === 'enabled' && !row.isActive) return false
       if (statusFilter === 'disabled' && row.isActive) return false
@@ -256,11 +287,24 @@ export default function ItemMasterForm() {
         row.folderPath.toLowerCase().includes(q)
       )
     })
-  }, [itemRows, folderFilter, typeFilter, statusFilter, debouncedItemQuery])
+  }, [
+    itemRows,
+    folderFilter,
+    categoryFilter,
+    typeFilter,
+    statusFilter,
+    debouncedItemQuery,
+  ])
 
   useEffect(() => {
     setItemPage(1)
-  }, [debouncedItemQuery, typeFilter, statusFilter, folderFilter])
+  }, [
+    debouncedItemQuery,
+    typeFilter,
+    statusFilter,
+    folderFilter,
+    categoryFilter,
+  ])
 
   const {
     pageItems: itemPageItems,
@@ -292,8 +336,19 @@ export default function ItemMasterForm() {
     }
   }
 
+  async function loadCategories() {
+    try {
+      const response = await apiFetch<ItemCategoryOut[]>('/item-categories')
+      if (!response.success || !response.data) return
+      setCategories(response.data)
+    } catch {
+      /* optional for list labels */
+    }
+  }
+
   useEffect(() => {
     void loadTree(false)
+    void loadCategories()
   }, [])
 
   function toggleFolder(id: string) {
@@ -428,6 +483,21 @@ export default function ItemMasterForm() {
         cell: (item) => itemTypeLabel(item.itemType),
       },
       {
+        header: 'Category',
+        cellClassName: cn(hintClassName, 'min-w-0 max-w-[10rem] whitespace-nowrap'),
+        cell: (item) => {
+          const names = item.categoryIds
+            .map((id) => categoryNameById.get(id))
+            .filter((n): n is string => Boolean(n))
+          const label = names.length > 0 ? names.join(', ') : '—'
+          return (
+            <span className="block truncate" title={label}>
+              {label}
+            </span>
+          )
+        },
+      },
+      {
         header: 'Folder',
         cellClassName: cn(hintClassName, 'min-w-0 max-w-[12rem]'),
         cell: (item) => (
@@ -482,12 +552,12 @@ export default function ItemMasterForm() {
         ),
       },
     ],
-    [canManage, onToggleActive],
+    [canManage, onToggleActive, categoryNameById],
   )
 
   async function returnToBrowse() {
     setView({ type: 'browse' })
-    await loadTree()
+    await Promise.all([loadTree(), loadCategories()])
   }
 
   async function downloadBulkTemplate() {
@@ -589,6 +659,7 @@ export default function ItemMasterForm() {
           initialName={editingItem?.name ?? ''}
           initialDescription={editingItem?.description ?? ''}
           initialItemType={editingItem?.itemType ?? 'material'}
+          initialCategoryIds={editingItem?.categoryIds ?? []}
           showItemId={editingItem?.itemId}
           saving={saving}
           setSaving={setSaving}
@@ -597,6 +668,7 @@ export default function ItemMasterForm() {
             name,
             description,
             itemType,
+            categoryIds,
             uoms,
             tarifs,
             vendorIds,
@@ -609,6 +681,7 @@ export default function ItemMasterForm() {
                   description,
                   itemType,
                   folderId: editorFolderId,
+                  categoryIds,
                   vendorIds,
                   uoms,
                   tarifs,
@@ -627,6 +700,7 @@ export default function ItemMasterForm() {
                 name,
                 description,
                 itemType,
+                categoryIds,
                 vendorIds,
                 uoms,
                 tarifs,
@@ -660,7 +734,8 @@ export default function ItemMasterForm() {
     Boolean(debouncedItemQuery.trim()) ||
     typeFilter !== 'all' ||
     statusFilter !== 'all' ||
-    folderFilter !== 'all'
+    folderFilter !== 'all' ||
+    categoryFilter !== 'all'
 
   return (
     <div className="space-y-5">
@@ -671,11 +746,11 @@ export default function ItemMasterForm() {
               Item Master Data
             </h1>
             <p className={`mt-1 ${hintClassName}`}>
-              Browse items by folder. Filter by type or status
+              Browse items by folder. Filter by type, category, or status
               {canManage ? ', or create and edit' : ''}.
             </p>
           </div>
-          {canManage ? (
+          {canManage && browseTab === 'items' ? (
             <div className="flex flex-wrap gap-2">
               <input
                 ref={bulkFileRef}
@@ -738,6 +813,26 @@ export default function ItemMasterForm() {
         </div>
       </div>
 
+      <Tabs
+        value={browseTab}
+        onValueChange={(value) => {
+          if (value === 'items' || value === 'categories') {
+            setBrowseTab(value)
+            if (value === 'items') {
+              void loadTree()
+              void loadCategories()
+            }
+          }
+        }}
+      >
+        <TabsList>
+          <TabsTrigger value="items">Items</TabsTrigger>
+          <TabsTrigger value="categories">Categories</TabsTrigger>
+        </TabsList>
+        <TabsContent value="categories" className="pt-3">
+          <ItemCategoryForm />
+        </TabsContent>
+        <TabsContent value="items" className="pt-3">
       <div className="grid min-h-[32rem] gap-4 lg:h-[calc(100dvh-11rem)] lg:min-h-[32rem] lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-stretch">
         <aside
           className={cn(
@@ -878,6 +973,16 @@ export default function ItemMasterForm() {
                   className="w-[8.5rem] shrink-0"
                 />
                 <Combobox
+                  value={categoryFilter}
+                  onValueChange={setCategoryFilter}
+                  options={categoryFilterOptions}
+                  placeholder="All categories"
+                  searchPlaceholder="Search category…"
+                  emptyText="No category found."
+                  aria-label="Category filter"
+                  className="w-[10rem] shrink-0"
+                />
+                <Combobox
                   value={statusFilter}
                   onValueChange={(value) => {
                     if (
@@ -929,6 +1034,8 @@ export default function ItemMasterForm() {
           </div>
         </div>
       </div>
+        </TabsContent>
+      </Tabs>
 
       <Dialog
         open={folderDialog !== null}

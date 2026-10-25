@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
-import { LogOut, Menu, X } from 'lucide-react'
+import { CircleUser, LogOut, Menu, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import RootMainMenu from '#/components/RootMainMenu'
@@ -11,7 +11,7 @@ const DRAWER_TRANSITION_MS = 300
 
 export default function Header() {
   const navigate = useNavigate()
-  const { user, isAuthenticated, isLoading, logout } = useAuth()
+  const { isAuthenticated, isLoading, logout } = useAuth()
   const { appName, appLogo, openLogin, openRegister, firstRegister } =
     useBranding()
   const showLogin = openLogin
@@ -104,13 +104,18 @@ export default function Header() {
         <div className="hidden items-center gap-3 md:flex">
           {isLoading ? null : isAuthenticated ? (
             <>
-              <span className="max-w-48 truncate text-sm text-[var(--muted)]">
-                {user?.email}
-              </span>
+              <Link
+                to="/profile"
+                className="inline-flex items-center justify-center text-[var(--muted)] no-underline transition hover:text-[var(--ink)]"
+                aria-label="Profile"
+                title="Profile"
+              >
+                <CircleUser className="size-5" aria-hidden />
+              </Link>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex cursor-pointer items-center justify-center bg-transparent px-2 text-[var(--ink)] transition hover:opacity-70"
+                className="inline-flex cursor-pointer items-center justify-center bg-transparent px-2 text-[var(--muted)] transition hover:text-[var(--ink)]"
                 aria-label="Log out"
               >
                 <LogOut className="size-5" aria-hidden />
@@ -222,9 +227,14 @@ export default function Header() {
               <div className="mt-auto border-t border-[var(--line)] bg-white p-4">
                 {isLoading ? null : isAuthenticated ? (
                   <>
-                    <p className="mb-3 truncate px-1 text-sm text-[var(--muted)]">
-                      {user?.email}
-                    </p>
+                    <Link
+                      to="/profile"
+                      onClick={closeMenu}
+                      className="mb-2 flex w-full items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--line)] px-4 py-3 text-sm font-semibold text-[var(--muted)] no-underline transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
+                    >
+                      <CircleUser className="size-4" aria-hidden />
+                      Profile
+                    </Link>
                     <button
                       type="button"
                       onClick={handleLogout}

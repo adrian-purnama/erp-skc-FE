@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Download,
   History,
+  Layers,
   Info,
   LoaderCircle,
   Lock,
@@ -14,6 +15,7 @@ import {
   Plus,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react'
 import {
   AlertDialog,
@@ -63,6 +65,15 @@ type Props = {
   canManage: boolean
   /** Called after items reload (upload, BOQ state, version switch, …). */
   onChanged?: () => void
+  /**
+   * When set, row click opens this item (current file if any).
+   * Interactive cell actions stop propagation so Upload/History/menus still work.
+   */
+  onSelectItem?: (item: ProjectShopDrawingItem) => void
+}
+
+function stopRowClick(e: { stopPropagation: () => void }) {
+  e.stopPropagation()
 }
 
 function BoqBadge({
@@ -109,6 +120,8 @@ function formatWhen(iso: string | null): string {
   }
 }
 
+const UNCATEGORIZED = 'Uncategorized'
+
 function auditUploadedLine(doc: ProjectShopDrawingFile): string {
   return `Uploaded at ${formatWhen(doc.uploadedAt)} by ${doc.uploadedByName || 'Unknown'}`
 }
@@ -117,6 +130,7 @@ export default function ProjectShopDrawingPanel({
   projectId,
   canManage,
   onChanged,
+  onSelectItem,
 }: Props) {
   const onChangedRef = useRef(onChanged)
   onChangedRef.current = onChanged
@@ -146,6 +160,8 @@ export default function ProjectShopDrawingPanel({
     { mode: 'create' } | { mode: 'rename'; item: ProjectShopDrawingItem } | null
   >(null)
   const [nameDraft, setNameDraft] = useState('')
+  const [categoryDraft, setCategoryDraft] = useState('')
+  const [groupByCategory, setGroupByCategory] = useState(false)
   const [nameBusy, setNameBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -193,11 +209,13 @@ export default function ProjectShopDrawingPanel({
 
   function openCreateItem() {
     setNameDraft('')
+    setCategoryDraft('')
     setNameDialog({ mode: 'create' })
   }
 
   function openRenameItem(item: ProjectShopDrawingItem) {
     setNameDraft(item.name)
+    setCategoryDraft(item.category ?? '')
     setNameDialog({ mode: 'rename', item })
   }
 
@@ -208,6 +226,7 @@ export default function ProjectShopDrawingPanel({
       toast.error('Name is required')
       return
     }
+    const category = categoryDraft.trim() || null
     setNameBusy(true)
     try {
       if (nameDialog.mode === 'create') {
@@ -216,7 +235,7 @@ export default function ProjectShopDrawingPanel({
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name }),
+            body: JSON.stringify({ name, category }),
           },
         )
         if (!response.success) {
@@ -230,14 +249,14 @@ export default function ProjectShopDrawingPanel({
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name }),
+            body: JSON.stringify({ name, category }),
           },
         )
         if (!response.success) {
-          toast.error(response.message || 'Failed to rename item')
+          toast.error(response.message || 'Failed to update item')
           return
         }
-        toast.success('Item renamed')
+        toast.success('Item updated')
       }
       setNameDialog(null)
       await load()
@@ -372,22 +391,43 @@ export default function ProjectShopDrawingPanel({
     }
   }
 
+  /** Category list for this project = distinct categories across its items. */
+  const categories = useMemo(
+    () =>
+      [
+        ...new Set(
+          items.map((i) => i.category).filter((c): c is string => Boolean(c)),
+        ),
+      ].sort((a, b) => a.localeCompare(b)),
+    [items],
+  )
+
   const filtered = useMemo(() => {
     const q = debounced.trim().toLowerCase()
-    if (!q) return items
-    return items.filter((item) => {
-      if (item.name.toLowerCase().includes(q)) return true
-      const current = item.current
-      if (current?.originalFilename.toLowerCase().includes(q)) return true
-      return item.versions.some((v) =>
-        v.originalFilename.toLowerCase().includes(q),
-      )
+    const matched = !q
+      ? items
+      : items.filter((item) => {
+          if (item.name.toLowerCase().includes(q)) return true
+          if (item.category?.toLowerCase().includes(q)) return true
+          const current = item.current
+          if (current?.originalFilename.toLowerCase().includes(q)) return true
+          return item.versions.some((v) =>
+            v.originalFilename.toLowerCase().includes(q),
+          )
+        })
+    if (!groupByCategory) return matched
+    // Contiguous groups for ListTable; uncategorized last, names keep server order.
+    return [...matched].sort((a, b) => {
+      if (a.category === b.category) return 0
+      if (!a.category) return 1
+      if (!b.category) return -1
+      return a.category.localeCompare(b.category)
     })
-  }, [items, debounced])
+  }, [items, debounced, groupByCategory])
 
   useEffect(() => {
     setPage(1)
-  }, [debounced])
+  }, [debounced, groupByCategory])
 
   const {
     pageItems,
@@ -407,7 +447,16 @@ export default function ProjectShopDrawingPanel({
       {
         header: 'Item',
         cellClassName: 'font-medium',
-        cell: (item) => item.name,
+        cell: (item) => (
+          <div className="min-w-0">
+            <p>{item.name}</p>
+            {item.category && !groupByCategory ? (
+              <p className="text-[10px] font-normal tracking-wide text-(--muted)">
+                {item.category}
+              </p>
+            ) : null}
+          </div>
+        ),
       },
       {
         header: 'Current file',
@@ -478,6 +527,7 @@ export default function ProjectShopDrawingPanel({
                     'inline-flex h-7 items-center gap-1 px-2 text-xs no-underline',
                   )}
                   aria-label={`${label} BOQ for ${item.name}`}
+                  onClick={stopRowClick}
                 >
                   {current.hasBoq ? (
                     <Pencil className="size-3" aria-hidden />
@@ -498,7 +548,11 @@ export default function ProjectShopDrawingPanel({
           const itemBusy = busyItemId === item.id
           const versionCount = item.versions.length
           return (
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div
+              className="flex flex-wrap items-center gap-1.5"
+              onClick={stopRowClick}
+              onKeyDown={stopRowClick}
+            >
               {canManage ? (
                 <Button
                   type="button"
@@ -568,6 +622,7 @@ export default function ProjectShopDrawingPanel({
                   size="icon"
                   className="size-7"
                   aria-label={`Item actions for ${item.name}`}
+                  onClick={stopRowClick}
                 >
                   <MoreHorizontal className="size-3.5" aria-hidden />
                 </Button>
@@ -576,7 +631,7 @@ export default function ProjectShopDrawingPanel({
                 <DropdownMenuLabel>Item</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => openRenameItem(item)}>
                   <Pencil className="size-3.5" aria-hidden />
-                  Rename
+                  Edit name / category
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -591,7 +646,7 @@ export default function ProjectShopDrawingPanel({
           ) : null,
       },
     ],
-    [busyItemId, canManage, projectId, rab],
+    [busyItemId, canManage, projectId, rab, groupByCategory],
   )
 
   const uploading = busyItemId !== null
@@ -624,12 +679,30 @@ export default function ProjectShopDrawingPanel({
 
       <ListTable
         filters={
-          <ListSearchInput
-            value={query}
-            onChange={setQuery}
-            placeholder="Filter by item or filename…"
-            aria-label="Filter Shop Drawing items"
-          />
+          <>
+            <ListSearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Filter by item, category or filename…"
+              aria-label="Filter Shop Drawing items"
+            />
+            {categories.length > 0 ? (
+              <Button
+                type="button"
+                variant={groupByCategory ? 'default' : 'outline'}
+                size="sm"
+                className="h-9 shrink-0 gap-1.5"
+                aria-pressed={groupByCategory}
+                onClick={() => setGroupByCategory((v) => !v)}
+              >
+                <Layers className="size-3.5" aria-hidden />
+                Group by category
+              </Button>
+            ) : null}
+          </>
+        }
+        groupBy={
+          groupByCategory ? (item) => item.category ?? UNCATEGORIZED : undefined
         }
         loading={loading}
         loadingLabel="Loading Shop Drawing…"
@@ -642,6 +715,7 @@ export default function ProjectShopDrawingPanel({
         rows={pageItems}
         rowKey={(item) => item.id}
         minWidthClassName="min-w-[820px]"
+        onRowClick={onSelectItem}
         pagination={{
           page: safePage,
           totalPages,
@@ -660,10 +734,11 @@ export default function ProjectShopDrawingPanel({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {nameDialog?.mode === 'rename' ? 'Rename item' : 'Add item'}
+              {nameDialog?.mode === 'rename' ? 'Edit item' : 'Add item'}
             </DialogTitle>
             <DialogDescription>
-              Give this Shop Drawing item a short name (e.g. item1).
+              Give this Shop Drawing item a short name (e.g. item1) and an
+              optional category to group it with similar items.
             </DialogDescription>
           </DialogHeader>
           <label className="block space-y-1.5">
@@ -683,6 +758,65 @@ export default function ProjectShopDrawingPanel({
               }}
             />
           </label>
+          <div className="space-y-1.5">
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">
+                Category <span className={hintClassName}>(optional)</span>
+              </span>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={categoryDraft}
+                  maxLength={80}
+                  disabled={nameBusy}
+                  placeholder="Type a new category or pick one below"
+                  className="w-full rounded-md border border-(--line) bg-transparent px-3 py-2 pr-8 text-sm uppercase placeholder:normal-case"
+                  onChange={(e) => setCategoryDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void confirmNameDialog()
+                    }
+                  }}
+                />
+                {categoryDraft ? (
+                  <button
+                    type="button"
+                    aria-label="Clear category"
+                    disabled={nameBusy}
+                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-sm p-0.5 text-(--muted) hover:text-(--ink)"
+                    onClick={() => setCategoryDraft('')}
+                  >
+                    <X className="size-3.5" aria-hidden />
+                  </button>
+                ) : null}
+              </div>
+            </label>
+            {categories.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {categories.map((c) => {
+                  const selected = categoryDraft.trim().toUpperCase() === c
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      disabled={nameBusy}
+                      aria-pressed={selected}
+                      onClick={() => setCategoryDraft(selected ? '' : c)}
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+                        selected
+                          ? 'bg-primary text-primary-foreground ring-primary'
+                          : 'text-(--muted) ring-(--line) hover:text-(--ink)',
+                      )}
+                    >
+                      {c}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
           <DialogFooter>
             <Button
               type="button"

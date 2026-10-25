@@ -11,6 +11,7 @@ import {
   Plus,
   Ruler,
   Save,
+  Tags,
   Trash2,
   Unlink,
   X,
@@ -25,6 +26,7 @@ import {
   ITEM_TYPES,
   pickCurrentTarif,
   todayYmdLocal,
+  type ItemCategoryOut,
   type ItemOut,
   type ItemTarifRow,
   type ItemType,
@@ -165,6 +167,38 @@ function toVendorIdsPayload(rows: VendorFormRow[]): string[] {
   return ids
 }
 
+type CategoryFormRow = {
+  key: string
+  categoryId: string
+}
+
+function emptyCategoryRow(): CategoryFormRow {
+  return {
+    key: `category-${Math.random().toString(36).slice(2, 9)}`,
+    categoryId: '',
+  }
+}
+
+function rowsFromCategoryIds(ids: string[]): CategoryFormRow[] {
+  if (ids.length === 0) return []
+  return ids.map((id, i) => ({
+    key: id || `category-${i}`,
+    categoryId: id,
+  }))
+}
+
+function toCategoryIdsPayload(rows: CategoryFormRow[]): string[] {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    const id = row.categoryId.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return ids
+}
+
 function validateTarifRows(rows: TarifFormRow[]): string | null {
   const seen = new Set<string>()
   for (const row of rows) {
@@ -267,6 +301,7 @@ export function ItemForm({
   initialName,
   initialDescription,
   initialItemType,
+  initialCategoryIds = [],
   showItemId,
   saving,
   setSaving,
@@ -278,6 +313,7 @@ export function ItemForm({
   initialName: string
   initialDescription: string
   initialItemType: ItemType
+  initialCategoryIds?: string[]
   showItemId?: string
   saving: boolean
   setSaving: (v: boolean) => void
@@ -286,6 +322,7 @@ export function ItemForm({
     name: string,
     description: string,
     itemType: ItemType,
+    categoryIds: string[],
     uoms: ItemUomRow[],
     tarifs: ItemTarifRow[],
     vendorIds: string[],
@@ -296,6 +333,10 @@ export function ItemForm({
   const [name, setName] = useState(initialName)
   const [description, setDescription] = useState(initialDescription)
   const [itemType, setItemType] = useState<ItemType>(initialItemType)
+  const [categoryRows, setCategoryRows] = useState<CategoryFormRow[]>(() =>
+    rowsFromCategoryIds(initialCategoryIds),
+  )
+  const [categoryCatalog, setCategoryCatalog] = useState<ItemCategoryOut[]>([])
   const [uomRows, setUomRows] = useState<UomFormRow[]>([emptyUomRow(true)])
   const [tarifRows, setTarifRows] = useState<TarifFormRow[]>([])
   const [uomCatalog, setUomCatalog] = useState<UomItem[]>([])
@@ -327,6 +368,23 @@ export function ItemForm({
         }
       } catch {
         /* catalog optional for display */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const response = await apiFetch<ItemCategoryOut[]>('/item-categories')
+        if (!cancelled && response.success && response.data) {
+          setCategoryCatalog(response.data)
+        }
+      } catch {
+        /* catalog optional */
       }
     })()
     return () => {
@@ -377,6 +435,7 @@ export function ItemForm({
         setName(response.data.name)
         setDescription(response.data.description)
         setItemType(response.data.itemType ?? 'material')
+        setCategoryRows(rowsFromCategoryIds(response.data.categoryIds ?? []))
         setVendorRows(rowsFromVendorIds(response.data.vendorIds ?? []))
         setUomRows(rowsFromItemUoms(response.data.uoms ?? []))
         setTarifRows(rowsFromItemTarifs(response.data.tarifs ?? []))
@@ -435,6 +494,7 @@ export function ItemForm({
         name.trim(),
         description.trim(),
         itemType,
+        toCategoryIdsPayload(categoryRows),
         toUomPayload(uomRows),
         toTarifPayload(tarifRows),
         toVendorIdsPayload(vendorRows),
@@ -509,6 +569,105 @@ export function ItemForm({
           onChange={(e) => setDescription(e.target.value)}
         />
       </label>
+
+      <div className="space-y-3 border-t border-(--line) pt-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="space-y-0.5">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              <Tags className="size-3.5 text-(--muted)" aria-hidden />
+              Categories
+            </span>
+            <p className={cn(hintClassName, 'text-xs')}>
+              Optional. Add one or more categories for filtering later.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={buttonOutlineClassName}
+            onClick={() =>
+              setCategoryRows((rows) => [...rows, emptyCategoryRow()])
+            }
+          >
+            <Plus className="size-3.5" aria-hidden />
+            Add
+          </Button>
+        </div>
+        {categoryRows.length === 0 ? (
+          <p className={cn(hintClassName, 'text-xs')}>
+            No categories linked. Add one to classify this item.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-md border border-(--line)">
+            <table className="w-full min-w-[18rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-(--line) text-left text-xs text-(--muted)">
+                  <th className="px-2.5 py-2 font-medium">Category</th>
+                  <th className="w-10 px-1 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {categoryRows.map((row, index) => {
+                  const taken = new Set(
+                    categoryRows
+                      .filter((_, i) => i !== index)
+                      .map((r) => r.categoryId)
+                      .filter(Boolean),
+                  )
+                  const options = categoryCatalog.filter(
+                    (c) => c.id === row.categoryId || !taken.has(c.id),
+                  )
+                  return (
+                    <tr
+                      key={row.key}
+                      className="border-b border-(--line) last:border-b-0"
+                    >
+                      <td className="px-2.5 py-2 align-middle">
+                        <Combobox
+                          value={row.categoryId}
+                          onValueChange={(value) =>
+                            setCategoryRows((rows) =>
+                              rows.map((r, i) =>
+                                i === index ? { ...r, categoryId: value } : r,
+                              ),
+                            )
+                          }
+                          options={options.map((c) => ({
+                            value: c.id,
+                            label: c.name,
+                          }))}
+                          placeholder="Select category"
+                          searchPlaceholder="Search categories…"
+                          emptyText="No category found."
+                          className="w-full max-w-[20rem] sm:w-full"
+                          aria-label="Category"
+                        />
+                      </td>
+                      <td className="px-1 py-2 align-middle">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="size-8 p-0 text-red-700"
+                          aria-label="Remove category"
+                          onClick={() =>
+                            setCategoryRows((rows) =>
+                              rows.filter((_, i) => i !== index),
+                            )
+                          }
+                        >
+                          <Trash2 className="size-3.5" aria-hidden />
+                        </Button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <div className="space-y-3 border-t border-(--line) pt-3">
         <div className="flex items-center justify-between gap-2">

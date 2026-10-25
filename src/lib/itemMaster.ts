@@ -17,7 +17,13 @@ export type TreeItemNode = {
   name: string
   description: string
   itemType: ItemType
+  categoryIds: string[]
   isActive: boolean
+}
+
+export type ItemCategoryOut = {
+  id: string
+  name: string
 }
 
 export type TreeNode = TreeFolderNode | TreeItemNode
@@ -53,6 +59,7 @@ export type ItemOut = {
   description: string
   itemType: ItemType
   folderId: string | null
+  categoryIds: string[]
   baseUomId: string | null
   vendorIds: string[]
   isActive: boolean
@@ -90,6 +97,7 @@ export type ItemListRow = {
   description: string
   itemType: ItemType
   folderId: string | null
+  categoryIds: string[]
   folderPath: string
   isActive: boolean
 }
@@ -171,6 +179,7 @@ export function flattenItems(
       description: node.description,
       itemType: node.itemType ?? 'material',
       folderId,
+      categoryIds: node.categoryIds ?? [],
       folderPath: folderPath || 'Root',
       isActive: node.isActive !== false,
     })

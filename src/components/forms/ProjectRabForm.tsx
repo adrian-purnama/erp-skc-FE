@@ -11,11 +11,14 @@ import {
 import { Link } from '@tanstack/react-router'
 import {
   ArrowLeft,
+  Check,
   Download,
   LoaderCircle,
   Lock,
+  LockOpen,
   Plus,
   Trash2,
+  Undo2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -54,9 +57,15 @@ import {
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
+import {
+  formatRupiahDigits,
+  rupiahDigits,
+  RupiahInput,
+} from '#/components/ui/rupiah-input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { useAuth } from '#/context/authContext'
 import { apiDownload, apiFetch } from '#/lib/api'
+import type { ItemCategoryOut } from '#/lib/itemMaster'
 import type {
   ProjectRab,
   ProjectRabChangeDraftRef,
@@ -66,6 +75,7 @@ import type {
   ProjectRabLabourItem,
   ProjectRabLine,
   ProjectRabLineChangeKind,
+  ProjectShopDrawingBoqMaterial,
 } from '#/lib/project'
 import {
   buttonClassName,
@@ -89,18 +99,6 @@ const formatWhen = formatCostingWhen
 
 /** Labour rows stay plain in the list; change markers live under Added after lock. */
 const NO_LINE_KINDS = new Map<string, ProjectRabLineChangeKind>()
-
-/** Digits only (integer rupiah). */
-function rupiahDigits(raw: string): string {
-  return raw.replace(/\D/g, '')
-}
-
-function formatRupiahDigits(digits: string): string {
-  if (!digits) return ''
-  const n = Number(digits)
-  if (!Number.isFinite(n)) return ''
-  return new Intl.NumberFormat('id-ID').format(n)
-}
 
 /** Display saved amount as Rp-formatted (or —). */
 function formatRupiahAmount(amount: string | null | undefined): string {
@@ -358,16 +356,43 @@ export default function ProjectRabForm({
   const [labourPriceDigits, setLabourPriceDigits] = useState('')
   const [reviewChangesOnly, setReviewChangesOnly] = useState(false)
   const [elaborationQuery, setElaborationQuery] = useState('')
+  const [elaborationCategoryFilter, setElaborationCategoryFilter] =
+    useState<string>('all')
+  const [materials, setMaterials] = useState<ProjectShopDrawingBoqMaterial[]>(
+    [],
+  )
+  const [categories, setCategories] = useState<ItemCategoryOut[]>([])
   const [exportBusy, setExportBusy] = useState(false)
+
+  const categoryIdsByMaterialId = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const m of materials) {
+      map.set(m.id, m.categoryIds ?? [])
+    }
+    return map
+  }, [materials])
+
+  const categoryFilterOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All categories' },
+      ...categories.map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [categories],
+  )
 
   const loadAll = useCallback(async (pid: string) => {
     setLoading(true)
     try {
-      const [rabRes, elabRes, labourRes] = await Promise.all([
-        apiFetch<ProjectRab | null>(`/project/${pid}/rab`),
-        apiFetch<ProjectRabElaboration>(`/project/${pid}/rab/elaboration`),
-        apiFetch<ProjectRabLabourItem[]>(`/project/${pid}/rab/labour-items`),
-      ])
+      const [rabRes, elabRes, labourRes, materialsRes, categoriesRes] =
+        await Promise.all([
+          apiFetch<ProjectRab | null>(`/project/${pid}/rab`),
+          apiFetch<ProjectRabElaboration>(`/project/${pid}/rab/elaboration`),
+          apiFetch<ProjectRabLabourItem[]>(`/project/${pid}/rab/labour-items`),
+          apiFetch<ProjectShopDrawingBoqMaterial[]>(
+            `/project/${pid}/shop-drawing/boq/materials`,
+          ),
+          apiFetch<ItemCategoryOut[]>('/item-categories'),
+        ])
       if (!rabRes.success) {
         toast.error(rabRes.message || 'Failed to load RAB')
         setRab(null)
@@ -384,11 +409,23 @@ export default function ProjectRabForm({
       } else {
         setLabourItems(labourRes.data)
       }
+      if (!materialsRes.success || !materialsRes.data) {
+        setMaterials([])
+      } else {
+        setMaterials(materialsRes.data)
+      }
+      if (!categoriesRes.success || !categoriesRes.data) {
+        setCategories([])
+      } else {
+        setCategories(categoriesRes.data)
+      }
     } catch {
       toast.error('Unable to reach the server')
       setRab(null)
       setElaboration(null)
       setLabourItems([])
+      setMaterials([])
+      setCategories([])
     } finally {
       setLoading(false)
     }
@@ -405,6 +442,10 @@ export default function ProjectRabForm({
     setLabourPriceDigits('')
     setChangeReason('')
     setReviewChangesOnly(false)
+    setElaborationQuery('')
+    setElaborationCategoryFilter('all')
+    setMaterials([])
+    setCategories([])
     if (!projectId) return
     void loadAll(projectId)
   }, [projectId, loadAll])
@@ -880,7 +921,7 @@ export default function ProjectRabForm({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-8 gap-1.5"
+                        className="h-8 gap-1.5 border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800"
                         disabled={busy || exportBusy}
                       >
                         <Download className="size-3.5" aria-hidden />
@@ -921,13 +962,14 @@ export default function ProjectRabForm({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8"
+                    className="h-8 gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-50 hover:text-amber-900"
                     disabled={busy}
                     onClick={() => {
                       setChangeReason('')
                       setChangeOpen(true)
                     }}
                   >
+                    <LockOpen className="size-3.5" aria-hidden />
                     Open change
                   </Button>
                 ) : null}
@@ -937,19 +979,21 @@ export default function ProjectRabForm({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-8"
+                      className="h-8 gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
                       disabled={busy}
                       onClick={() => void discardChange()}
                     >
+                      <Undo2 className="size-3.5" aria-hidden />
                       Discard
                     </Button>
                     <Button
                       type="button"
                       size="sm"
-                      className="h-8"
+                      className="h-8 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
                       disabled={busy}
                       onClick={() => void commitChange()}
                     >
+                      <Check className="size-3.5" aria-hidden />
                       Commit change
                     </Button>
                   </>
@@ -1114,20 +1158,12 @@ export default function ProjectRabForm({
                     </div>
                     <div className="space-y-1">
                       <p className={cn('text-xs', hintClassName)}>Unit price</p>
-                      <div className="flex items-center gap-1.5">
-                        <span className={cn('text-xs', hintClassName)}>Rp</span>
-                        <Input
-                          value={formatRupiahDigits(labourPriceDigits)}
-                          onChange={(e) =>
-                            setLabourPriceDigits(rupiahDigits(e.target.value))
-                          }
-                          disabled={busy}
-                          inputMode="numeric"
-                          placeholder="0"
-                          className="h-9 min-w-0 flex-1 tabular-nums"
-                          aria-label="Labour unit price"
-                        />
-                      </div>
+                      <RupiahInput
+                        value={labourPriceDigits}
+                        onValueChange={setLabourPriceDigits}
+                        disabled={busy}
+                        aria-label="Labour unit price"
+                      />
                     </div>
                     <Button
                       type="button"
@@ -1261,8 +1297,8 @@ export default function ProjectRabForm({
               ) : (
                 <>
                   <p className={hintClassName}>
-                    Materials by shop drawing, with qty and RAB estimate.
-                    Labour is listed below.
+                    Materials by shop drawing, with qty and RAB estimate. Labour
+                    is listed below.
                     {reviewChangesOnly
                       ? ' Showing only materials changed in this draft.'
                       : ''}
@@ -1275,12 +1311,25 @@ export default function ProjectRabForm({
                       aria-label="Find material in elaboration"
                       className="max-w-sm flex-1"
                     />
-                    {elaborationQuery.trim() ? (
+                    <Combobox
+                      value={elaborationCategoryFilter}
+                      onValueChange={setElaborationCategoryFilter}
+                      options={categoryFilterOptions}
+                      placeholder="All categories"
+                      searchPlaceholder="Search category…"
+                      emptyText="No category found."
+                      aria-label="Category filter"
+                      className="w-[10rem] shrink-0"
+                    />
+                    {elaborationQuery.trim() ||
+                    elaborationCategoryFilter !== 'all' ? (
                       <p
                         className={cn('text-xs tabular-nums', hintClassName)}
                         aria-live="polite"
                       >
-                        Search highlights where an item is used
+                        {elaborationQuery.trim()
+                          ? 'Search highlights where an item is used'
+                          : 'Filtered by category'}
                       </p>
                     ) : (
                       <p className={cn('text-xs', hintClassName)}>
@@ -1300,6 +1349,8 @@ export default function ProjectRabForm({
                       elaborationProvenanceByFile={elaborationProvenanceByFile}
                       changeDraft={changeDraft}
                       query={elaborationQuery}
+                      categoryFilter={elaborationCategoryFilter}
+                      categoryIdsByMaterialId={categoryIdsByMaterialId}
                     />
                   ))}
                   {labourLines.length > 0 ? (
@@ -1308,9 +1359,12 @@ export default function ProjectRabForm({
                       lineKindByKey={lineKindByKey}
                       changeProvenanceByKey={changeProvenanceByKey}
                       query={elaborationQuery}
+                      categoryFilter={elaborationCategoryFilter}
                     />
                   ) : null}
-                  {elaborationQuery.trim() || reviewChangesOnly ? (
+                  {elaborationQuery.trim() ||
+                  elaborationCategoryFilter !== 'all' ||
+                  reviewChangesOnly ? (
                     <ElaborationEmptyHint
                       documents={elaboration?.documents ?? []}
                       labourLines={labourLines}
@@ -1318,6 +1372,8 @@ export default function ProjectRabForm({
                       reviewChangesOnly={reviewChangesOnly}
                       elaborationProvenanceByFile={elaborationProvenanceByFile}
                       query={elaborationQuery}
+                      categoryFilter={elaborationCategoryFilter}
+                      categoryIdsByMaterialId={categoryIdsByMaterialId}
                     />
                   ) : null}
                   {hasLines ? (
@@ -1418,17 +1474,30 @@ function labourRowMatches(line: ProjectRabLine, query: string): boolean {
   )
 }
 
+function materialMatchesCategory(
+  materialItemId: string,
+  categoryFilter: string,
+  categoryIdsByMaterialId: Map<string, string[]>,
+): boolean {
+  if (categoryFilter === 'all') return true
+  const ids = categoryIdsByMaterialId.get(materialItemId) ?? []
+  return ids.includes(categoryFilter)
+}
+
 function RabElaborationLabour({
   lines,
   lineKindByKey,
   changeProvenanceByKey,
   query,
+  categoryFilter,
 }: {
   lines: ProjectRabLine[]
   lineKindByKey: Map<string, ProjectRabLineChangeKind>
   changeProvenanceByKey: Map<string, ChangeProvenance>
   query: string
+  categoryFilter: string
 }) {
+  if (categoryFilter !== 'all') return null
   const q = query.trim()
   const visible = lines.filter((line) => labourRowMatches(line, q))
   if (visible.length === 0) {
@@ -1587,6 +1656,8 @@ function countVisibleElaborationRows(
     reviewChangesOnly: boolean
     elaborationProvenanceByFile: Map<string, ChangeProvenance>
     query: string
+    categoryFilter: string
+    categoryIdsByMaterialId: Map<string, string[]>
   },
 ): number {
   const q = opts.query.trim()
@@ -1606,6 +1677,15 @@ function countVisibleElaborationRows(
       ) {
         continue
       }
+      if (
+        !materialMatchesCategory(
+          line.materialItemId,
+          opts.categoryFilter,
+          opts.categoryIdsByMaterialId,
+        )
+      ) {
+        continue
+      }
       if (q && !docNameHit && !elaborationRowMatches(block.title, line, q)) {
         continue
       }
@@ -1622,6 +1702,8 @@ function ElaborationEmptyHint({
   reviewChangesOnly,
   elaborationProvenanceByFile,
   query,
+  categoryFilter,
+  categoryIdsByMaterialId,
 }: {
   documents: ProjectRabElaborationDoc[]
   labourLines: ProjectRabLine[]
@@ -1629,6 +1711,8 @@ function ElaborationEmptyHint({
   reviewChangesOnly: boolean
   elaborationProvenanceByFile: Map<string, ChangeProvenance>
   query: string
+  categoryFilter: string
+  categoryIdsByMaterialId: Map<string, string[]>
 }) {
   const q = query.trim()
   const docHits = documents.reduce(
@@ -1639,20 +1723,25 @@ function ElaborationEmptyHint({
         reviewChangesOnly,
         elaborationProvenanceByFile,
         query: q,
+        categoryFilter,
+        categoryIdsByMaterialId,
       }),
     0,
   )
-  const labourHits = labourLines.filter((line) =>
-    labourRowMatches(line, q),
-  ).length
+  const labourHits =
+    categoryFilter === 'all'
+      ? labourLines.filter((line) => labourRowMatches(line, q)).length
+      : 0
   if (docHits > 0 || labourHits > 0) return null
   return (
     <p className={cn('text-sm', hintClassName)}>
       {q
         ? `No materials match “${q}”.`
-        : reviewChangesOnly
-          ? 'No changed materials in elaboration for this draft.'
-          : null}
+        : categoryFilter !== 'all'
+          ? 'No materials in this category.'
+          : reviewChangesOnly
+            ? 'No changed materials in elaboration for this draft.'
+            : null}
     </p>
   )
 }
@@ -1665,6 +1754,8 @@ function RabElaborationDoc({
   elaborationProvenanceByFile,
   changeDraft,
   query,
+  categoryFilter,
+  categoryIdsByMaterialId,
 }: {
   doc: ProjectRabElaborationDoc
   estimateLines: ProjectRabLine[]
@@ -1673,6 +1764,8 @@ function RabElaborationDoc({
   elaborationProvenanceByFile: Map<string, ChangeProvenance>
   changeDraft: ProjectRabChangeDraftRef | null
   query: string
+  categoryFilter: string
+  categoryIdsByMaterialId: Map<string, string[]>
 }) {
   const q = query.trim()
   const docNameHit =
@@ -1695,6 +1788,15 @@ function RabElaborationDoc({
   const rows = allRows.filter((row) => {
     if (reviewChangesOnly && !addedInChange) {
       if (!elaborationProvenanceByFile.has(row.scopeKey)) return false
+    }
+    if (
+      !materialMatchesCategory(
+        row.line.materialItemId,
+        categoryFilter,
+        categoryIdsByMaterialId,
+      )
+    ) {
+      return false
     }
     if (q && !docNameHit && !elaborationRowMatches(row.source, row.line, q)) {
       return false
@@ -1911,7 +2013,6 @@ function RabLineList({
           priceDrafts[line.key] !== undefined
             ? rupiahDigits(priceDrafts[line.key]!)
             : savedDigits
-        const draftDisplay = formatRupiahDigits(draftDigits)
         const dirty =
           priceDrafts[line.key] !== undefined && draftDigits !== savedDigits
         const editable = canManage && line.priceEditable
@@ -1971,19 +2072,17 @@ function RabLineList({
               <div className="flex items-center gap-1.5">
                 {editable ? (
                   <>
-                    <span className={cn('text-xs', hintClassName)}>Rp</span>
-                    <Input
-                      value={draftDisplay}
-                      onChange={(e) =>
+                    <RupiahInput
+                      value={draftDigits}
+                      onValueChange={(digits) =>
                         setPriceDrafts((prev) => ({
                           ...prev,
-                          [line.key]: rupiahDigits(e.target.value),
+                          [line.key]: digits,
                         }))
                       }
                       disabled={busy}
-                      inputMode="numeric"
-                      placeholder="0"
-                      className="h-8 min-w-0 flex-1 tabular-nums"
+                      wrapperClassName="min-w-0 flex-1"
+                      className="h-8"
                       aria-label={`Unit price ${line.materialName}`}
                     />
                     {dirty ? (

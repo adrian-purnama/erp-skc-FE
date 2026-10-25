@@ -1,5 +1,5 @@
 import { LoaderCircle, Search } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import ListPagination from '#/components/forms/shared/ListPagination'
 import { cardClassName, hintClassName, inputClassName } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
@@ -30,6 +30,11 @@ type ListTableProps<T> = {
   minWidthClassName?: string
   pagination?: PaginationProps
   onRowClick?: (row: T) => void
+  /**
+   * When set, a header row is inserted whenever the group label changes.
+   * Rows must already be sorted so each group is contiguous.
+   */
+  groupBy?: (row: T) => string
 }
 
 export function ListSearchInput({
@@ -80,6 +85,7 @@ export default function ListTable<T>({
   minWidthClassName = 'min-w-[520px]',
   pagination,
   onRowClick,
+  groupBy,
 }: ListTableProps<T>) {
   return (
     <div className="space-y-3">
@@ -95,7 +101,9 @@ export default function ListTable<T>({
           {loadingLabel}
         </div>
       ) : rows.length === 0 ? (
-        <p className={`${cardClassName} px-4 py-8 text-center ${hintClassName}`}>
+        <p
+          className={`${cardClassName} px-4 py-8 text-center ${hintClassName}`}
+        >
           {empty}
         </p>
       ) : (
@@ -120,43 +128,64 @@ export default function ListTable<T>({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={rowKey(row)}
-                    className={cn(
-                      'border-b border-(--line) hover:bg-(--surface)',
-                      onRowClick && 'cursor-pointer',
-                    )}
-                    onClick={
-                      onRowClick
-                        ? () => {
-                            onRowClick(row)
-                          }
-                        : undefined
-                    }
-                    onKeyDown={
-                      onRowClick
-                        ? (event) => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault()
-                              onRowClick(row)
-                            }
-                          }
-                        : undefined
-                    }
-                    tabIndex={onRowClick ? 0 : undefined}
-                    role={onRowClick ? 'link' : undefined}
-                  >
-                    {columns.map((col, index) => (
-                      <td
-                        key={index}
-                        className={cn('px-3 py-3', col.cellClassName)}
+                {rows.map((row, rowIndex) => {
+                  const group = groupBy?.(row)
+                  const showGroup =
+                    groupBy !== undefined &&
+                    (rowIndex === 0 || groupBy(rows[rowIndex - 1]) !== group)
+                  return (
+                    <Fragment key={rowKey(row)}>
+                      {showGroup ? (
+                        <tr className="border-b border-(--line) bg-(--surface)">
+                          <th
+                            colSpan={columns.length}
+                            scope="colgroup"
+                            className="px-3 py-1.5 text-xs font-semibold tracking-wide text-(--ink)"
+                          >
+                            {group}
+                          </th>
+                        </tr>
+                      ) : null}
+                      <tr
+                        className={cn(
+                          'border-b border-(--line) hover:bg-(--surface)',
+                          onRowClick && 'cursor-pointer',
+                        )}
+                        onClick={
+                          onRowClick
+                            ? () => {
+                                onRowClick(row)
+                              }
+                            : undefined
+                        }
+                        onKeyDown={
+                          onRowClick
+                            ? (event) => {
+                                if (
+                                  event.key === 'Enter' ||
+                                  event.key === ' '
+                                ) {
+                                  event.preventDefault()
+                                  onRowClick(row)
+                                }
+                              }
+                            : undefined
+                        }
+                        tabIndex={onRowClick ? 0 : undefined}
+                        role={onRowClick ? 'link' : undefined}
                       >
-                        {col.cell(row)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                        {columns.map((col, index) => (
+                          <td
+                            key={index}
+                            className={cn('px-3 py-3', col.cellClassName)}
+                          >
+                            {col.cell(row)}
+                          </td>
+                        ))}
+                      </tr>
+                    </Fragment>
+                  )
+                })}
               </tbody>
             </table>
           </div>

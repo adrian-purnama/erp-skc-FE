@@ -1,30 +1,42 @@
 import * as React from 'react'
 import { ListSearchInput } from '#/components/forms/shared/ListTable'
+import { Combobox } from '#/components/ui/combobox'
 import type {
   ProjectShopDrawingBoq,
   ProjectShopDrawingBoqItemSummary,
   ProjectShopDrawingBoqLine,
+  ProjectShopDrawingBoqMaterial,
   ProjectShopDrawingBoqMountingType,
 } from '#/lib/project'
+import type { ItemCategoryOut } from '#/lib/itemMaster'
 import { hintClassName } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
+
+type CategoryFilter = 'all' | string
 
 type Props = {
   summary: ProjectShopDrawingBoqItemSummary[]
   overview: ProjectShopDrawingBoq[]
+  materials?: ProjectShopDrawingBoqMaterial[]
+  categories?: ItemCategoryOut[]
   className?: string
+}
+
+type SheetCell = {
+  text: string
+  materialItemId: string
 }
 
 type SheetRow = {
   key: string
   shopDrawing: string
   version: string
-  bases: string[]
-  finishings: string[]
-  assembly: string[]
-  lighting: string[]
-  mounting: string[]
-  other: string[]
+  bases: SheetCell[]
+  finishings: SheetCell[]
+  assembly: SheetCell[]
+  lighting: SheetCell[]
+  mounting: SheetCell[]
+  other: SheetCell[]
   emptyMessage?: string
 }
 
@@ -56,8 +68,11 @@ function formatLine(line: ProjectShopDrawingBoqLine): string {
   return total ? `${material} · ${total}` : material
 }
 
-function formatLines(lines: ProjectShopDrawingBoqLine[]): string[] {
-  return lines.map(formatLine)
+function toCells(lines: ProjectShopDrawingBoqLine[]): SheetCell[] {
+  return lines.map((line) => ({
+    text: formatLine(line),
+    materialItemId: line.materialItemId,
+  }))
 }
 
 function formatFinishings(
@@ -69,7 +84,7 @@ function formatFinishings(
   placement: 'top' | 'bottom',
   coreIndex: number,
   startLayer: number,
-): { lines: string[]; nextLayer: number } {
+): { cells: SheetCell[]; nextLayer: number } {
   const list =
     placement === 'top'
       ? [...finishings]
@@ -79,16 +94,19 @@ function formatFinishings(
           .filter((f) => f.placement === 'bottom')
           .sort((a, b) => a.finishingOrder - b.finishingOrder)
 
-  const parts: string[] = []
+  const parts: SheetCell[] = []
   let layer = startLayer
   for (const finishing of list) {
     layer += 1
     const num = `${coreIndex}.${layer}`
     for (const line of finishing.lines) {
-      parts.push(`${num} ${formatLine(line)}`)
+      parts.push({
+        text: `${num} ${formatLine(line)}`,
+        materialItemId: line.materialItemId,
+      })
     }
   }
-  return { lines: parts, nextLayer: layer }
+  return { cells: parts, nextLayer: layer }
 }
 
 function emptyRow(
@@ -147,25 +165,31 @@ function buildRows(
       continue
     }
 
-    const assembly = formatLines(boq.main.assembly.lines)
-    const lighting = formatLines(boq.lighting.lines)
-    const mountingMaterials = formatLines(boq.mounting.lines)
+    const assembly = toCells(boq.main.assembly.lines)
+    const lighting = toCells(boq.lighting.lines)
+    const mountingMaterials = toCells(boq.mounting.lines)
+    const mountingLabel = MOUNTING_LABEL[boq.mounting.type] ?? boq.mounting.type
     const mounting =
       mountingMaterials.length > 0 || boq.mounting.type
         ? [
-            MOUNTING_LABEL[boq.mounting.type] ?? boq.mounting.type,
+            ...(mountingLabel
+              ? [{ text: mountingLabel, materialItemId: '' }]
+              : []),
             ...mountingMaterials,
-          ].filter(Boolean)
+          ]
         : []
-    const other = formatLines(boq.other.lines)
+    const other = toCells(boq.other.lines)
 
     const bases = boq.main.parts.flatMap((part) => part.bases)
-    const baseLines: string[] = []
-    const finishingLines: string[] = []
+    const baseLines: SheetCell[] = []
+    const finishingLines: SheetCell[] = []
 
     bases.forEach((base, index) => {
       const coreIndex = index + 1
-      baseLines.push(`${coreIndex} ${formatLine(base)}`)
+      baseLines.push({
+        text: `${coreIndex} ${formatLine(base)}`,
+        materialItemId: base.materialItemId,
+      })
       const above = formatFinishings(base.finishings, 'top', coreIndex, 0)
       const below = formatFinishings(
         base.finishings,
@@ -173,7 +197,7 @@ function buildRows(
         coreIndex,
         above.nextLayer,
       )
-      finishingLines.push(...above.lines, ...below.lines)
+      finishingLines.push(...above.cells, ...below.cells)
     })
 
     rows.push({
@@ -198,6 +222,79 @@ function buildRows(
   }
 
   return rows
+}
+
+function materialMatchesCategory(
+  materialItemId: string,
+  categoryFilter: CategoryFilter,
+  categoryIdsByMaterialId: Map<string, string[]>,
+): boolean {
+  if (categoryFilter === 'all') return true
+  if (!materialItemId) return false
+  const ids = categoryIdsByMaterialId.get(materialItemId) ?? []
+  return ids.includes(categoryFilter)
+}
+
+function filterCells(
+  cells: SheetCell[],
+  categoryFilter: CategoryFilter,
+  categoryIdsByMaterialId: Map<string, string[]>,
+): SheetCell[] {
+  if (categoryFilter === 'all') return cells
+  return cells.filter((cell) =>
+    materialMatchesCategory(
+      cell.materialItemId,
+      categoryFilter,
+      categoryIdsByMaterialId,
+    ),
+  )
+}
+
+function filterRow(
+  row: SheetRow,
+  categoryFilter: CategoryFilter,
+  categoryIdsByMaterialId: Map<string, string[]>,
+): SheetRow {
+  if (categoryFilter === 'all' || row.emptyMessage) return row
+  const bases = filterCells(row.bases, categoryFilter, categoryIdsByMaterialId)
+  const finishings = filterCells(
+    row.finishings,
+    categoryFilter,
+    categoryIdsByMaterialId,
+  )
+  const assembly = filterCells(
+    row.assembly,
+    categoryFilter,
+    categoryIdsByMaterialId,
+  )
+  const lighting = filterCells(
+    row.lighting,
+    categoryFilter,
+    categoryIdsByMaterialId,
+  )
+  const mounting = filterCells(
+    row.mounting,
+    categoryFilter,
+    categoryIdsByMaterialId,
+  )
+  const other = filterCells(row.other, categoryFilter, categoryIdsByMaterialId)
+  const hasAny =
+    bases.length > 0 ||
+    finishings.length > 0 ||
+    assembly.length > 0 ||
+    lighting.length > 0 ||
+    mounting.length > 0 ||
+    other.length > 0
+  return {
+    ...row,
+    bases,
+    finishings,
+    assembly,
+    lighting,
+    mounting,
+    other,
+    emptyMessage: hasAny ? undefined : 'No materials in this category.',
+  }
 }
 
 function countMatches(text: string, query: string): number {
@@ -243,7 +340,7 @@ function highlightText(text: string, query: string): React.ReactNode {
 }
 
 /** Side-by-side cells for assembly / lighting / mounting / other. */
-function StackCell({ lines, query }: { lines: string[]; query: string }) {
+function StackCell({ lines, query }: { lines: SheetCell[]; query: string }) {
   if (lines.length === 0) {
     return <span className="text-(--muted)">—</span>
   }
@@ -251,17 +348,17 @@ function StackCell({ lines, query }: { lines: string[]; query: string }) {
   return (
     <div className="flex flex-row flex-nowrap items-stretch gap-0">
       {lines.map((line, index) => {
-        const matched = q.length > 0 && countMatches(line, q) > 0
+        const matched = q.length > 0 && countMatches(line.text, q) > 0
         return (
           <div
-            key={`${index}-${line}`}
+            key={`${index}-${line.text}`}
             className={cn(
               'min-w-[9rem] max-w-[14rem] shrink-0 break-words px-1.5 py-0.5 text-xs',
               index > 0 && 'border-l border-(--line)',
               matched && 'bg-[#fff6d6]',
             )}
           >
-            {highlightText(line, q)}
+            {highlightText(line.text, q)}
           </div>
         )
       })}
@@ -270,15 +367,15 @@ function StackCell({ lines, query }: { lines: string[]; query: string }) {
 }
 
 function SlotCell({
-  text,
+  cell,
   query,
   className,
 }: {
-  text: string | undefined
+  cell: SheetCell | undefined
   query: string
   className?: string
 }) {
-  if (!text) {
+  if (!cell) {
     return (
       <td className={cn(cellBorder, 'text-xs text-(--muted)', className)}>
         —
@@ -286,7 +383,7 @@ function SlotCell({
     )
   }
   const q = query.trim()
-  const matched = q.length > 0 && countMatches(text, q) > 0
+  const matched = q.length > 0 && countMatches(cell.text, q) > 0
   return (
     <td
       className={cn(
@@ -296,16 +393,16 @@ function SlotCell({
         className,
       )}
     >
-      <div className="break-words">{highlightText(text, q)}</div>
+      <div className="break-words">{highlightText(cell.text, q)}</div>
     </td>
   )
 }
 
 function finishingHeaderLabel(rows: SheetRow[], index: number): string {
   for (const row of rows) {
-    const text = row.finishings[index]
-    if (!text) continue
-    const num = text.trim().split(/\s+/)[0]
+    const cell = row.finishings[index]
+    if (!cell) continue
+    const num = cell.text.trim().split(/\s+/)[0]
     if (num && /^\d+\.\d+$/.test(num)) return num
   }
   return `Layer ${index + 1}`
@@ -317,12 +414,12 @@ function rowMatchCount(row: SheetRow, query: string): number {
   if (row.emptyMessage) return countMatches(row.emptyMessage, q)
   const fields = [
     row.shopDrawing,
-    ...row.bases,
-    ...row.finishings,
-    ...row.assembly,
-    ...row.lighting,
-    ...row.mounting,
-    ...row.other,
+    ...row.bases.map((c) => c.text),
+    ...row.finishings.map((c) => c.text),
+    ...row.assembly.map((c) => c.text),
+    ...row.lighting.map((c) => c.text),
+    ...row.mounting.map((c) => c.text),
+    ...row.other.map((c) => c.text),
   ]
   return fields.reduce((sum, text) => sum + countMatches(text, q), 0)
 }
@@ -335,12 +432,43 @@ const headCell = cn(cellBorder, 'bg-(--surface) font-medium')
 export default function ShopDrawingBoqStackViewer({
   summary,
   overview,
+  materials = [],
+  categories = [],
   className,
 }: Props) {
-  const rows = React.useMemo(
+  const categoryIdsByMaterialId = React.useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const m of materials) {
+      map.set(m.id, m.categoryIds ?? [])
+    }
+    return map
+  }, [materials])
+
+  const categoryOptions = React.useMemo(
+    () => [
+      { value: 'all', label: 'All categories' },
+      ...categories.map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [categories],
+  )
+
+  const rawRows = React.useMemo(
     () => buildRows(summary, overview),
     [summary, overview],
   )
+  const [selectedKey, setSelectedKey] = React.useState<string | null>(null)
+  const [query, setQuery] = React.useState('')
+  const [categoryFilter, setCategoryFilter] =
+    React.useState<CategoryFilter>('all')
+
+  const rows = React.useMemo(
+    () =>
+      rawRows.map((row) =>
+        filterRow(row, categoryFilter, categoryIdsByMaterialId),
+      ),
+    [rawRows, categoryFilter, categoryIdsByMaterialId],
+  )
+
   const maxBases = React.useMemo(
     () => Math.max(0, ...rows.map((r) => r.bases.length)),
     [rows],
@@ -350,13 +478,12 @@ export default function ShopDrawingBoqStackViewer({
     [rows],
   )
   const dataColCount = Math.max(1, maxBases) + Math.max(1, maxFinishings) + 4
-  const [selectedKey, setSelectedKey] = React.useState<string | null>(null)
-  const [query, setQuery] = React.useState('')
   const matchTotal = React.useMemo(
     () => rows.reduce((sum, row) => sum + rowMatchCount(row, query), 0),
     [rows, query],
   )
   const q = query.trim()
+  const filtersActive = Boolean(q) || categoryFilter !== 'all'
 
   if (summary.length === 0) {
     return (
@@ -379,14 +506,26 @@ export default function ShopDrawingBoqStackViewer({
           aria-label="Find material in overview"
           className="max-w-sm flex-1"
         />
-        {q ? (
+        <Combobox
+          value={categoryFilter}
+          onValueChange={setCategoryFilter}
+          options={categoryOptions}
+          placeholder="All categories"
+          searchPlaceholder="Search category…"
+          emptyText="No category found."
+          aria-label="Category filter"
+          className="w-[10rem] shrink-0"
+        />
+        {filtersActive ? (
           <p
             className={cn('text-xs tabular-nums', hintClassName)}
             aria-live="polite"
           >
-            {matchTotal === 0
-              ? 'No matches'
-              : `${matchTotal} match${matchTotal === 1 ? '' : 'es'}`}
+            {q
+              ? matchTotal === 0
+                ? 'No matches'
+                : `${matchTotal} match${matchTotal === 1 ? '' : 'es'}`
+              : 'Filtered by category'}
           </p>
         ) : (
           <p className={cn('text-xs', hintClassName)}>
@@ -407,10 +546,7 @@ export default function ShopDrawingBoqStackViewer({
               >
                 Shop Drawing
               </th>
-              <th
-                className={cn(headCell, 'min-w-[3rem]')}
-                rowSpan={2}
-              >
+              <th className={cn(headCell, 'min-w-[3rem]')} rowSpan={2}>
                 Ver
               </th>
               <th
@@ -508,24 +644,24 @@ export default function ShopDrawingBoqStackViewer({
                   ) : (
                     <>
                       {maxBases === 0 ? (
-                        <SlotCell text={undefined} query={q} className={fill} />
+                        <SlotCell cell={undefined} query={q} className={fill} />
                       ) : (
                         Array.from({ length: maxBases }, (_, i) => (
                           <SlotCell
                             key={`${row.key}-b-${i}`}
-                            text={row.bases[i]}
+                            cell={row.bases[i]}
                             query={q}
                             className={fill}
                           />
                         ))
                       )}
                       {maxFinishings === 0 ? (
-                        <SlotCell text={undefined} query={q} className={fill} />
+                        <SlotCell cell={undefined} query={q} className={fill} />
                       ) : (
                         Array.from({ length: maxFinishings }, (_, i) => (
                           <SlotCell
                             key={`${row.key}-f-${i}`}
-                            text={row.finishings[i]}
+                            cell={row.finishings[i]}
                             query={q}
                             className={fill}
                           />
