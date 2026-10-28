@@ -13,10 +13,10 @@ const ADMIN_ACCESS = [
 
 export const Route = createFileRoute('/admin')({
   ssr: false,
-  beforeLoad: async () => {
+  beforeLoad: async ({ location }) => {
     const user = await bootstrapAuth()
     if (!user) {
-      throw redirect({ to: '/login' })
+      throw redirect({ to: '/login', search: { redirect: location.href } })
     }
     if (!canAnyFromUser(user, [...ADMIN_ACCESS])) {
       throw redirect({ to: '/dashboard' })

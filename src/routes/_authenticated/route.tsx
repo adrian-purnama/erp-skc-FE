@@ -3,10 +3,11 @@ import { bootstrapAuth } from '#/context/authContext'
 
 export const Route = createFileRoute('/_authenticated')({
   ssr: false,
-  beforeLoad: async () => {
+  beforeLoad: async ({ location }) => {
     const user = await bootstrapAuth()
     if (!user) {
-      throw redirect({ to: '/login' })
+      // Come back here after signing in (e.g. a file link from an SPK PDF).
+      throw redirect({ to: '/login', search: { redirect: location.href } })
     }
   },
   component: AuthenticatedLayout,

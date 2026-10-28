@@ -79,7 +79,9 @@ export default function ProjectSideNavPanel({
           <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
             <ProjectStatusChip status={project.status} />
             <span className={cn('text-[10px]', hintClassName)}>
-              {PROJECT_PHASE_LABELS[phaseForStatus(project.status)]}
+              {PROJECT_PHASE_LABELS[
+                  phaseForStatus(project.status, project.productionReleasedAt)
+                ]}
             </span>
           </div>
         </div>

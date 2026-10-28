@@ -220,6 +220,9 @@ function QuotationDocument({
   ]
     .filter(Boolean)
     .join(' · ')
+  const branches = q.company.branchOfficeAddresses
+    .map((b) => b.trim())
+    .filter(Boolean)
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">
@@ -261,8 +264,19 @@ function QuotationDocument({
           <div className="min-w-0 space-y-0.5">
             <h1 className="text-lg font-semibold">{q.company.name}</h1>
             {q.company.address ? (
-              <p className="whitespace-pre-line text-xs">{q.company.address}</p>
+              <p className="whitespace-pre-line text-xs">
+                {branches.length > 0 ? (
+                  <span className="font-medium">Head Office: </span>
+                ) : null}
+                {q.company.address}
+              </p>
             ) : null}
+            {branches.map((b, i) => (
+              <p key={i} className="whitespace-pre-line text-xs">
+                <span className="font-medium">Branch Office: </span>
+                {b}
+              </p>
+            ))}
             {contact ? <p className="text-xs">{contact}</p> : null}
             {q.company.npwp ? (
               <p className="text-xs">NPWP: {q.company.npwp}</p>
@@ -274,36 +288,45 @@ function QuotationDocument({
           PENAWARAN HARGA
         </h2>
 
-        <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-0.5">
-          <dt className="font-medium">No.</dt>
-          <dd>{q.quotationNumber}</dd>
-          <dt className="font-medium">Tanggal</dt>
-          <dd>{q.issuedAt ? formatYmdLong(q.issuedAt.slice(0, 10)) : '—'}</dd>
-          <dt className="font-medium">Kepada</dt>
-          <dd>{q.customer.name}</dd>
-          {q.customer.address ? (
-            <>
-              <dt className="font-medium">Alamat</dt>
-              <dd className="whitespace-pre-line">{q.customer.address}</dd>
-            </>
-          ) : null}
-          <dt className="font-medium">Up.</dt>
-          <dd>{q.attention}</dd>
-          {q.subject ? (
-            <>
-              <dt className="font-medium">Perihal</dt>
-              <dd>{q.subject}</dd>
-            </>
-          ) : null}
-        </dl>
+        <div className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+          <dl className="grid grid-cols-[5rem_1fr] content-start gap-x-3 gap-y-0.5">
+            <dt className="font-medium">Kepada</dt>
+            <dd>{q.customer.name}</dd>
+            {q.customer.address ? (
+              <>
+                <dt className="font-medium">Alamat</dt>
+                <dd className="whitespace-pre-line">{q.customer.address}</dd>
+              </>
+            ) : null}
+            <dt className="font-medium">Up.</dt>
+            <dd>{q.attention}</dd>
+          </dl>
+          <dl className="grid grid-cols-[5rem_1fr] content-start gap-x-3 gap-y-0.5">
+            <dt className="font-medium">No.</dt>
+            <dd>{q.quotationNumber}</dd>
+            <dt className="font-medium">Tanggal</dt>
+            <dd>{q.issuedAt ? formatYmdLong(q.issuedAt.slice(0, 10)) : '—'}</dd>
+            {q.subject ? (
+              <>
+                <dt className="font-medium">Perihal</dt>
+                <dd>{q.subject}</dd>
+              </>
+            ) : null}
+          </dl>
+        </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[34rem] border-collapse text-sm">
+          <table className="w-full min-w-[44rem] border-collapse text-sm">
             <thead>
               <tr className="bg-(--surface) text-xs">
                 <th className="border border-(--line) px-2 py-1.5">No</th>
+                <th className="border border-(--line) px-2 py-1.5">Kode</th>
                 <th className="border border-(--line) px-2 py-1.5 text-left">
-                  Uraian
+                  Keterangan
+                </th>
+                <th className="border border-(--line) px-2 py-1.5">
+                  Ukuran
+                  <span className="block font-normal">(p x tebal x t mm)</span>
                 </th>
                 <th className="border border-(--line) px-2 py-1.5">Qty</th>
                 <th className="border border-(--line) px-2 py-1.5">Satuan</th>
@@ -320,7 +343,7 @@ function QuotationDocument({
                 row.type === 'section' ? (
                   <tr key={i} className="bg-(--surface)">
                     <th
-                      colSpan={6}
+                      colSpan={8}
                       scope="colgroup"
                       className="border border-(--line) px-2 py-1.5 text-center text-xs font-semibold tracking-wide"
                     >
@@ -330,7 +353,7 @@ function QuotationDocument({
                 ) : row.type === 'subtotal' ? (
                   <tr key={i} className="bg-(--surface) font-semibold">
                     <td
-                      colSpan={5}
+                      colSpan={7}
                       className="border border-(--line) px-2 py-1.5 text-right"
                     >
                       {row.label}
@@ -344,8 +367,17 @@ function QuotationDocument({
                     <td className="border border-(--line) px-2 py-1.5 text-center tabular-nums">
                       {row.no}
                     </td>
-                    <td className="border border-(--line) px-2 py-1.5">
-                      {row.line.description}
+                    <td className="border border-(--line) px-2 py-1.5 align-top font-medium whitespace-nowrap">
+                      {row.line.code}
+                    </td>
+                    <td className="border border-(--line) px-2 py-1.5 align-top">
+                      <p className="font-semibold">{row.line.description}</p>
+                      {row.line.descriptions.map((d, i) => (
+                        <p key={i}>{d}</p>
+                      ))}
+                    </td>
+                    <td className="border border-(--line) px-2 py-1.5 align-top whitespace-nowrap tabular-nums">
+                      {row.line.dimension}
                     </td>
                     <td className="border border-(--line) px-2 py-1.5 text-center tabular-nums">
                       {row.line.qty}

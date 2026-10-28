@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  RotateCcw,
   Trash2,
   Upload,
   X,
@@ -126,6 +127,111 @@ function auditUploadedLine(doc: ProjectShopDrawingFile): string {
   return `Uploaded at ${formatWhen(doc.uploadedAt)} by ${doc.uploadedByName || 'Unknown'}`
 }
 
+/** Each shop drawing item carries two versioned file streams. */
+type FileKind = 'sd' | 'production'
+
+const FILE_KIND_LABELS: Record<FileKind, string> = {
+  sd: 'Shop drawing',
+  production: 'File Produksi',
+}
+
+const FILE_KIND_SHORT: Record<FileKind, string> = {
+  sd: 'SD',
+  production: 'Produksi',
+}
+
+function FileSlot({
+  kind,
+  file,
+  versionCount,
+  busy,
+  canManage,
+  onUpload,
+  onDownload,
+  onHistory,
+}: {
+  kind: FileKind
+  file: ProjectShopDrawingFile | null
+  versionCount: number
+  busy: boolean
+  canManage: boolean
+  onUpload: () => void
+  onDownload: (file: ProjectShopDrawingFile) => void
+  onHistory: () => void
+}) {
+  const label = FILE_KIND_LABELS[kind]
+  const detail = file
+    ? `${file.originalFilename}\n${formatBytes(file.sizeBytes)} · ${auditUploadedLine(file)}`
+    : undefined
+  return (
+    <div className="flex h-7 min-w-0 items-center gap-2">
+      <span className="w-14 shrink-0 text-[10px] font-semibold tracking-wide text-(--muted) uppercase">
+        {FILE_KIND_SHORT[kind]}
+      </span>
+      {file ? (
+        <span className="min-w-0 flex-1 truncate text-xs" title={detail}>
+          <span className="tabular-nums text-(--muted)">
+            v{file.version}
+            {file.sameAsVersion != null ? `=v${file.sameAsVersion}` : ''}
+          </span>{' '}
+          {file.originalFilename}
+        </span>
+      ) : (
+        <span className={cn('min-w-0 flex-1 text-xs', hintClassName)}>
+          No file yet
+        </span>
+      )}
+      <div className="flex shrink-0 items-center">
+        {canManage ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            disabled={busy}
+            title={`Upload ${label}`}
+            aria-label={`Upload ${label}`}
+            onClick={onUpload}
+          >
+            {busy ? (
+              <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Upload className="size-3.5" aria-hidden />
+            )}
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-6"
+          disabled={!file || file.isDeleted}
+          title={`Download ${label}`}
+          aria-label={`Download ${label}`}
+          onClick={() => {
+            if (file) onDownload(file)
+          }}
+        >
+          <Download className="size-3.5" aria-hidden />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 min-w-9 gap-0.5 px-1 text-[11px] tabular-nums"
+          disabled={versionCount === 0}
+          title={`${label} history`}
+          aria-label={`${label} history (${versionCount})`}
+          onClick={onHistory}
+        >
+          <History className="size-3" aria-hidden />
+          {versionCount}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export default function ProjectShopDrawingPanel({
   projectId,
   canManage,
@@ -152,6 +258,8 @@ export default function ProjectShopDrawingPanel({
   const [deletingItem, setDeletingItem] = useState(false)
 
   const [uploadItemId, setUploadItemId] = useState<string | null>(null)
+  /** Which file stream the upload / history / delete dialogs act on. */
+  const [fileKind, setFileKind] = useState<FileKind>('sd')
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [forceDifferent, setForceDifferent] = useState(false)
   const [showHashInfo, setShowHashInfo] = useState(false)
@@ -159,8 +267,12 @@ export default function ProjectShopDrawingPanel({
   const [nameDialog, setNameDialog] = useState<
     { mode: 'create' } | { mode: 'rename'; item: ProjectShopDrawingItem } | null
   >(null)
+  const [codeDraft, setCodeDraft] = useState('')
   const [nameDraft, setNameDraft] = useState('')
+  const [descriptionsDraft, setDescriptionsDraft] = useState('')
+  const [dimensionDraft, setDimensionDraft] = useState('')
   const [categoryDraft, setCategoryDraft] = useState('')
+  const [mockupApproveDateDraft, setMockupApproveDateDraft] = useState('')
   const [groupByCategory, setGroupByCategory] = useState(false)
   const [nameBusy, setNameBusy] = useState(false)
 
@@ -192,7 +304,29 @@ export default function ProjectShopDrawingPanel({
     void load()
   }, [load])
 
-  const versionSwitchBlocked = rab?.status === 'locked' && !rab.changeDraft
+  // Only the drawing feeds the RAB; File Produksi versions switch freely.
+  const versionSwitchBlocked =
+    fileKind === 'sd' && rab?.status === 'locked' && !rab.changeDraft
+
+  function filesPath(kind: FileKind): string {
+    return kind === 'sd'
+      ? `/project/${projectId}/shop-drawing/files`
+      : `/project/${projectId}/shop-drawing/production-files`
+  }
+
+  function openUpload(item: ProjectShopDrawingItem, kind: FileKind) {
+    setFileKind(kind)
+    setUploadItemId(item.id)
+    setPendingFile(null)
+    setForceDifferent(false)
+    setShowHashInfo(false)
+  }
+
+  function openHistory(item: ProjectShopDrawingItem, kind: FileKind) {
+    setFileKind(kind)
+    setHistoryItemId(item.id)
+    setHistoryOpenId(null)
+  }
 
   function closeUploadDialog() {
     if (busyItemId) return
@@ -208,25 +342,46 @@ export default function ProjectShopDrawingPanel({
   }
 
   function openCreateItem() {
+    setCodeDraft('')
     setNameDraft('')
+    setDescriptionsDraft('')
+    setDimensionDraft('')
     setCategoryDraft('')
+    setMockupApproveDateDraft('')
     setNameDialog({ mode: 'create' })
   }
 
   function openRenameItem(item: ProjectShopDrawingItem) {
+    setCodeDraft(item.code)
     setNameDraft(item.name)
+    setDescriptionsDraft(item.descriptions.join('\n'))
+    setDimensionDraft(item.dimension)
     setCategoryDraft(item.category ?? '')
+    setMockupApproveDateDraft(item.mockupApproveDate ?? '')
     setNameDialog({ mode: 'rename', item })
   }
 
   async function confirmNameDialog() {
     if (!canManage || !nameDialog) return
+    const code = codeDraft.trim()
     const name = nameDraft.trim()
-    if (!name) {
-      toast.error('Name is required')
+    if (!code || !name) {
+      toast.error('Kode and name are required')
       return
     }
-    const category = categoryDraft.trim() || null
+    const payload = {
+      code,
+      name,
+      descriptions: descriptionsDraft
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean),
+      dimension: dimensionDraft.trim(),
+      category: categoryDraft.trim() || null,
+      mockupApproveDate: mockupApproveDateDraft.trim()
+        ? mockupApproveDateDraft.trim()
+        : null,
+    }
     setNameBusy(true)
     try {
       if (nameDialog.mode === 'create') {
@@ -235,7 +390,7 @@ export default function ProjectShopDrawingPanel({
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, category }),
+            body: JSON.stringify(payload),
           },
         )
         if (!response.success) {
@@ -249,7 +404,7 @@ export default function ProjectShopDrawingPanel({
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, category }),
+            body: JSON.stringify(payload),
           },
         )
         if (!response.success) {
@@ -277,7 +432,7 @@ export default function ProjectShopDrawingPanel({
       form.append('file', pendingFile)
       const qs = force ? '?force=true' : ''
       const response = await apiUpload<ProjectShopDrawingFile>(
-        `/project/${projectId}/shop-drawing/items/${itemId}/files${qs}`,
+        `/project/${projectId}/shop-drawing/items/${itemId}/${fileKind === 'sd' ? 'files' : 'production-files'}${qs}`,
         form,
       )
       if (!response.success || !response.data) {
@@ -289,7 +444,7 @@ export default function ProjectShopDrawingPanel({
           ? 'Linked to existing file'
           : versionSwitchBlocked
             ? 'File uploaded (current version unchanged — open a RAB change to switch)'
-            : 'File uploaded',
+            : `${FILE_KIND_LABELS[fileKind]} uploaded`,
       )
       setUploadItemId(null)
       setPendingFile(null)
@@ -302,10 +457,13 @@ export default function ProjectShopDrawingPanel({
     }
   }
 
-  async function onDownload(doc: ProjectShopDrawingFile) {
+  async function onDownload(
+    doc: ProjectShopDrawingFile,
+    kind: FileKind = fileKind,
+  ) {
     try {
       await apiDownload(
-        `/project/${projectId}/shop-drawing/files/${doc.id}/download`,
+        `${filesPath(kind)}/${doc.id}/download`,
         doc.originalFilename,
       )
     } catch (error) {
@@ -324,7 +482,7 @@ export default function ProjectShopDrawingPanel({
     setUsingId(doc.id)
     try {
       const response = await apiFetch<ProjectShopDrawingFile>(
-        `/project/${projectId}/shop-drawing/files/${doc.id}/current`,
+        `${filesPath(fileKind)}/${doc.id}/current`,
         { method: 'POST' },
       )
       if (!response.success) {
@@ -351,7 +509,7 @@ export default function ProjectShopDrawingPanel({
     setDeletingFileId(doc.id)
     try {
       const response = await apiFetch<ProjectShopDrawingFile>(
-        `/project/${projectId}/shop-drawing/files/${doc.id}`,
+        `${filesPath(fileKind)}/${doc.id}`,
         { method: 'DELETE' },
       )
       if (!response.success) {
@@ -380,7 +538,7 @@ export default function ProjectShopDrawingPanel({
         toast.error(response.message || 'Failed to delete item')
         return
       }
-      toast.success('Item deleted')
+      toast.success(response.message || 'Item deleted')
       if (historyItemId === deleteItemTarget.id) closeHistoryDialog()
       setDeleteItemTarget(null)
       await load()
@@ -388,6 +546,27 @@ export default function ProjectShopDrawingPanel({
       toast.error('Unable to reach the server')
     } finally {
       setDeletingItem(false)
+    }
+  }
+
+  async function restoreItem(item: ProjectShopDrawingItem) {
+    if (!canManage) return
+    setBusyItemId(item.id)
+    try {
+      const response = await apiFetch<null>(
+        `/project/${projectId}/shop-drawing/items/${item.id}/restore`,
+        { method: 'POST' },
+      )
+      if (!response.success) {
+        toast.error(response.message || 'Failed to restore item')
+        return
+      }
+      toast.success('Item restored')
+      await load()
+    } catch {
+      toast.error('Unable to reach the server')
+    } finally {
+      setBusyItemId(null)
     }
   }
 
@@ -407,7 +586,8 @@ export default function ProjectShopDrawingPanel({
     const matched = !q
       ? items
       : items.filter((item) => {
-          if (item.name.toLowerCase().includes(q)) return true
+          if (item.label.toLowerCase().includes(q)) return true
+          if (item.dimension.toLowerCase().includes(q)) return true
           if (item.category?.toLowerCase().includes(q)) return true
           const current = item.current
           if (current?.originalFilename.toLowerCase().includes(q)) return true
@@ -445,11 +625,28 @@ export default function ProjectShopDrawingPanel({
   const columns = useMemo<ListTableColumn<ProjectShopDrawingItem>[]>(
     () => [
       {
+        header: 'Kode',
+        cellClassName: 'w-20 font-medium whitespace-nowrap tabular-nums',
+        cell: (item) => item.code || <span className={hintClassName}>—</span>,
+      },
+      {
         header: 'Item',
-        cellClassName: 'font-medium',
+        cellClassName: 'min-w-[12rem] font-medium',
         cell: (item) => (
           <div className="min-w-0">
-            <p>{item.name}</p>
+            <p
+              className={cn(
+                item.removedInChange && 'text-(--muted) line-through',
+              )}
+            >
+              {item.name}
+            </p>
+            {item.removedInChange ? (
+              <BoqBadge
+                tone="warn"
+                label="Removed in change · deleted on commit"
+              />
+            ) : null}
             {item.category && !groupByCategory ? (
               <p className="text-[10px] font-normal tracking-wide text-(--muted)">
                 {item.category}
@@ -459,30 +656,10 @@ export default function ProjectShopDrawingPanel({
         ),
       },
       {
-        header: 'Current file',
-        cell: (item) => {
-          const current = item.current
-          if (!current) {
-            return <span className={hintClassName}>No file yet</span>
-          }
-          return (
-            <div className="min-w-0">
-              <p className="truncate">
-                v{current.version}
-                {current.sameAsVersion != null
-                  ? ` · same as v${current.sameAsVersion}`
-                  : ''}
-                {' · '}
-                {current.originalFilename}
-              </p>
-              <p className="text-[10px] leading-snug text-(--muted)">
-                {formatBytes(current.sizeBytes)}
-                {' · '}
-                {auditUploadedLine(current)}
-              </p>
-            </div>
-          )
-        },
+        header: 'Ukuran',
+        cellClassName: 'whitespace-nowrap text-xs tabular-nums',
+        cell: (item) =>
+          item.dimension || <span className={hintClassName}>—</span>,
       },
       {
         header: 'BOQ',
@@ -526,7 +703,7 @@ export default function ProjectShopDrawingPanel({
                     buttonOutlineClassName,
                     'inline-flex h-7 items-center gap-1 px-2 text-xs no-underline',
                   )}
-                  aria-label={`${label} BOQ for ${item.name}`}
+                  aria-label={`${label} BOQ for ${item.label}`}
                   onClick={stopRowClick}
                 >
                   {current.hasBoq ? (
@@ -543,68 +720,31 @@ export default function ProjectShopDrawingPanel({
       },
       {
         header: 'Files',
+        cellClassName: 'w-[22rem] max-w-[22rem]',
         cell: (item) => {
-          const current = item.current
-          const itemBusy = busyItemId === item.id
-          const versionCount = item.versions.length
+          const busy = busyItemId === item.id
           return (
-            <div
-              className="flex flex-wrap items-center gap-1.5"
-              onClick={stopRowClick}
-              onKeyDown={stopRowClick}
-            >
-              {canManage ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1.5 px-2 text-xs"
-                  disabled={itemBusy}
-                  onClick={() => {
-                    setUploadItemId(item.id)
-                    setPendingFile(null)
-                    setForceDifferent(false)
-                    setShowHashInfo(false)
-                  }}
-                >
-                  {itemBusy ? (
-                    <LoaderCircle
-                      className="size-3.5 animate-spin"
-                      aria-hidden
-                    />
-                  ) : (
-                    <Upload className="size-3.5" aria-hidden />
-                  )}
-                  Upload
-                </Button>
-              ) : null}
-              {current && !current.isDeleted ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1.5 px-2 text-xs"
-                  onClick={() => void onDownload(current)}
-                >
-                  <Download className="size-3.5" aria-hidden />
-                  Download
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-xs"
-                disabled={versionCount === 0}
-                onClick={() => {
-                  setHistoryItemId(item.id)
-                  setHistoryOpenId(null)
-                }}
-              >
-                <History className="size-3.5" aria-hidden />
-                History
-                {versionCount > 0 ? ` (${versionCount})` : ''}
-              </Button>
+            <div onClick={stopRowClick} onKeyDown={stopRowClick}>
+              <FileSlot
+                kind="sd"
+                file={item.current}
+                versionCount={item.versions.length}
+                busy={busy && fileKind === 'sd'}
+                canManage={canManage}
+                onUpload={() => openUpload(item, 'sd')}
+                onDownload={(f) => void onDownload(f, 'sd')}
+                onHistory={() => openHistory(item, 'sd')}
+              />
+              <FileSlot
+                kind="production"
+                file={item.productionCurrent}
+                versionCount={item.productionVersions.length}
+                busy={busy && fileKind === 'production'}
+                canManage={canManage}
+                onUpload={() => openUpload(item, 'production')}
+                onDownload={(f) => void onDownload(f, 'production')}
+                onHistory={() => openHistory(item, 'production')}
+              />
             </div>
           )
         },
@@ -621,7 +761,7 @@ export default function ProjectShopDrawingPanel({
                   variant="ghost"
                   size="icon"
                   className="size-7"
-                  aria-label={`Item actions for ${item.name}`}
+                  aria-label={`Item actions for ${item.label}`}
                   onClick={stopRowClick}
                 >
                   <MoreHorizontal className="size-3.5" aria-hidden />
@@ -631,29 +771,41 @@ export default function ProjectShopDrawingPanel({
                 <DropdownMenuLabel>Item</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => openRenameItem(item)}>
                   <Pencil className="size-3.5" aria-hidden />
-                  Edit name / category
+                  Edit details
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => setDeleteItemTarget(item)}
-                >
-                  <Trash2 className="size-3.5" aria-hidden />
-                  Delete item
-                </DropdownMenuItem>
+                {item.removedInChange ? (
+                  <DropdownMenuItem onClick={() => void restoreItem(item)}>
+                    <RotateCcw className="size-3.5" aria-hidden />
+                    Restore item
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => setDeleteItemTarget(item)}
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                    {rab?.status === 'locked'
+                      ? 'Remove in change'
+                      : 'Delete item'}
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null,
       },
     ],
-    [busyItemId, canManage, projectId, rab, groupByCategory],
+    [busyItemId, canManage, projectId, rab, groupByCategory, fileKind],
   )
 
   const uploading = busyItemId !== null
   const historyItem = historyItemId
     ? (items.find((i) => i.id === historyItemId) ?? null)
     : null
-  const historyVersions = historyItem?.versions ?? []
+  const historyVersions =
+    (fileKind === 'sd'
+      ? historyItem?.versions
+      : historyItem?.productionVersions) ?? []
   const uploadItem = uploadItemId
     ? (items.find((i) => i.id === uploadItemId) ?? null)
     : null
@@ -678,6 +830,7 @@ export default function ProjectShopDrawingPanel({
       </div>
 
       <ListTable
+        density="compact"
         filters={
           <>
             <ListSearchInput
@@ -714,7 +867,7 @@ export default function ProjectShopDrawingPanel({
         columns={columns}
         rows={pageItems}
         rowKey={(item) => item.id}
-        minWidthClassName="min-w-[820px]"
+        minWidthClassName="min-w-[1040px]"
         onRowClick={onSelectItem}
         pagination={{
           page: safePage,
@@ -731,32 +884,102 @@ export default function ProjectShopDrawingPanel({
           if (!next && !nameBusy) setNameDialog(null)
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {nameDialog?.mode === 'rename' ? 'Edit item' : 'Add item'}
             </DialogTitle>
             <DialogDescription>
-              Give this Shop Drawing item a short name (e.g. item1) and an
-              optional category to group it with similar items.
+              Kode and name make the item label (e.g. SA1-Sky Sign). Keterangan
+              and ukuran are printed on the quotation.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-1.5">
+            <div className="flex items-end gap-2">
+              <label className="block w-28 shrink-0 space-y-1.5">
+                <span className="text-sm font-medium">Kode</span>
+                <input
+                  type="text"
+                  value={codeDraft}
+                  maxLength={30}
+                  disabled={nameBusy}
+                  placeholder="SA1"
+                  className="w-full rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm uppercase placeholder:normal-case"
+                  onChange={(e) =>
+                    setCodeDraft(e.target.value.replace(/[\s-]/g, ''))
+                  }
+                />
+              </label>
+              <span className="pb-2 text-sm text-(--muted)" aria-hidden>
+                -
+              </span>
+              <label className="block min-w-0 flex-1 space-y-1.5">
+                <span className="text-sm font-medium">Name</span>
+                <input
+                  type="text"
+                  value={nameDraft}
+                  maxLength={120}
+                  disabled={nameBusy}
+                  placeholder="Sky Sign"
+                  className="w-full rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm"
+                  onChange={(e) => setNameDraft(e.target.value)}
+                />
+              </label>
+            </div>
+            <p className={cn('text-xs', hintClassName)}>
+              Kode cannot contain spaces or “-”; it must be unique in this
+              project.
+            </p>
+          </div>
           <label className="block space-y-1.5">
-            <span className="text-sm font-medium">Name</span>
+            <span className="text-sm font-medium">
+              Keterangan <span className={hintClassName}>(one per line)</span>
+            </span>
+            <textarea
+              value={descriptionsDraft}
+              rows={5}
+              disabled={nameBusy}
+              placeholder={
+                'Polished brass panel\nDeeply etched logo\nPin mounted'
+              }
+              className="w-full resize-y rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm leading-relaxed"
+              onChange={(e) => setDescriptionsDraft(e.target.value)}
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">
+              Ukuran{' '}
+              <span className={hintClassName}>
+                (p x tebal x t mm, optional)
+              </span>
+            </span>
             <input
               type="text"
-              value={nameDraft}
+              value={dimensionDraft}
               maxLength={120}
               disabled={nameBusy}
-              className="w-full rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm"
-              onChange={(e) => setNameDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  void confirmNameDialog()
-                }
-              }}
+              placeholder="600 x 3 x 500"
+              className="w-full rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm tabular-nums"
+              onChange={(e) => setDimensionDraft(e.target.value)}
             />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">
+              Mockup approve date{' '}
+              <span className={hintClassName}>(optional)</span>
+            </span>
+            <input
+              type="date"
+              value={mockupApproveDateDraft}
+              disabled={nameBusy}
+              className="w-full rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm"
+              onChange={(e) => setMockupApproveDateDraft(e.target.value)}
+              aria-label="Mockup approve date"
+            />
+            <p className={cn('text-xs', hintClassName)}>
+              Leave empty if the client does not need a mockup, or it is not
+              approved yet.
+            </p>
           </label>
           <div className="space-y-1.5">
             <label className="block space-y-1.5">
@@ -828,7 +1051,7 @@ export default function ProjectShopDrawingPanel({
             </Button>
             <Button
               type="button"
-              disabled={nameBusy || !nameDraft.trim()}
+              disabled={nameBusy || !codeDraft.trim() || !nameDraft.trim()}
               onClick={() => void confirmNameDialog()}
             >
               {nameBusy
@@ -850,7 +1073,9 @@ export default function ProjectShopDrawingPanel({
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {historyItem ? `${historyItem.name} history` : 'History'}
+              {historyItem
+                ? `${historyItem.label} · ${FILE_KIND_LABELS[fileKind]} history`
+                : 'History'}
             </DialogTitle>
             <DialogDescription>
               Open a version to download, delete, or make it current. Deletes
@@ -997,7 +1222,10 @@ export default function ProjectShopDrawingPanel({
               {deleteFileTarget
                 ? `v${deleteFileTarget.version} · ${deleteFileTarget.originalFilename}`
                 : 'this file'}
-              ? This removes the file, its BOQ if any, and cannot be undone.
+              ?{' '}
+              {fileKind === 'sd'
+                ? 'This removes the file, its BOQ if any, and cannot be undone.'
+                : 'This cannot be undone.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1026,28 +1254,56 @@ export default function ProjectShopDrawingPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Shop Drawing item?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {rab?.status === 'locked'
+                ? 'Remove item in the RAB change?'
+                : 'Delete Shop Drawing item?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Permanently delete{' '}
-              {deleteItemTarget ? `"${deleteItemTarget.name}"` : 'this item'}?
-              This removes the item, all file versions, their BOQs, and cannot
-              be undone.
+              {rab?.status === 'locked' ? (
+                rab.changeDraft ? (
+                  <>
+                    {deleteItemTarget
+                      ? `"${deleteItemTarget.label}"`
+                      : 'This item'}{' '}
+                    leaves the RAB now. It is deleted with its files when you
+                    commit the change; Restore or Discard brings it back.
+                  </>
+                ) : (
+                  'The RAB is locked. Open a RAB change first, then remove the item.'
+                )
+              ) : (
+                <>
+                  Permanently delete{' '}
+                  {deleteItemTarget
+                    ? `"${deleteItemTarget.label}"`
+                    : 'this item'}
+                  ? This removes the item, all file versions, their BOQs, and
+                  cannot be undone.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deletingItem}>
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={deletingItem}
-              onClick={(event) => {
-                event.preventDefault()
-                void confirmDeleteItem()
-              }}
-            >
-              {deletingItem ? 'Deleting…' : 'Delete'}
-            </AlertDialogAction>
+            {rab?.status === 'locked' && !rab.changeDraft ? null : (
+              <AlertDialogAction
+                variant="destructive"
+                disabled={deletingItem}
+                onClick={(event) => {
+                  event.preventDefault()
+                  void confirmDeleteItem()
+                }}
+              >
+                {deletingItem
+                  ? 'Removing…'
+                  : rab?.status === 'locked'
+                    ? 'Remove'
+                    : 'Delete'}
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1061,7 +1317,8 @@ export default function ProjectShopDrawingPanel({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Upload{uploadItem ? ` · ${uploadItem.name}` : ''}
+              Upload {FILE_KIND_LABELS[fileKind]}
+              {uploadItem ? ` · ${uploadItem.label}` : ''}
             </AlertDialogTitle>
             <AlertDialogDescription>
               Any file type up to 20MB. Identical files are reused instead of

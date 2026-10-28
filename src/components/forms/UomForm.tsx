@@ -58,14 +58,25 @@ export type UomItem = {
   category: string
   name: string
   formulas: string[]
+  decimals: number
+  rounding: UomRounding
   isActive: boolean
 }
+
+export type UomRounding = 'up' | 'nearest' | 'down'
+
+const ROUNDING_OPTIONS: { value: UomRounding; label: string }[] = [
+  { value: 'up', label: 'Round up' },
+  { value: 'nearest', label: 'Round to nearest' },
+  { value: 'down', label: 'Round down' },
+]
 
 type FieldErrors = {
   symbol?: string
   category?: string
   name?: string
   formulas?: string
+  decimals?: string
 }
 
 const emptyForm = {
@@ -73,6 +84,8 @@ const emptyForm = {
   category: '',
   name: '',
   formulas: ['v1'] as string[],
+  decimals: '4',
+  rounding: 'up' as UomRounding,
 }
 
 function formatFormulaDisplay(expr: string): string {
@@ -170,6 +183,10 @@ export default function UomForm() {
     if (!form.symbol.trim()) next.symbol = 'Symbol is required'
     if (!form.category.trim()) next.category = 'Category is required'
     if (!form.name.trim()) next.name = 'Name is required'
+    const decimals = Number(form.decimals)
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 8) {
+      next.decimals = 'Whole number from 0 to 8'
+    }
     if (form.formulas.length === 0) {
       next.formulas = 'Add at least one formula'
     } else if (form.formulas.some((f) => !isValidUomFormulaShape(f))) {
@@ -186,6 +203,8 @@ export default function UomForm() {
       name: item.name,
       formulas:
         item.formulas && item.formulas.length > 0 ? [...item.formulas] : ['v1'],
+      decimals: String(item.decimals ?? 4),
+      rounding: item.rounding ?? 'up',
     })
     setErrors({})
     setPreviewIndex(0)
@@ -234,6 +253,8 @@ export default function UomForm() {
       category: form.category.trim(),
       name: form.name.trim(),
       formulas: form.formulas.map((f) => f.trim()),
+      decimals: Number(form.decimals),
+      rounding: form.rounding,
     }
 
     setSaving(true)
@@ -344,6 +365,12 @@ export default function UomForm() {
         header: 'Formula',
         cellClassName: 'font-mono text-xs text-(--muted)',
         cell: (item) => summarizeFormulas(item.formulas ?? ['v1']),
+      },
+      {
+        header: 'Rounding',
+        cellClassName: 'text-xs text-(--muted)',
+        cell: (item) =>
+          `${item.decimals ?? 4} dp · ${item.rounding ?? 'up'}`,
       },
       {
         header: 'Status',
@@ -499,6 +526,65 @@ export default function UomForm() {
                 <span className="text-xs text-red-600">{errors.name}</span>
               ) : null}
             </label>
+          </div>
+
+          <div className="space-y-3 border-t border-(--line) pt-4">
+            <div>
+              <h3 className="text-sm font-medium">RAB rounding</h3>
+              <p className={`mt-1 ${hintClassName}`}>
+                How the project total in this unit becomes the purchase
+                quantity. Sheets: 0 decimals, round up.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium">Decimals</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={8}
+                  step={1}
+                  className={cn(
+                    'border-(--line)',
+                    errors.decimals && 'border-red-500',
+                  )}
+                  value={form.decimals}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, decimals: e.target.value }))
+                  }
+                />
+                {errors.decimals ? (
+                  <span className="text-xs text-red-600">
+                    {errors.decimals}
+                  </span>
+                ) : (
+                  <span className={hintClassName}>0 = whole units</span>
+                )}
+              </label>
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">Rounding</span>
+                <Combobox
+                  value={form.rounding}
+                  onValueChange={(value) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      rounding: value as UomRounding,
+                    }))
+                  }
+                  options={ROUNDING_OPTIONS}
+                  placeholder="Round up"
+                  searchPlaceholder="Search…"
+                  emptyText="No option."
+                  className="w-full"
+                  aria-label="Rounding"
+                />
+                {form.rounding === 'down' ? (
+                  <span className="text-xs text-amber-600">
+                    Rounding down can buy less than the BOQ needs.
+                  </span>
+                ) : null}
+              </div>
+            </div>
           </div>
 
           <div className="space-y-3 border-t border-(--line) pt-4">

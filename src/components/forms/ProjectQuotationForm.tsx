@@ -11,7 +11,9 @@ import {
   RotateCcw,
   Send,
   Trash2,
+  Trophy,
   Plus,
+  Undo2,
   X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -145,6 +147,9 @@ function headerPatch(form: HeaderForm, q: Quotation): QuotationHeaderPatch {
 }
 
 function statusChipClass(status: QuotationStatus): string {
+  if (status === 'won') {
+    return 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+  }
   if (status === 'issued') {
     return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
   }
@@ -194,6 +199,8 @@ export default function ProjectQuotationForm({
   const [reissueOpen, setReissueOpen] = useState(false)
   const [reissueValidUntil, setReissueValidUntil] = useState('')
   const [discardOpen, setDiscardOpen] = useState(false)
+  const [wonOpen, setWonOpen] = useState(false)
+  const [undoWonOpen, setUndoWonOpen] = useState(false)
   const [terms, setTerms] = useState<TermOfPaymentOption[]>([])
 
   const loadOverview = useCallback(
@@ -436,6 +443,30 @@ export default function ProjectQuotationForm({
     }
   }
 
+  async function setWon(won: boolean) {
+    if (!quotation || !projectId) return
+    setBusy(true)
+    try {
+      const response = await apiFetch<Quotation>(
+        `/quotation/${quotation.id}/won`,
+        { method: won ? 'POST' : 'DELETE' },
+      )
+      if (!response.success || !response.data) {
+        toast.error(response.message || 'Failed to update quotation')
+        return
+      }
+      applyQuotation(response.data)
+      toast.success(won ? 'Quotation marked as won' : 'Quotation set back to issued')
+      setWonOpen(false)
+      setUndoWonOpen(false)
+      await loadOverview(projectId, response.data.id)
+    } catch {
+      toast.error('Unable to reach the server')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function discard() {
     if (!quotation || !projectId) return
     setBusy(true)
@@ -484,6 +515,7 @@ export default function ProjectQuotationForm({
   const editable = canManage && isDraft
   const hasDraft =
     overview?.revisions.some((r) => r.status === 'draft') ?? false
+  const hasWon = overview?.revisions.some((r) => r.status === 'won') ?? false
 
   return (
     <div className="space-y-5">
@@ -650,8 +682,14 @@ export default function ProjectQuotationForm({
                 }
                 onIssue={() => requestIssue('issue')}
                 onReissue={
-                  canManage ? () => requestIssue('reissue') : undefined
+                  canManage && !hasWon
+                    ? () => requestIssue('reissue')
+                    : undefined
                 }
+                onMarkWon={
+                  canManage && !hasWon ? () => setWonOpen(true) : undefined
+                }
+                onUndoWon={canManage ? () => setUndoWonOpen(true) : undefined}
                 onDiscard={() => setDiscardOpen(true)}
                 onExport={(format) => void exportFile(format)}
               />
@@ -795,6 +833,68 @@ export default function ProjectQuotationForm({
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog
+        open={wonOpen}
+        onOpenChange={(next) => {
+          if (!busy) setWonOpen(next)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Mark {quotation?.quotationNumber} as won?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The client accepted this revision. Quotations for this project
+              are locked and the project status becomes Win.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(e) => {
+                e.preventDefault()
+                void setWon(true)
+              }}
+            >
+              Mark as won
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={undoWonOpen}
+        onOpenChange={(next) => {
+          if (!busy) setUndoWonOpen(next)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Undo won on {quotation?.quotationNumber}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The revision goes back to issued and quotations unlock. Not
+              possible once the project is released to production.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(e) => {
+                e.preventDefault()
+                void setWon(false)
+              }}
+            >
+              Undo won
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -840,6 +940,10 @@ type DetailProps = {
   onIssue: () => void
   /** Set when the user may bring a superseded revision back. */
   onReissue?: () => void
+  /** Set when the user may mark the issued revision as won. */
+  onMarkWon?: () => void
+  /** Set when the user may undo a won revision. */
+  onUndoWon?: () => void
   onDiscard: () => void
   onExport: (format: ExportFormat) => void
 }
@@ -855,6 +959,8 @@ function QuotationDetail({
   onResync,
   onIssue,
   onReissue,
+  onMarkWon,
+  onUndoWon,
   onDiscard,
   onExport,
 }: DetailProps) {
@@ -935,6 +1041,31 @@ function QuotationDetail({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {q.status === 'issued' && onMarkWon ? (
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={busy}
+              onClick={onMarkWon}
+            >
+              <Trophy className="size-3.5" aria-hidden />
+              Mark as won
+            </Button>
+          ) : null}
+          {q.status === 'won' && onUndoWon ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={busy}
+              onClick={onUndoWon}
+            >
+              <Undo2 className="size-3.5" aria-hidden />
+              Undo won
+            </Button>
+          ) : null}
           {q.status === 'superseded' && onReissue ? (
             <Button
               type="button"
@@ -1156,11 +1287,13 @@ function QuotationDetail({
       <div className="space-y-2">
         <h3 className="text-sm font-medium">Lines</h3>
         <div className="overflow-x-auto rounded-md border border-(--line)">
-          <table className="w-full min-w-[48rem] text-sm">
+          <table className="w-full min-w-[60rem] text-sm">
             <thead className="bg-(--surface) text-left text-xs">
               <tr>
                 <th className="w-10 px-3 py-2 font-medium">No</th>
+                <th className="w-20 px-3 py-2 font-medium">Kode</th>
                 <th className="px-3 py-2 font-medium">Description</th>
+                <th className="w-36 px-3 py-2 font-medium">Ukuran</th>
                 <th className="w-16 px-3 py-2 text-right font-medium">Qty</th>
                 <th className="w-24 px-3 py-2 font-medium">Unit</th>
                 <th className="w-32 px-3 py-2 text-right font-medium">
@@ -1191,7 +1324,7 @@ function QuotationDetail({
                     className="border-t border-(--line) bg-(--surface)"
                   >
                     <th
-                      colSpan={7}
+                      colSpan={9}
                       scope="colgroup"
                       className="px-3 py-1.5 text-center text-xs font-semibold tracking-wide"
                     >
@@ -1203,7 +1336,7 @@ function QuotationDetail({
                     key={`subtotal:${row.label}`}
                     className="border-t border-(--line) bg-(--surface) text-xs font-semibold"
                   >
-                    <td colSpan={6} className="px-3 py-1.5 text-right">
+                    <td colSpan={8} className="px-3 py-1.5 text-right">
                       {row.label}
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
@@ -1420,6 +1553,9 @@ function QuotationLineRow({
   return (
     <tr className="border-t border-(--line) align-top">
       <td className="px-3 py-2 tabular-nums">{index}</td>
+      <td className="px-3 py-2 font-medium whitespace-nowrap">
+        {line.code || <span className={hintClassName}>—</span>}
+      </td>
       <td className="px-3 py-2">
         {editable ? (
           <input
@@ -1435,8 +1571,18 @@ function QuotationLineRow({
             aria-label={`Line ${index} description`}
           />
         ) : (
-          line.description
+          <span className="font-medium">{line.description}</span>
         )}
+        {line.descriptions.length > 0 ? (
+          <ul className={cn('mt-1 space-y-0.5 text-xs', hintClassName)}>
+            {line.descriptions.map((d, i) => (
+              <li key={i}>{d}</li>
+            ))}
+          </ul>
+        ) : null}
+      </td>
+      <td className="px-3 py-2 text-xs whitespace-nowrap tabular-nums">
+        {line.dimension || <span className={hintClassName}>—</span>}
       </td>
       <td className="px-3 py-2 text-right tabular-nums">{line.qty}</td>
       <td className="px-3 py-2">

@@ -133,3 +133,13 @@ export async function apiDownload(path: string, fallbackFilename: string) {
   anchor.remove()
   URL.revokeObjectURL(url)
 }
+
+/** Fetch a file with the session token and return an object URL (revoke it when done). */
+export async function apiBlobUrl(path: string): Promise<string> {
+  const headers = new Headers()
+  const token = getToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers })
+  if (!response.ok) throw new Error('Could not load file')
+  return URL.createObjectURL(await response.blob())
+}

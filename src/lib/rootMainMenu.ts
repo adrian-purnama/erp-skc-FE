@@ -90,6 +90,68 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
           },
         ],
       },
+      {
+        id: 'project-production',
+        label: 'Production',
+        to: '/dashboard/internal/production',
+        match: '/dashboard/internal/production',
+        permission: 'production.view',
+        carryProjectId: true,
+      },
+    ],
+  },
+  {
+    id: 'production',
+    label: 'Production',
+    children: [
+      {
+        id: 'production-orders',
+        label: 'SPK Produksi',
+        to: '/dashboard/production',
+        match: '/dashboard/production',
+        permission: 'production.view',
+      },
+    ],
+  },
+  {
+    id: 'purchasing',
+    label: 'Purchasing',
+    children: [
+      {
+        id: 'purchasing-requests',
+        label: 'Material Requests (SPP)',
+        to: '/dashboard/purchasing/requests',
+        match: '/dashboard/purchasing/requests',
+        permission: 'purchasing.view',
+      },
+      {
+        id: 'purchasing-orders',
+        label: 'Purchase Orders',
+        to: '/dashboard/purchasing/orders',
+        match: '/dashboard/purchasing/orders',
+        permission: 'purchasing.manage',
+      },
+      {
+        id: 'purchasing-approvals',
+        label: 'PO Approval',
+        to: '/dashboard/purchasing/approvals',
+        match: '/dashboard/purchasing/approvals',
+        permission: 'purchasing.approve',
+      },
+      {
+        id: 'purchasing-realizations',
+        label: 'Nota Realisasi',
+        to: '/dashboard/purchasing/realizations',
+        match: '/dashboard/purchasing/realizations',
+        permission: 'purchasing.realize',
+      },
+      {
+        id: 'purchasing-receipts',
+        label: 'Penerimaan Barang',
+        to: '/dashboard/purchasing/receipts',
+        match: '/dashboard/purchasing/receipts',
+        permission: 'purchasing.receive',
+      },
     ],
   },
   {

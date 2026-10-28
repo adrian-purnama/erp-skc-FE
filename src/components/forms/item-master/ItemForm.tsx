@@ -20,6 +20,7 @@ import type { UomItem } from '#/components/forms/UomForm'
 import { Button } from '#/components/ui/button'
 import { Checkbox } from '#/components/ui/checkbox'
 import { Combobox } from '#/components/ui/combobox'
+import { RupiahInput, rupiahDigits } from '#/components/ui/rupiah-input'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import {
@@ -131,7 +132,8 @@ function rowsFromItemTarifs(tarifs: ItemTarifRow[]): TarifFormRow[] {
       key: t.id ?? `tarif-${i}`,
       id: t.id,
       effectiveDate: t.effectiveDate,
-      amount: t.amount,
+      // Tarif is whole rupiah; drop any stored ".00".
+      amount: rupiahDigits(t.amount.split('.')[0] ?? ''),
     }))
 }
 
@@ -463,9 +465,27 @@ export function ItemForm({
     return base?.uomId ? (symbolById.get(base.uomId) ?? '?') : '?'
   }, [uomRows, symbolById])
 
+  const uomById = useMemo(
+    () => new Map(uomCatalog.map((u) => [u.id, u])),
+    [uomCatalog],
+  )
+
+  /** RAB totals are rounded in the base UOM (or in an unrelated UOM itself). */
+  function roundingText(uomId: string): string {
+    const uom = uomById.get(uomId)
+    if (!uom) return ''
+    const decimals = uom.decimals ?? 4
+    const mode = uom.rounding ?? 'up'
+    const how =
+      mode === 'up' ? 'rounds up' : mode === 'down' ? 'rounds down' : 'rounds'
+    return ` · RAB ${how} to ${decimals === 0 ? 'whole' : `${decimals} dp`}`
+  }
+
   function helperText(row: UomFormRow): string {
-    if (row.isBase) return `Base unit (${symbolById.get(row.uomId) ?? '…'})`
-    if (!row.related) return 'Not related to base'
+    if (row.isBase) {
+      return `Base unit (${symbolById.get(row.uomId) ?? '…'})${roundingText(row.uomId)}`
+    }
+    if (!row.related) return `Not related to base${roundingText(row.uomId)}`
     const sym = row.uomId ? (symbolById.get(row.uomId) ?? '…') : '…'
     const factor = row.factor.trim() || '…'
     return `1 ${sym} = ${factor} ${baseSymbol}`
@@ -1045,20 +1065,13 @@ export function ItemForm({
                           />
                         </td>
                         <td className="px-2.5 py-2 align-middle">
-                          <input
-                            className={cn(
-                              inputClassName,
-                              'w-28 tabular-nums',
-                            )}
-                            inputMode="decimal"
-                            placeholder="0"
+                          <RupiahInput
+                            wrapperClassName="w-40"
                             value={row.amount}
-                            onChange={(e) =>
+                            onValueChange={(digits) =>
                               setTarifRows((rows) =>
                                 rows.map((r, i) =>
-                                  i === index
-                                    ? { ...r, amount: e.target.value }
-                                    : r,
+                                  i === index ? { ...r, amount: digits } : r,
                                 ),
                               )
                             }

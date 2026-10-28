@@ -6,6 +6,7 @@ import {
   changeKindLabel,
   formatCostingWhen,
 } from '#/components/forms/costingStatus'
+import { RabSdMaterialChanges } from '#/components/forms/RabSdMaterialChanges'
 import { Button } from '#/components/ui/button'
 import { apiFetch } from '#/lib/api'
 import type {
@@ -274,6 +275,13 @@ function ChangeDetail({ detail }: { detail: ProjectRabChangeDetail }) {
               </li>
             ))}
           </ul>
+        </section>
+      ) : null}
+
+      {detail.boqMaterialDiff.length > 0 ? (
+        <section className="space-y-1">
+          <h4 className="font-medium">Shop drawing materials</h4>
+          <RabSdMaterialChanges materials={detail.boqMaterialDiff} />
         </section>
       ) : null}
 

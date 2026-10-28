@@ -25,6 +25,8 @@ export type DraftLine = {
   itemUomId: string
   formula: string
   inputs: DraftInputs
+  /** SD units one formula qty makes (1 sheet → 50 pcs); '' or '1' = none. */
+  yieldQty: string
   spec?: string
 }
 
@@ -39,6 +41,7 @@ export function emptyLine(): DraftLine {
     itemUomId: '',
     formula: 'v1',
     inputs: { v1: '' },
+    yieldQty: '',
   }
 }
 
@@ -66,9 +69,26 @@ export function computedQtyDisplay(line: DraftLine): string {
   return result === null ? '—' : String(result)
 }
 
+/** Parsed yield; null when invalid. Empty means 1. */
+export function lineYield(line: DraftLine): number | null {
+  const raw = line.yieldQty.trim()
+  if (raw === '') return 1
+  const num = Number(raw)
+  return Number.isFinite(num) && num > 0 ? num : null
+}
+
+/** Formula qty ÷ yield — what one SD unit consumes. */
+export function perUnitQtyDisplay(line: DraftLine): string {
+  const qty = computedQtyDisplay(line)
+  const yieldQty = lineYield(line)
+  if (qty === '—' || yieldQty === null) return '—'
+  if (yieldQty === 1) return qty
+  return String(Number((Number(qty) / yieldQty).toFixed(8)))
+}
+
 export function isLineComplete(line: DraftLine): boolean {
   if (!line.materialItemId || !line.itemUomId) return false
-  return computedQtyDisplay(line) !== '—'
+  return perUnitQtyDisplay(line) !== '—'
 }
 
 function formatFormulaLabel(expr: string): string {
@@ -246,15 +266,21 @@ export default function ShopDrawingBoqLinesEditor({
               )
               const varCount = formulaVariableCount(line.formula)
               const qtyPreview = computedQtyDisplay(line)
+              const perUnitQty = perUnitQtyDisplay(line)
+              const yieldQty = lineYield(line)
+              const hasYield = yieldQty !== null && yieldQty !== 1
               const lineFrozen = index < frozenPrefixCount
               const lineEditable = canManage && !lineFrozen
               const editing = editingKey === line.key && lineEditable
-              const qtyView =
+              const formulaView =
                 varCount <= 1
                   ? qtyPreview
                   : qtyPreview === '—'
                     ? qtyInputsSummary(line)
                     : `${qtyInputsSummary(line)} = ${qtyPreview}`
+              const qtyView = hasYield
+                ? `${formulaView}${uomSymbol ? ` ${uomSymbol}` : ''} per ${yieldQty} unit (${perUnitQty} each)`
+                : formulaView
 
               return (
                 <tr
@@ -453,6 +479,7 @@ export default function ShopDrawingBoqLinesEditor({
                                   disabled={disabled}
                                   inputMode="decimal"
                                   placeholder="Qty"
+                                  aria-label={`Qty line ${index + 1}`}
                                   className="h-9 w-20"
                                 />
                                 {uomSymbol ? (
@@ -504,10 +531,52 @@ export default function ShopDrawingBoqLinesEditor({
                               </div>
                             )}
                           </div>
+                          <div className="shrink-0 space-y-1">
+                            {compact ? null : (
+                              <p className="text-[11px] text-(--muted)">
+                                Enough for
+                              </p>
+                            )}
+                            <div className="flex items-center gap-1.5">
+                              <span className="shrink-0 text-sm text-(--muted)">
+                                per
+                              </span>
+                              <Input
+                              value={line.yieldQty}
+                              onChange={(e) =>
+                                onChange(
+                                  lines.map((row, i) =>
+                                    i === index
+                                      ? { ...row, yieldQty: e.target.value }
+                                      : row,
+                                  ),
+                                )
+                              }
+                              disabled={disabled}
+                              inputMode="decimal"
+                              placeholder="1"
+                              title="How many finished units this quantity covers, e.g. 1 sheet per 50 units"
+                              aria-label={`Units covered line ${index + 1}`}
+                              className={cn(
+                                'h-9 w-16',
+                                yieldQty === null && 'border-red-500',
+                              )}
+                            />
+                              <span className="shrink-0 text-sm text-(--muted)">
+                                unit
+                              </span>
+                            </div>
+                            {hasYield && perUnitQty !== '—' ? (
+                              <p className="text-[11px] tabular-nums text-(--muted)">
+                                = {perUnitQty}
+                                {uomSymbol ? ` ${uomSymbol}` : ''} each
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
                       </td>
                       <td className={cn(cell, 'align-top tabular-nums')}>
-                        {formatTotalWithUom(qtyPreview, makeQty, uomSymbol)}
+                        {formatTotalWithUom(perUnitQty, makeQty, uomSymbol)}
                       </td>
                     </>
                   ) : (
@@ -546,7 +615,7 @@ export default function ShopDrawingBoqLinesEditor({
                         {qtyView}
                       </td>
                       <td className={cn(cell, 'align-top tabular-nums')}>
-                        {formatTotalWithUom(qtyPreview, makeQty, uomSymbol)}
+                        {formatTotalWithUom(perUnitQty, makeQty, uomSymbol)}
                       </td>
                     </>
                   )}

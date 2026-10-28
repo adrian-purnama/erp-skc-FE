@@ -122,6 +122,7 @@ function apiLineToDraft(line: ProjectShopDrawingBoqLine & { spec?: string }): Dr
           ...(line.inputs.v3 !== undefined ? { v3: line.inputs.v3 } : {}),
         }
       : { v1: line.qtyPerUnit },
+    yieldQty: line.yieldQty && line.yieldQty !== '1' ? line.yieldQty : '',
     ...(line.spec ? { spec: line.spec } : {}),
   }
 }
@@ -132,6 +133,7 @@ function draftLineToApi(line: DraftLine) {
     itemUomId: line.itemUomId,
     formula: line.formula,
     inputs: line.inputs,
+    yieldQty: line.yieldQty.trim() || '1',
     ...(line.spec?.trim() ? { spec: line.spec.trim() } : {}),
   }
 }
@@ -214,6 +216,7 @@ export default function ShopDrawingBoqForm({
   const [fileId, setFileId] = useState(fileIdProp ?? '')
   const [boqId, setBoqId] = useState<string | null>(null)
   const [makeQty, setMakeQty] = useState('1')
+  const [mockupApproveDate, setMockupApproveDate] = useState('')
   const [section, setSection] = useState('main')
   const [contentFrozen, setContentFrozen] = useState(false)
   const [rab, setRab] = useState<ProjectRab | null>(null)
@@ -242,6 +245,7 @@ export default function ShopDrawingBoqForm({
     const empty = emptyBoqState()
     setBoqId(null)
     setMakeQty('1')
+    setMockupApproveDate('')
     setContentFrozen(false)
     setParts(empty.parts)
     setActiveBaseKey(null)
@@ -492,6 +496,7 @@ export default function ShopDrawingBoqForm({
         }
         setBoqId(data.id)
         setMakeQty(data.makeQty)
+        setMockupApproveDate(data.mockupApproveDate ?? '')
         setContentFrozen(Boolean(data.contentFrozen))
         setParts(
           (data.main?.parts ?? []).map((part) => ({
@@ -578,16 +583,6 @@ export default function ShopDrawingBoqForm({
     onSelectionChange({
       itemId: undefined,
       fileId: undefined,
-    })
-  }
-
-  function openItemFromList(item: ProjectShopDrawingItem) {
-    const nextFileId = item.current?.id
-    setItemId(item.id)
-    setFileId(nextFileId ?? '')
-    onSelectionChange({
-      itemId: item.id,
-      fileId: nextFileId,
     })
   }
 
@@ -716,6 +711,9 @@ export default function ShopDrawingBoqForm({
             shopDrawingItemId: itemId,
             shopDrawingFileId: fileId,
             makeQty,
+            mockupApproveDate: mockupApproveDate.trim()
+              ? mockupApproveDate.trim()
+              : null,
             main: {
               parts: parts.map((part) => ({
                 key: part.key,
@@ -761,6 +759,8 @@ export default function ShopDrawingBoqForm({
           : 'BOQ saved',
       )
       setBoqId(response.data.id)
+      setMakeQty(response.data.makeQty)
+      setMockupApproveDate(response.data.mockupApproveDate ?? '')
       setContentFrozen(Boolean(response.data.contentFrozen))
       void reloadRab()
       setParts(
@@ -1027,7 +1027,6 @@ export default function ShopDrawingBoqForm({
             void reloadSummary()
             void reloadOverview()
           }}
-          onSelectItem={openItemFromList}
         />
       ) : loadingSummary ? (
         <p className={cn('flex items-center gap-2 text-sm', hintClassName)}>
@@ -1129,6 +1128,22 @@ export default function ShopDrawingBoqForm({
                   inputMode="decimal"
                   placeholder="1"
                   className="h-9"
+                />
+              </div>
+              <div className="w-40 space-y-1">
+                <p className="text-[11px] text-(--muted)">
+                  Mockup approve date
+                </p>
+                <Input
+                  id="shop-drawing-boq-mockup-approve-date"
+                  type="date"
+                  value={mockupApproveDate}
+                  onChange={(e) => setMockupApproveDate(e.target.value)}
+                  disabled={
+                    !canManage || loadingBoq || !fileId || contentFrozen
+                  }
+                  className="h-9"
+                  aria-label="Mockup approve date"
                 />
               </div>
               {canManage ? (

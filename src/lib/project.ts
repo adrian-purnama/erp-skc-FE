@@ -19,18 +19,28 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
 }
 
 /** Lifecycle phases shown on the project dashboard. */
-export const PROJECT_PHASES = ['tender', 'internal', 'aftersales'] as const
+export const PROJECT_PHASES = [
+  'tender',
+  'internal',
+  'production',
+  'aftersales',
+] as const
 export type ProjectPhase = (typeof PROJECT_PHASES)[number]
 
 export const PROJECT_PHASE_LABELS: Record<ProjectPhase, string> = {
   tender: 'Tender',
   internal: 'Internal',
+  production: 'Production',
   aftersales: 'Aftersales',
 }
 
-export function phaseForStatus(status: ProjectStatus): ProjectPhase {
-  if (status === 'win') return 'internal'
+export function phaseForStatus(
+  status: ProjectStatus,
+  productionReleasedAt?: string | null,
+): ProjectPhase {
   if (status === 'completed') return 'aftersales'
+  if (productionReleasedAt) return 'production'
+  if (status === 'win') return 'internal'
   return 'tender'
 }
 
@@ -142,6 +152,8 @@ export type ProjectListItem = {
   loseReason: ProjectLoseReason | null
   closeReason: ProjectCloseReason | null
   isActive: boolean
+  /** Set once the project is released to production. */
+  productionReleasedAt: string | null
 }
 
 export type ProjectDetail = ProjectListItem & {
@@ -193,11 +205,26 @@ export type ProjectShopDrawingFile = {
 
 export type ProjectShopDrawingItem = {
   id: string
+  /** Kode, e.g. "SA1". */
+  code: string
   name: string
+  /** `{code}-{name}`. */
+  label: string
+  /** Keterangan, one spec line per entry. */
+  descriptions: string[]
+  /** Ukuran, free text (p x tebal x t mm). */
+  dimension: string
   /** Free-text group; the project's category list is derived from its items. */
   category: string | null
+  /** YYYY-MM-DD when mockup was approved; null if not needed / not yet. */
+  mockupApproveDate: string | null
   current: ProjectShopDrawingFile | null
   versions: ProjectShopDrawingFile[]
+  /** File Produksi (CNC / cutting files), versioned like the drawing. */
+  productionCurrent: ProjectShopDrawingFile | null
+  productionVersions: ProjectShopDrawingFile[]
+  /** Removed in the open RAB change; deleted when the change is committed. */
+  removedInChange: boolean
 }
 
 export type ProjectShopDrawingBoqLineInputs = {
@@ -225,6 +252,8 @@ export type ProjectShopDrawingBoqLine = {
   uomName: string
   formula: string
   inputs: ProjectShopDrawingBoqLineInputs
+  /** SD units one formula qty makes; "1" = plain per-unit qty. */
+  yieldQty: string
   qtyPerUnit: string
   totalQty: string
   addedAt: string | null
@@ -281,6 +310,8 @@ export type ProjectShopDrawingBoq = {
   fileVersion: number
   originalFilename: string
   makeQty: string
+  /** YYYY-MM-DD when mockup was approved; null if not needed / not yet. */
+  mockupApproveDate: string | null
   main: ProjectShopDrawingBoqMain
   lighting: ProjectShopDrawingBoqLighting
   mounting: ProjectShopDrawingBoqMounting
@@ -341,7 +372,13 @@ export type ProjectRabLine = {
   itemUomId: string
   uomSymbol: string
   uomName: string
+  /** Purchase qty after UOM rounding (priced). */
   totalQty: string
+  /** BOQ need before rounding; null for labour / legacy. */
+  exactQty: string | null
+  /** totalQty − exactQty; negative when rounded down below need. */
+  wasteQty: string | null
+  rounding: { decimals: number; mode: 'up' | 'nearest' | 'down' } | null
   unitPrice: string | null
   tarifId: string | null
   lineTotal: string | null
@@ -430,10 +467,28 @@ export type ProjectRabChangeVersionDiff = {
 export type ProjectRabChangeBoqMaterialDiff = {
   shopDrawingFileId: string
   shopDrawingItemId: string
+  /** `{kode}-{name}` of the shop drawing item. */
+  shopDrawingItemName: string
+  fileVersion: number | null
   key: string
   kind: ProjectRabLineChangeKind
+  materialCode: string | null
+  materialName: string | null
+  uomSymbol: string | null
   oldTotalQty: string | null
   newTotalQty: string | null
+}
+
+/** One RAB change and the materials it added to / changed in / removed from shop drawings. */
+export type ProjectRabMaterialChangeGroup = {
+  changeId: string
+  status: 'draft' | 'committed'
+  revision: number | null
+  reason: string
+  /** committedAt, or openedAt for the open draft. */
+  at: string
+  by: ProjectRabUserRef | null
+  materials: ProjectRabChangeBoqMaterialDiff[]
 }
 
 export type ProjectRabChangeDiff = {
@@ -468,6 +523,8 @@ export type ProjectRab = {
   changeDraft: ProjectRabChangeDraftRef | null
   baselineGrandTotal: string | null
   changeDiff: ProjectRabChangeDiff | null
+  /** Locked RAB: shop drawing material changes per change, newest first. */
+  materialChanges: ProjectRabMaterialChangeGroup[]
   groups: ProjectRabItemGroup[]
   grandTotal: string | null
   /** Latest committed change revision; 0 if locked with no commits. */

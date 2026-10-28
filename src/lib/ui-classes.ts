@@ -1,17 +1,19 @@
-export const inputClassName =
-  'app-input px-2.5 py-1.5 text-sm'
+export const inputClassName = 'app-input px-2.5 py-1.5 text-sm'
 
-export const inputClassNameCompact =
-  'app-input px-2 py-1 text-sm'
+/**
+ * Inputs inside Dialog / AlertDialog: those portal outside the app theme
+ * wrapper, so `.app-input` styles do not reach them.
+ */
+export const dialogInputClassName =
+  'w-full rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm'
 
-export const buttonClassName =
-  'app-button px-3.5 py-1.5 text-sm'
+export const inputClassNameCompact = 'app-input px-2 py-1 text-sm'
 
-export const buttonClassNameFull =
-  'app-button w-full px-3 py-1.5 text-sm'
+export const buttonClassName = 'app-button px-3.5 py-1.5 text-sm'
 
-export const buttonOutlineClassName =
-  'app-button-outline px-3 py-1.5 text-sm'
+export const buttonClassNameFull = 'app-button w-full px-3 py-1.5 text-sm'
+
+export const buttonOutlineClassName = 'app-button-outline px-3 py-1.5 text-sm'
 
 export const cardClassName = 'app-card'
 

@@ -39,6 +39,8 @@ export type QuotationInsight = {
   label: string
   latest: QuotationSummary | null
   latestIssued: QuotationSummary | null
+  /** The revision the client accepted; quotations are locked once set. */
+  won: QuotationSummary | null
   draft: QuotationSummary | null
   revisions: number
   /** Latest issued (or the draft) is based on an older RAB revision. */
@@ -159,7 +161,9 @@ export function buildPipelineInsight(input: {
     const revs = quotation.revisions
     const latest = revs[0] ?? null
     const draft = revs.find((r) => r.status === 'draft') ?? null
-    const latestIssued = revs.find((r) => r.status === 'issued') ?? null
+    const won = revs.find((r) => r.status === 'won') ?? null
+    const latestIssued =
+      won ?? revs.find((r) => r.status === 'issued') ?? null
     const current = quotation.currentRabRevision
     const basis = draft ?? latestIssued
     const outdated =
@@ -171,12 +175,16 @@ export function buildPipelineInsight(input: {
       label: 'None yet',
       latest,
       latestIssued,
+      won,
       draft,
       revisions: revs.length,
       outdated,
       currentRabRevision: current,
     }
-    if (draft) {
+    if (won) {
+      quotationInsight.tone = 'locked'
+      quotationInsight.label = `R${won.revision} won`
+    } else if (draft) {
       quotationInsight.tone = outdated ? 'warn' : 'progress'
       quotationInsight.label = `R${draft.revision} draft`
     } else if (latestIssued) {
@@ -252,6 +260,13 @@ function nextStep(
   if (!q) {
     return { tone: 'ok', stage: 'rab', text: 'RAB is locked.' }
   }
+  if (q.won) {
+    return {
+      tone: 'ok',
+      stage: 'quotation',
+      text: `Quotation R${q.won.revision} is won: upload File Produksi for every item, then release to production.`,
+    }
+  }
   if (q.draft) {
     if (q.outdated) {
       return {
@@ -283,6 +298,6 @@ function nextStep(
   return {
     tone: 'ok',
     stage: 'quotation',
-    text: `Quotation R${q.latestIssued.revision} issued and matches the current RAB.`,
+    text: `Quotation R${q.latestIssued.revision} issued and matches the current RAB. Mark it as won when the client accepts.`,
   }
 }

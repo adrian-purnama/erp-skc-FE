@@ -6,6 +6,8 @@ import ProjectCalendarPanel from '#/components/forms/ProjectCalendarPanel'
 import ProjectDocumentsPanel from '#/components/forms/ProjectDocumentsPanel'
 import ProjectPhaseSteps from '#/components/forms/ProjectPhaseSteps'
 import ProjectPipelineHeader from '#/components/forms/ProjectPipelineHeader'
+import ProjectProductionPanel from '#/components/forms/production/ProjectProductionPanel'
+import ProjectProductionReleaseButton from '#/components/forms/production/ProjectProductionReleaseButton'
 import ProjectQuotationForm from '#/components/forms/ProjectQuotationForm'
 import ProjectRabForm from '#/components/forms/ProjectRabForm'
 import ProjectShopDrawingPanel from '#/components/forms/ProjectShopDrawingPanel'
@@ -71,7 +73,12 @@ export default function ProjectDashboard({ projectId }: Props) {
           return
         }
         setProject(response.data)
-        setActivePhase(phaseForStatus(response.data.status))
+        setActivePhase(
+          phaseForStatus(
+            response.data.status,
+            response.data.productionReleasedAt,
+          ),
+        )
         toast.success('Status updated')
       } catch {
         toast.error('Unable to reach the server')
@@ -97,7 +104,12 @@ export default function ProjectDashboard({ projectId }: Props) {
         }
         if (!cancelled) {
           setProject(response.data)
-          setActivePhase(phaseForStatus(response.data.status))
+          setActivePhase(
+          phaseForStatus(
+            response.data.status,
+            response.data.productionReleasedAt,
+          ),
+        )
         }
       } catch {
         if (!cancelled) toast.error('Unable to reach the server')
@@ -107,6 +119,18 @@ export default function ProjectDashboard({ projectId }: Props) {
     })()
     return () => {
       cancelled = true
+    }
+  }, [projectId])
+
+  const reloadAfterRelease = useCallback(async () => {
+    try {
+      const response = await apiFetch<ProjectDetail>(`/project/${projectId}`)
+      if (response.success && response.data) {
+        setProject(response.data)
+        setActivePhase('production')
+      }
+    } catch {
+      toast.error('Unable to reach the server')
     }
   }, [projectId])
 
@@ -163,7 +187,10 @@ export default function ProjectDashboard({ projectId }: Props) {
     )
   }
 
-  const statusPhase = phaseForStatus(project.status)
+  const statusPhase = phaseForStatus(
+    project.status,
+    project.productionReleasedAt,
+  )
 
   return (
     <div className="space-y-8">
@@ -229,6 +256,32 @@ export default function ProjectDashboard({ projectId }: Props) {
           </div>
         ) : activePhase === 'internal' ? (
           <div className="space-y-5">
+            {project.productionReleasedAt ? (
+              <p className={cn('text-sm', hintClassName)}>
+                Released to production on{' '}
+                {new Date(project.productionReleasedAt).toLocaleDateString(
+                  'en-GB',
+                  {
+                    timeZone: 'Asia/Jakarta',
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                  },
+                )}
+                . RAB and quotation are locked.
+              </p>
+            ) : can('production.manage') ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className={cn('text-sm', hintClassName)}>
+                  Needs a won quotation, locked RAB, and shop drawing, BOQ and
+                  File Produksi on every item.
+                </p>
+                <ProjectProductionReleaseButton
+                  projectId={project.id}
+                  onReleased={() => void reloadAfterRelease()}
+                />
+              </div>
+            ) : null}
             <ProjectPipelineHeader
               projectId={project.id}
               refreshKey={pipelineKey}
@@ -271,6 +324,21 @@ export default function ProjectDashboard({ projectId }: Props) {
               ) : null}
             </Tabs>
           </div>
+        ) : activePhase === 'production' ? (
+          !project.productionReleasedAt ? (
+            <div className="rounded-md border border-(--line) px-4 py-10 text-center">
+              <p className="text-sm font-medium">Not in production yet</p>
+              <p className={cn('mt-1 text-sm', hintClassName)}>
+                Release the project from the Internal phase.
+              </p>
+            </div>
+          ) : can('production.view') ? (
+            <ProjectProductionPanel projectId={project.id} />
+          ) : (
+            <p className={cn('text-sm', hintClassName)}>
+              You do not have access to production.
+            </p>
+          )
         ) : (
           <div className="rounded-md border border-(--line) px-4 py-10 text-center">
             <p className="text-sm font-medium">

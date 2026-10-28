@@ -1,12 +1,13 @@
 import type { ProjectCustomerContact, ProjectRabUserRef } from '#/lib/project'
 
-export type QuotationStatus = 'draft' | 'issued' | 'superseded'
+export type QuotationStatus = 'draft' | 'issued' | 'superseded' | 'won'
 export type QuotationDiscountType = 'percent' | 'amount'
 
 export const QUOTATION_STATUS_LABELS: Record<QuotationStatus, string> = {
   draft: 'Draft',
   issued: 'Issued',
   superseded: 'Superseded',
+  won: 'Won',
 }
 
 export type QuotationLine = {
@@ -23,6 +24,10 @@ export type QuotationLine = {
   lineTotal: string
   /** Issued: snapshot. Draft: the shop drawing item's current category. */
   category: string | null
+  /** Shop drawing kode, keterangan lines and ukuran (same snapshot rule as category). */
+  code: string
+  descriptions: string[]
+  dimension: string
 }
 
 /** Category group for printing; an empty list means the quotation is flat. */
@@ -81,6 +86,8 @@ export type QuotationSummary = {
   createdBy: ProjectRabUserRef | null
   issuedAt: string | null
   issuedBy: ProjectRabUserRef | null
+  wonAt: string | null
+  wonBy: ProjectRabUserRef | null
 }
 
 export type Quotation = QuotationSummary & {
@@ -100,6 +107,7 @@ export type Quotation = QuotationSummary & {
     phone: string
     email: string
     website: string
+    branchOfficeAddresses: string[]
     hasLogo: boolean
   }
   customer: { customerId: string; name: string; address: string; npwp: string }
@@ -140,12 +148,16 @@ export type PublicQuotation = {
     phone: string
     email: string
     website: string
+    branchOfficeAddresses: string[]
     hasLogo: boolean
   }
   customer: { name: string; address: string }
   attention: string
   lines: Array<{
+    code: string
     description: string
+    descriptions: string[]
+    dimension: string
     qty: string
     uom: string
     unitPrice: string

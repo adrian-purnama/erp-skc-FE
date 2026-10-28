@@ -1,7 +1,7 @@
 import type { FormEvent, RefObject } from 'react'
 import { useEffect, useId, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { ImagePlus, LoaderCircle } from 'lucide-react'
+import { ImagePlus, LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import { apiFetch, apiUpload, toAbsoluteMediaUrl } from '#/lib/api'
 import { useBranding } from '#/context/brandingContext'
 import {
@@ -22,6 +22,7 @@ export type AppConfigData = {
   companyName: string
   npwp: string
   address: string
+  branchOfficeAddresses: string[]
   phone: string
   email: string
   website: string
@@ -144,6 +145,9 @@ export default function AppConfigForm() {
   const [companyName, setCompanyName] = useState('')
   const [npwp, setNpwp] = useState('')
   const [address, setAddress] = useState('')
+  const [branchOfficeAddresses, setBranchOfficeAddresses] = useState<string[]>(
+    [],
+  )
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [website, setWebsite] = useState('')
@@ -174,6 +178,11 @@ export default function AppConfigForm() {
         setCompanyName(data.companyName ?? '')
         setNpwp(data.npwp ?? '')
         setAddress(data.address ?? '')
+        setBranchOfficeAddresses(
+          Array.isArray(data.branchOfficeAddresses)
+            ? data.branchOfficeAddresses
+            : [],
+        )
         setPhone(data.phone ?? '')
         setEmail(data.email ?? '')
         setWebsite(data.website ?? '')
@@ -247,6 +256,9 @@ export default function AppConfigForm() {
           companyName: companyName.trim(),
           npwp: npwp.trim(),
           address: address.trim(),
+          branchOfficeAddresses: branchOfficeAddresses
+            .map((entry) => entry.trim())
+            .filter(Boolean),
           phone: phone.trim(),
           email: email.trim(),
           website: website.trim(),
@@ -256,6 +268,14 @@ export default function AppConfigForm() {
       if (!patchResponse.success) {
         toast.error(patchResponse.message || 'Failed to update app config')
         return
+      }
+
+      if (patchResponse.data) {
+        setBranchOfficeAddresses(
+          Array.isArray(patchResponse.data.branchOfficeAddresses)
+            ? patchResponse.data.branchOfficeAddresses
+            : [],
+        )
       }
 
       if (logoFile) {
@@ -430,6 +450,62 @@ export default function AppConfigForm() {
               onChange={(event) => setAddress(event.target.value)}
               className={inputClassName}
             />
+          </div>
+
+          <div className="sm:col-span-2 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-[var(--ink)]">Branch office addresses</p>
+              </div>
+              <button
+                type="button"
+                className={cn(
+                  buttonClassName,
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm',
+                )}
+                onClick={() =>
+                  setBranchOfficeAddresses((rows) => [...rows, ''])
+                }
+              >
+                <Plus className="size-3.5" aria-hidden />
+                Add
+              </button>
+            </div>
+            {branchOfficeAddresses.length === 0 ? (
+              <p className={hintClassName}>No branch offices yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {branchOfficeAddresses.map((entry, index) => (
+                  <li key={`branch-${index}`} className="flex items-start gap-2">
+                    <textarea
+                      rows={2}
+                      value={entry}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setBranchOfficeAddresses((rows) =>
+                          rows.map((row, i) => (i === index ? value : row)),
+                        )
+                      }}
+                      className={inputClassName}
+                      placeholder={`Branch office ${index + 1}`}
+                      aria-label={`Branch office address ${index + 1}`}
+                    />
+                    <button
+                      type="button"
+                      className="mt-1 shrink-0 p-2 text-[var(--muted)] transition hover:text-red-700"
+                      aria-label={`Remove branch office ${index + 1}`}
+                      onClick={() =>
+                        setBranchOfficeAddresses((rows) =>
+                          rows.filter((_, i) => i !== index),
+                        )
+                      }
+                    >
+                      <Trash2 className="size-4" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div>

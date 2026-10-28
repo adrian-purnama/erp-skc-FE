@@ -35,6 +35,8 @@ type ListTableProps<T> = {
    * Rows must already be sorted so each group is contiguous.
    */
   groupBy?: (row: T) => string
+  /** `compact` tightens row padding for dense, scan-first lists. */
+  density?: 'default' | 'compact'
 }
 
 export function ListSearchInput({
@@ -86,6 +88,7 @@ export default function ListTable<T>({
   pagination,
   onRowClick,
   groupBy,
+  density = 'default',
 }: ListTableProps<T>) {
   return (
     <div className="space-y-3">
@@ -177,7 +180,11 @@ export default function ListTable<T>({
                         {columns.map((col, index) => (
                           <td
                             key={index}
-                            className={cn('px-3 py-3', col.cellClassName)}
+                            className={cn(
+                              'px-3',
+                              density === 'compact' ? 'py-1.5' : 'py-3',
+                              col.cellClassName,
+                            )}
                           >
                             {col.cell(row)}
                           </td>

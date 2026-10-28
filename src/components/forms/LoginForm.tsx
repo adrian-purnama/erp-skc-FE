@@ -20,7 +20,16 @@ interface LoginResponse {
   jwt: string
 }
 
-export default function LoginForm() {
+/** Only same-app paths: never an absolute URL or protocol-relative `//host`. */
+function safeRedirect(target: string | undefined): string | null {
+  if (!target || !target.startsWith('/') || target.startsWith('//')) {
+    return null
+  }
+  if (target.startsWith('/login')) return null
+  return target
+}
+
+export default function LoginForm({ redirectTo }: { redirectTo?: string }) {
   const navigate = useNavigate()
   const { login } = useAuth()
   const { openRegister, firstRegister } = useBranding()
@@ -53,7 +62,9 @@ export default function LoginForm() {
 
       await login(response.data.jwt)
       toast.success(response.message || 'Logged in successfully')
-      await navigate({ to: '/dashboard' })
+      const next = safeRedirect(redirectTo)
+      if (next) await navigate({ href: next })
+      else await navigate({ to: '/dashboard' })
     } catch {
       toast.error('Unable to reach the server. Please try again.')
     } finally {
