@@ -33,6 +33,16 @@ export type PurchasingProject = {
   name: string
 }
 
+/** An SPK you are PIC of that can take a new SPP. */
+export type PurchasingSpk = {
+  id: string
+  number: string
+  itemLabel: string
+  projectId: string
+  projectNumber: string
+  projectName: string
+}
+
 export type PurchasingProjectContext = PurchasingProject & {
   rabKeys: string[]
   orders: Array<{ id: string; number: string; itemLabel: string }>
@@ -76,6 +86,8 @@ export type PurchaseRequestSummary = {
   flaggedCount: number
   orderStatus: RequestLineOrderStatus
   receiptStatus: RealizationProgress
+  /** When the requester confirmed they received everything. */
+  receivedAt: string | null
   requestedBy: ProjectRabUserRef | null
   createdAt: string | null
   submittedAt: string | null
@@ -91,6 +103,9 @@ export type PurchaseRequest = PurchaseRequestSummary & {
   declinedAt: string | null
   declinedBy: ProjectRabUserRef | null
   declineReason: string
+  receivedBy: ProjectRabUserRef | null
+  /** You made it, everything arrived and it is not confirmed yet. */
+  canConfirmReceived: boolean
   orders: Array<{
     id: string
     number: string
@@ -241,8 +256,8 @@ export type PurchaseOrderLine = Omit<
   overRequest: boolean
   overBudget: boolean
   orderNote: string
+  /** Arrived / bought on posted realizations. */
   realizedQty: string
-  receivedQty: string
 }
 
 export type PurchaseOrderSummary = {
@@ -287,17 +302,10 @@ export type PurchaseOrder = PurchaseOrderSummary & {
     id: string
     number: string
     status: RealizationStatus
+    method: RealizationMethod
     purchaseDate: string
     total: string
     difference: string
-  }>
-  receiptStatus: RealizationProgress
-  receipts: Array<{
-    id: string
-    number: string
-    status: GoodsReceiptStatus
-    receivedDate: string
-    lineCount: number
   }>
 }
 
@@ -336,7 +344,7 @@ export function requestOrderStatusChipClass(
   }
 }
 
-// ---- Nota Realisasi ----
+// ---- Realization (vendor: Penerimaan, staff: Nota Realisasi) ----
 
 export type RealizationStatus = 'draft' | 'posted' | 'voided'
 export type RealizationMethod = 'vendor' | 'staff'
@@ -349,14 +357,40 @@ export const REALIZATION_STATUS_LABELS: Record<RealizationStatus, string> = {
 }
 
 export const REALIZATION_METHOD_LABELS: Record<RealizationMethod, string> = {
-  vendor: 'Vendor invoice',
+  vendor: 'From vendor',
   staff: 'Staff purchase',
 }
 
+/** Document title per method: one document type, two names. */
+export const REALIZATION_DOC_LABELS: Record<RealizationMethod, string> = {
+  vendor: 'Penerimaan',
+  staff: 'Nota Realisasi',
+}
+
 export const REALIZATION_PROGRESS_LABELS: Record<RealizationProgress, string> = {
-  none: 'Not bought yet',
-  partial: 'Partly bought',
-  full: 'Fully bought',
+  none: 'Not arrived yet',
+  partial: 'Partly arrived',
+  full: 'All arrived',
+}
+
+export type RealizationChargeKind = 'percent' | 'fixed'
+
+export type RealizationCharge = {
+  id: string
+  label: string
+  kind: RealizationChargeKind
+  /** Percent of the goods subtotal, for `percent`. */
+  rate: string | null
+  /** Integer rupiah. */
+  amount: string
+}
+
+/** Same rounding as the server: percent of the subtotal, half up. */
+export function percentChargeAmount(subtotal: string, rate: string): string {
+  const s = Number(subtotal)
+  const r = Number(rate)
+  if (!Number.isFinite(s) || !Number.isFinite(r) || r <= 0) return '0'
+  return String(Math.round((s * r) / 100))
 }
 
 export type RealizationPoLine = {
@@ -417,9 +451,16 @@ export type RealizationSummary = {
   projectNumber: string
   projectName: string
   buyerName: string
+  receivedByName: string
   purchaseDate: string
   place: string
+  deliveryNoteNumber: string
+  /** Σ goods lines. */
+  subtotal: string
+  chargesTotal: string
+  /** subtotal + chargesTotal. */
   total: string
+  /** Goods lines only: actual − approved. */
   difference: string
   photoCount: number
   createdBy: ProjectRabUserRef | null
@@ -429,9 +470,11 @@ export type RealizationSummary = {
 
 export type Realization = RealizationSummary & {
   buyerUserId: string | null
+  receivedByUserId: string | null
   notaNumber: string
   comments: string
   lines: RealizationLine[]
+  charges: RealizationCharge[]
   photos: RealizationPhoto[]
   postedBy: ProjectRabUserRef | null
   voidedAt: string | null
@@ -464,86 +507,4 @@ export function realizationStatusChipClass(status: RealizationStatus): string {
     default:
       return 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
   }
-}
-
-// ---- Penerimaan Barang ----
-
-export type GoodsReceiptStatus = 'posted' | 'voided'
-
-export const GOODS_RECEIPT_STATUS_LABELS: Record<GoodsReceiptStatus, string> = {
-  posted: 'Received',
-  voided: 'Voided',
-}
-
-export const RECEIPT_PROGRESS_LABELS: Record<RealizationProgress, string> = {
-  none: 'Not arrived yet',
-  partial: 'Partly arrived',
-  full: 'All arrived',
-}
-
-export type ReceiptPoLine = {
-  poLineId: string
-  materialCode: string
-  materialName: string
-  uomSymbol: string
-  orderedQty: string
-  receivedQty: string
-  remainingQty: string
-}
-
-export type ReceiptPlan = {
-  purchaseOrderId: string
-  poNumber: string
-  vendorName: string
-  requestId: string
-  requestNumber: string
-  projectNumber: string
-  projectName: string
-  expectedDate: string | null
-  lines: ReceiptPoLine[]
-}
-
-export type GoodsReceiptSummary = {
-  id: string
-  number: string
-  status: GoodsReceiptStatus
-  purchaseOrderId: string
-  poNumber: string
-  vendorName: string
-  requestNumber: string
-  projectNumber: string
-  projectName: string
-  receivedDate: string
-  receivedByName: string
-  deliveryNoteNumber: string
-  lineCount: number
-  createdBy: ProjectRabUserRef | null
-  createdAt: string | null
-}
-
-export type GoodsReceipt = GoodsReceiptSummary & {
-  notes: string
-  lines: Array<{
-    id: string
-    poLineId: string
-    materialCode: string
-    materialName: string
-    uomSymbol: string
-    orderedQty: string
-    qty: string
-    note: string
-  }>
-  voidedAt: string | null
-  voidedBy: ProjectRabUserRef | null
-  voidReason: string
-}
-
-export type ReceiptQueueRow = PurchaseOrderSummary & {
-  receiptStatus: RealizationProgress
-}
-
-export function goodsReceiptStatusChipClass(status: GoodsReceiptStatus): string {
-  return status === 'posted'
-    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-    : 'border-(--line) text-(--muted) line-through'
 }

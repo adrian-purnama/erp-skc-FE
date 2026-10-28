@@ -91,12 +91,18 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
         ],
       },
       {
-        id: 'project-production',
+        id: 'project-production-folder',
         label: 'Production',
-        to: '/dashboard/internal/production',
-        match: '/dashboard/internal/production',
-        permission: 'production.view',
-        carryProjectId: true,
+        children: [
+          {
+            id: 'project-production',
+            label: 'Production Status',
+            to: '/dashboard/internal/production',
+            match: '/dashboard/internal/production',
+            permission: 'production.view',
+            carryProjectId: true,
+          },
+        ],
       },
     ],
   },
@@ -111,12 +117,6 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
         match: '/dashboard/production',
         permission: 'production.view',
       },
-    ],
-  },
-  {
-    id: 'purchasing',
-    label: 'Purchasing',
-    children: [
       {
         id: 'purchasing-requests',
         label: 'Material Requests (SPP)',
@@ -124,6 +124,12 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
         match: '/dashboard/purchasing/requests',
         permission: 'purchasing.view',
       },
+    ],
+  },
+  {
+    id: 'purchasing',
+    label: 'Purchasing',
+    children: [
       {
         id: 'purchasing-orders',
         label: 'Purchase Orders',
@@ -140,17 +146,10 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
       },
       {
         id: 'purchasing-realizations',
-        label: 'Nota Realisasi',
+        label: 'Realizations',
         to: '/dashboard/purchasing/realizations',
         match: '/dashboard/purchasing/realizations',
         permission: 'purchasing.realize',
-      },
-      {
-        id: 'purchasing-receipts',
-        label: 'Penerimaan Barang',
-        to: '/dashboard/purchasing/receipts',
-        match: '/dashboard/purchasing/receipts',
-        permission: 'purchasing.receive',
       },
     ],
   },

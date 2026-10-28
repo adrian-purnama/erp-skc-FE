@@ -54,7 +54,7 @@ export default function ProjectProductionPage({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <h1 className={pageTitleClassName}>Production</h1>
+        <h1 className={pageTitleClassName}>Production Status</h1>
         {projectId ? (
           <Link
             to="/dashboard/projects/$projectId"

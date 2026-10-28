@@ -6,6 +6,7 @@ import {
   Ban,
   Check,
   LoaderCircle,
+  PackageCheck,
   Plus,
   Send,
   ShoppingCart,
@@ -41,7 +42,7 @@ import type {
   PurchaseRequestPlan,
   PurchaseRequestPlanRow,
   PurchasingMaterial,
-  PurchasingProject,
+  PurchasingSpk,
   PurchasingProjectContext,
 } from '#/lib/purchasing'
 import {
@@ -55,8 +56,6 @@ import {
   sectionTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
-
-const NO_SPK = 'none'
 
 type Props = {
   /** Existing SPP; omit for a new one. */
@@ -127,7 +126,7 @@ export default function PurchaseRequestEditor({
   const [busy, setBusy] = useState(false)
   const [request, setRequest] = useState<PurchaseRequest | null>(null)
 
-  const [projects, setProjects] = useState<PurchasingProject[] | null>(null)
+  const [spks, setSpks] = useState<PurchasingSpk[] | null>(null)
   const [projectId, setProjectId] = useState('')
   const [context, setContext] = useState<PurchasingProjectContext | null>(null)
   const [orderId, setOrderId] = useState('')
@@ -139,7 +138,7 @@ export default function PurchaseRequestEditor({
   const [notes, setNotes] = useState('')
   const [showErrors, setShowErrors] = useState(false)
   const [confirm, setConfirm] = useState<
-    'delete' | 'cancel' | 'decline' | null
+    'delete' | 'cancel' | 'decline' | 'received' | null
   >(null)
   const [cancelReason, setCancelReason] = useState('')
 
@@ -220,8 +219,8 @@ export default function PurchaseRequestEditor({
           await loadContext(p.projectId)
         }
       } else {
-        const list = await getData<PurchasingProject[]>('/purchasing/projects')
-        if (!cancelled) setProjects(list ?? [])
+        const list = await getData<PurchasingSpk[]>('/purchasing/spks/mine')
+        if (!cancelled) setSpks(list ?? [])
       }
       if (!cancelled) setLoading(false)
     })()
@@ -239,20 +238,15 @@ export default function PurchaseRequestEditor({
     })()
   }, [editable, materials])
 
-  async function pickProject(pid: string) {
-    setProjectId(pid)
-    setOrderId('')
+  /** New SPP: the SPK decides the project. */
+  async function pickOrder(next: string) {
+    const spk = spks?.find((o) => o.id === next)
+    setOrderId(next)
+    setProjectId(spk?.projectId ?? '')
     setPlan(null)
     setContext(null)
-    if (pid) await loadContext(pid)
-  }
-
-  async function pickOrder(value: string) {
-    const next = value === NO_SPK ? '' : value
-    setOrderId(next)
-    setPlan(null)
-    if (!next) return
-    const p = await loadPlan(next)
+    if (!spk) return
+    const [p] = await Promise.all([loadPlan(next), loadContext(spk.projectId)])
     setPlan(p)
     defaultNeededDate(p)
   }
@@ -342,7 +336,7 @@ export default function PurchaseRequestEditor({
   }
   const issueCount = [...info.values()].filter((i) => i.issue).length
   const formErrors: string[] = []
-  if (!projectId) formErrors.push('Choose a project')
+  if (!projectId) formErrors.push(isNew ? 'Choose an SPK' : 'Choose a project')
   if (!neededDate) formErrors.push('Set the date needed')
   if (rows.length === 0) formErrors.push('Add at least one item')
   const canSave = issueCount === 0 && formErrors.length === 0
@@ -444,6 +438,16 @@ export default function PurchaseRequestEditor({
         }
         toast.success('Draft deleted')
         void navigate({ to: '/dashboard/purchasing/requests' })
+      } else if (confirm === 'received') {
+        const next = await send<PurchaseRequest>(
+          `/purchasing/requests/${request.id}/received`,
+          { method: 'POST' },
+        )
+        if (next) {
+          toast.success(`${next.number} marked as received`)
+          setRequest(next)
+          setConfirm(null)
+        }
       } else {
         const next = await send<PurchaseRequest>(
           `/purchasing/requests/${request.id}/${confirm}`,
@@ -515,7 +519,13 @@ export default function PurchaseRequestEditor({
           </h1>
           {request ? <PurchaseRequestStatusChip status={request.status} /> : null}
           {request?.status === 'submitted' ? (
-            <RequestOrderStatusChip status={request.orderStatus} />
+            request.receivedAt ? (
+              <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-emerald-700 dark:text-emerald-300">
+                Received
+              </span>
+            ) : (
+              <RequestOrderStatusChip status={request.orderStatus} />
+            )
           ) : null}
         </div>
         <p className={hintClassName}>
@@ -525,6 +535,15 @@ export default function PurchaseRequestEditor({
               ? `Sent to purchasing ${formatWhen(request.submittedAt)} by ${request.submittedBy?.name ?? request.requestedBy?.name ?? 'Unknown'}.`
               : null}
         </p>
+        {request?.receivedAt ? (
+          <p className="text-sm text-emerald-700 dark:text-emerald-300">
+            Received by {request.receivedBy?.name ?? 'Unknown'} on {formatWhen(request.receivedAt)}.
+          </p>
+        ) : request?.canConfirmReceived ? (
+          <p className="text-sm text-emerald-700 dark:text-emerald-300">
+            Everything has arrived. Press “I have received” once you have the goods.
+          </p>
+        ) : null}
         {request?.status === 'declined' ? (
           <p className="text-sm text-red-700 dark:text-red-300">
             Declined by purchasing {formatWhen(request.declinedAt)} (
@@ -540,42 +559,28 @@ export default function PurchaseRequestEditor({
       </div>
 
       {/* Request for */}
-      <section className="grid gap-4 sm:grid-cols-3">
-        <div className="space-y-1">
-          <span className="text-sm font-medium">Project</span>
-          {isNew && !initialOrderId ? (
-            <Combobox
-              value={projectId}
-              onValueChange={(v) => void pickProject(v)}
-              options={(projects ?? []).map((p) => ({
-                value: p.id,
-                label: `${p.projectNumber} · ${p.name}`,
-              }))}
-              placeholder="Choose a project in production"
-              emptyText="No project is in production yet."
-              aria-label="Project"
-              disabled={busy}
-            />
-          ) : (
+      <section className={cn('grid gap-4', isNew ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
+        {isNew ? null : (
+          <div className="space-y-1">
+            <span className="text-sm font-medium">Project</span>
             <p className="text-sm">{projectLabel}</p>
-          )}
-        </div>
+          </div>
+        )}
         <div className="space-y-1">
           <span className="text-sm font-medium">SPK</span>
           {isNew && !initialOrderId ? (
             <Combobox
-              value={orderId || (projectId ? NO_SPK : '')}
+              value={orderId}
               onValueChange={(v) => void pickOrder(v)}
-              options={[
-                { value: NO_SPK, label: 'No SPK' },
-                ...(context?.orders ?? []).map((o) => ({
-                  value: o.id,
-                  label: `${o.number} · ${o.itemLabel}`,
-                })),
-              ]}
-              placeholder={projectId ? 'Choose an SPK' : 'Choose a project first'}
+              options={(spks ?? []).map((o) => ({
+                value: o.id,
+                label: `${o.number} · ${o.itemLabel}`,
+              }))}
+              placeholder="Choose your SPK"
+              emptyText="No open SPK is assigned to you."
               aria-label="SPK"
-              disabled={busy || !projectId}
+              disabled={busy}
+              className={cn(showErrors && !orderId && 'border-red-500')}
             />
           ) : (
             <p className="text-sm">
@@ -1060,6 +1065,17 @@ export default function PurchaseRequestEditor({
                 Request more for this SPK
               </Link>
             ) : null}
+            {request.canConfirmReceived ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy}
+                onClick={() => setConfirm('received')}
+              >
+                <PackageCheck className="size-3.5" aria-hidden />
+                I have received
+              </Button>
+            ) : null}
             {request.status === 'submitted' &&
             can('purchasing.manage') &&
             !request.orders.some((o) => o.status !== 'cancelled') ? (
@@ -1107,14 +1123,18 @@ export default function PurchaseRequestEditor({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {confirm === 'delete'
+              {confirm === 'received'
+                ? `Confirm you received ${request?.number}?`
+                : confirm === 'delete'
                 ? `Delete draft ${request?.number}?`
                 : confirm === 'decline'
                   ? `Decline ${request?.number}?`
                   : `Cancel ${request?.number}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {confirm === 'delete'
+              {confirm === 'received'
+                ? 'Records that you have all the requested materials, with your name and the time.'
+                : confirm === 'delete'
                 ? 'The draft is removed. Its quantities are free to request again.'
                 : confirm === 'decline'
                   ? 'The requester sees your reason. Its quantities are free to request again.'
@@ -1135,14 +1155,19 @@ export default function PurchaseRequestEditor({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Back</AlertDialogCancel>
             <AlertDialogAction
-              variant="destructive"
-              disabled={busy || (confirm !== 'delete' && !cancelReason.trim())}
+              variant={confirm === 'received' ? 'default' : 'destructive'}
+              disabled={
+                busy ||
+                ((confirm === 'cancel' || confirm === 'decline') && !cancelReason.trim())
+              }
               onClick={(e) => {
                 e.preventDefault()
                 void runConfirm()
               }}
             >
-              {confirm === 'delete'
+              {confirm === 'received'
+                ? 'I have received'
+                : confirm === 'delete'
                 ? 'Delete'
                 : confirm === 'decline'
                   ? 'Decline'

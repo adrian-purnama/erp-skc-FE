@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { apiFetch } from '#/lib/api'
 import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
 import {
+  REALIZATION_DOC_LABELS,
   REALIZATION_METHOD_LABELS,
   REALIZATION_PROGRESS_LABELS,
   REALIZATION_STATUS_LABELS,
@@ -41,7 +42,7 @@ function diffClass(digits: string): string {
   return 'text-(--muted)'
 }
 
-/** Approved POs still to be bought, and every nota recorded so far. */
+/** Approved POs still open, and every realization (Penerimaan / Nota Realisasi) so far. */
 export default function RealizationsForm() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<'queue' | 'notas'>('queue')
@@ -81,7 +82,7 @@ export default function RealizationsForm() {
         `/purchasing/realizations${qs ? `?${qs}` : ''}`,
       )
       if (!response.success) {
-        setError(response.message || 'Failed to load notas')
+        setError(response.message || 'Failed to load realizations')
         return
       }
       setNotas(response.data)
@@ -113,9 +114,14 @@ export default function RealizationsForm() {
   const columns = useMemo<ListTableColumn<RealizationSummary>[]>(
     () => [
       {
-        header: 'Nota',
-        cellClassName: 'w-36 font-medium whitespace-nowrap tabular-nums',
-        cell: (r) => r.number,
+        header: 'No.',
+        cellClassName: 'w-36 whitespace-nowrap tabular-nums',
+        cell: (r) => (
+          <div>
+            <p className="font-medium">{r.number}</p>
+            <p className="text-xs text-(--muted)">{REALIZATION_DOC_LABELS[r.method]}</p>
+          </div>
+        ),
       },
       {
         header: 'PO',
@@ -129,11 +135,12 @@ export default function RealizationsForm() {
         ),
       },
       {
-        header: 'Bought',
+        header: 'Who · when',
         cell: (r) => (
           <div className="min-w-0">
             <p className="truncate">
-              {r.buyerName || REALIZATION_METHOD_LABELS[r.method]}
+              {(r.method === 'staff' ? r.buyerName : r.receivedByName) ||
+                REALIZATION_METHOD_LABELS[r.method]}
             </p>
             <p className="truncate text-xs text-(--muted) tabular-nums">
               {r.purchaseDate}
@@ -150,6 +157,9 @@ export default function RealizationsForm() {
             <p className="font-medium">{formatRupiah(r.total)}</p>
             <p className={cn('text-xs', diffClass(r.difference))}>
               {formatRupiahDiff(r.difference)}
+              {r.chargesTotal !== '0' ? (
+                <span className="text-(--muted)"> · +{formatRupiah(r.chargesTotal)}</span>
+              ) : null}
             </p>
           </div>
         ),
@@ -176,9 +186,10 @@ export default function RealizationsForm() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className={pageTitleClassName}>Nota Realisasi</h1>
+        <h1 className={pageTitleClassName}>Realizations</h1>
         <p className={cn('mt-2', hintClassName)}>
-          Record what was actually bought for approved POs, with photos of the nota.
+          For approved POs: record a Penerimaan when the vendor delivers, or a Nota Realisasi when
+          staff bought it. Posted qty counts as arrived on the SPP / SPK.
         </p>
       </div>
 
@@ -187,7 +198,7 @@ export default function RealizationsForm() {
           <TabsTrigger value="queue">
             Waiting{queue && queue.length > 0 ? ` (${queue.length})` : ''}
           </TabsTrigger>
-          <TabsTrigger value="notas">Notas</TabsTrigger>
+          <TabsTrigger value="notas">Recorded</TabsTrigger>
         </TabsList>
 
         <TabsContent value="queue" className="mt-6">
@@ -202,7 +213,7 @@ export default function RealizationsForm() {
             <p className={cn('text-sm', hintClassName)}>Loading…</p>
           ) : queue.length === 0 ? (
             <p className={cn('text-sm', hintClassName)}>
-              Every approved PO has been bought.
+              Everything on approved POs has arrived.
             </p>
           ) : (
             <ul className="divide-y divide-(--line) rounded-md border border-(--line)">
@@ -246,7 +257,7 @@ export default function RealizationsForm() {
                       )}
                     >
                       <Receipt className="size-3.5" aria-hidden />
-                      Record nota
+                      Record
                     </Link>
                   </div>
                 </li>
@@ -270,8 +281,8 @@ export default function RealizationsForm() {
                   <ListSearchInput
                     value={query}
                     onChange={setQuery}
-                    placeholder="Filter by nota, PO, vendor, project, buyer or shop…"
-                    aria-label="Filter notas"
+                    placeholder="Filter by no., PO, vendor, project, person, shop or surat jalan…"
+                    aria-label="Filter realizations"
                   />
                   <Combobox
                     value={status}
@@ -286,11 +297,11 @@ export default function RealizationsForm() {
                 </>
               }
               loading={loading}
-              loadingLabel="Loading notas…"
+              loadingLabel="Loading realizations…"
               empty={
                 debounced.trim() || status !== ALL
-                  ? 'No notas match the current filter.'
-                  : 'No nota recorded yet.'
+                  ? 'Nothing matches the current filter.'
+                  : 'Nothing recorded yet.'
               }
               columns={columns}
               rows={pageItems}

@@ -8,6 +8,7 @@ import {
   CheckCheck,
   FileText,
   LoaderCircle,
+  Plus,
   Store,
   Trash2,
   Truck,
@@ -31,14 +32,17 @@ import { useAuth } from '#/context/authContext'
 import { apiBlobUrl, apiFetch, apiUpload } from '#/lib/api'
 import { jakartaDateKey } from '#/lib/jakartaDate'
 import {
+  REALIZATION_DOC_LABELS,
   REALIZATION_METHOD_LABELS,
   formatRupiah,
   formatRupiahDiff,
   parseQty,
+  percentChargeAmount,
 } from '#/lib/purchasing'
 import type {
   PurchasingUser,
   Realization,
+  RealizationChargeKind,
   RealizationMethod,
   RealizationPhoto,
   RealizationPlan,
@@ -55,13 +59,33 @@ import {
 import { cn } from '#/lib/utils'
 
 type Props = {
-  /** Existing nota; omit for a new one. */
+  /** Existing realization; omit for a new one. */
   realizationId?: string
-  /** New nota: the approved PO it realizes. */
+  /** New realization: the approved PO it realizes. */
   orderId?: string
 }
 
 type LineState = { qty: string; unitPrice: string; note: string }
+
+/** `rate` for percent charges, `amount` (digits) for fixed ones. */
+type ChargeState = {
+  key: string
+  label: string
+  kind: RealizationChargeKind
+  rate: string
+  amount: string
+}
+
+let chargeSeq = 0
+function newChargeKey(): string {
+  chargeSeq += 1
+  return `c${chargeSeq}`
+}
+
+/** Penerimaan / Nota Realisasi, or a neutral name before the method is picked. */
+function docLabel(method: RealizationMethod | ''): string {
+  return method ? REALIZATION_DOC_LABELS[method] : 'Realization'
+}
 
 function amountOf(qty: string, price: string): number {
   const q = parseQty(qty)
@@ -102,7 +126,7 @@ async function getData<T>(path: string): Promise<T | null> {
   }
 }
 
-/** One nota file: image thumbnail or a PDF card; opens full size in a new tab. */
+/** One proof file: image thumbnail or a PDF card; opens full size in a new tab. */
 function NotaFile({
   realizationId,
   photo,
@@ -187,7 +211,11 @@ function NotaFile({
   )
 }
 
-/** Record or view one Nota Realisasi for an approved PO. */
+/**
+ * Record or view one realization of an approved PO: a Penerimaan (goods from
+ * the vendor) or a Nota Realisasi (staff bought it). Same document, same qty
+ * ledger; labels follow the method.
+ */
 export default function RealizationEditor({ realizationId, orderId }: Props) {
   const { can } = useAuth()
   const navigate = useNavigate()
@@ -207,8 +235,11 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
   const [purchaseDate, setPurchaseDate] = useState(jakartaDateKey(new Date()))
   const [place, setPlace] = useState('')
   const [notaNumber, setNotaNumber] = useState('')
+  const [receivedById, setReceivedById] = useState('')
+  const [deliveryNoteNumber, setDeliveryNoteNumber] = useState('')
   const [comments, setComments] = useState('')
   const [lines, setLines] = useState<Record<string, LineState>>({})
+  const [charges, setCharges] = useState<ChargeState[]>([])
   const [showErrors, setShowErrors] = useState(false)
   const [confirm, setConfirm] = useState<'delete' | 'post' | 'void' | null>(null)
   const [reason, setReason] = useState('')
@@ -223,7 +254,18 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
     setPurchaseDate(next.purchaseDate)
     setPlace(next.place)
     setNotaNumber(next.notaNumber)
+    setReceivedById(next.receivedByUserId ?? '')
+    setDeliveryNoteNumber(next.deliveryNoteNumber)
     setComments(next.comments)
+    setCharges(
+      next.charges.map((c) => ({
+        key: c.id,
+        label: c.label,
+        kind: c.kind,
+        rate: c.rate ?? '',
+        amount: c.kind === 'fixed' ? c.amount : '',
+      })),
+    )
   }, [])
 
   useEffect(() => {
@@ -300,11 +342,32 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
     payload.push({ poLineId: l.poLineId, qty: st.qty.trim(), unitPrice: st.unitPrice, note: st.note })
   }
   const difference = total - approvedTotal
+  const subtotal = total
+  const chargeIssues = new Map<string, string>()
+  let chargesTotal = 0
+  const chargePayload = charges.map((c) => {
+    const amount = c.kind === 'percent' ? percentChargeAmount(String(subtotal), c.rate) : c.amount
+    if (!c.label.trim()) chargeIssues.set(c.key, 'Name the charge')
+    else if (c.kind === 'percent' && !(Number(c.rate) > 0 && Number(c.rate) <= 100)) {
+      chargeIssues.set(c.key, 'Rate between 0 and 100')
+    } else if (c.kind === 'fixed' && !(Number(c.amount) > 0)) {
+      chargeIssues.set(c.key, 'Enter the amount')
+    } else chargesTotal += Number(amount)
+    return {
+      label: c.label.trim(),
+      kind: c.kind,
+      rate: c.kind === 'percent' ? c.rate.trim() : null,
+      amount: amount || '0',
+    }
+  })
+  const grandTotal = subtotal + chargesTotal
+  const verb = method === 'staff' ? 'bought' : 'arrived'
   const formErrors: string[] = []
-  if (!method) formErrors.push('Choose how it was bought')
+  if (!method) formErrors.push('Choose vendor or staff purchase')
   if (method === 'staff' && !buyerId) formErrors.push('Choose who bought it')
-  if (!purchaseDate) formErrors.push('Set the purchase date')
-  if (payload.length === 0 && issues.size === 0) formErrors.push('Enter at least one bought qty')
+  if (!purchaseDate) formErrors.push('Set the date')
+  if (payload.length === 0 && issues.size === 0) formErrors.push(`Enter at least one ${verb} qty`)
+  if (chargeIssues.size > 0) formErrors.push('Fix the charges')
   const canSave = formErrors.length === 0 && issues.size === 0
   const photos = doc?.photos ?? []
 
@@ -336,12 +399,15 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
     const body = JSON.stringify({
       purchaseOrderId: doc?.purchaseOrderId ?? orderId,
       method,
-      buyerUserId: buyerId || null,
+      buyerUserId: method === 'staff' ? buyerId || null : null,
       purchaseDate,
       place,
       notaNumber,
+      receivedByUserId: method === 'vendor' ? receivedById || null : null,
+      deliveryNoteNumber: method === 'vendor' ? deliveryNoteNumber : '',
       comments,
       lines: payload,
+      charges: chargePayload,
     })
     const saved = isNew
       ? await send<Realization>('/purchasing/realizations', { method: 'POST', body })
@@ -376,7 +442,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
     if (files.length === 0) return
     setUploading(true)
     try {
-      // A new nota is saved first so the files have somewhere to go.
+      // A new realization is saved first so the files have somewhere to go.
       const target = doc ?? (await saveDraft())
       if (!target) return
       const form = new FormData()
@@ -454,7 +520,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
         body: JSON.stringify({ reason }),
       })
       if (next) {
-        toast.success('Nota voided')
+        toast.success(`${next.number} voided`)
         apply(next)
         setConfirm(null)
       }
@@ -470,7 +536,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
       className={cn(buttonOutlineClassName, 'inline-flex h-8 items-center gap-1.5 no-underline')}
     >
       <ArrowLeft className="size-3.5" aria-hidden />
-      Nota Realisasi
+      Realizations
     </Link>
   )
 
@@ -487,7 +553,9 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
       <div className="space-y-4">
         {backLink}
         <p className={hintClassName}>
-          {isNew ? 'Open an approved PO to record its nota.' : 'This nota could not be loaded.'}
+          {isNew
+            ? 'Open an approved PO to record what arrived or was bought.'
+            : 'This realization could not be loaded.'}
         </p>
       </div>
     )
@@ -505,10 +573,12 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
     <section className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className={sectionTitleClassName}>Nota photos</h2>
+          <h2 className={sectionTitleClassName}>Files</h2>
           <p className={cn('text-sm', hintClassName)}>
             {editable
-              ? 'Photos or PDF scans of the nota, receipt or invoice. At least one is needed to post.'
+              ? method === 'vendor'
+                ? 'Photos or PDF scans of the invoice, surat jalan or the goods. At least one is needed to post.'
+                : 'Photos or PDF scans of the shop nota or receipt. At least one is needed to post.'
               : `${photos.length} ${photos.length === 1 ? 'file' : 'files'}. Click to open full size.`}
           </p>
         </div>
@@ -551,7 +621,11 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
           )}
         >
           <Camera className="size-5" aria-hidden />
-          {editable ? 'Take or choose photos of the nota' : 'No files.'}
+          {editable
+            ? method === 'vendor'
+              ? 'Take or choose photos of the invoice / surat jalan'
+              : 'Take or choose photos of the nota'
+            : 'No files.'}
         </button>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
@@ -575,9 +649,14 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
         {backLink}
         <div className="flex flex-wrap items-center gap-3">
           <h1 className={cn(pageTitleClassName, 'tabular-nums')}>
-            {doc ? doc.number : 'Record nota'}
+            {doc ? doc.number : `Record ${docLabel(method)}`}
           </h1>
           {doc ? <RealizationStatusChip status={doc.status} /> : null}
+          {doc ? (
+            <span className={cn('text-sm', hintClassName)}>
+              {docLabel(editable ? method : doc.method)}
+            </span>
+          ) : null}
         </div>
         <p className="text-sm">
           For{' '}
@@ -609,16 +688,16 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
         <>
           {/* How */}
           <section className="space-y-3">
-            <h2 className={sectionTitleClassName}>How was it bought?</h2>
+            <h2 className={sectionTitleClassName}>How did it come in?</h2>
             <div
               className="grid gap-3 sm:grid-cols-2"
               role="radiogroup"
-              aria-label="How was it bought"
+              aria-label="How did it come in"
             >
               {(
                 [
-                  ['vendor', Truck, 'The vendor delivered and sent a nota or invoice.'],
-                  ['staff', Store, 'Our staff bought it at a shop.'],
+                  ['vendor', Truck, 'The vendor delivered: record a Penerimaan with its invoice / surat jalan.'],
+                  ['staff', Store, 'Our staff bought it at a shop: record a Nota Realisasi.'],
                 ] as const
               ).map(([value, Icon, hint]) => {
                 const active = method === value
@@ -653,23 +732,35 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
 
           {/* Details */}
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-1">
-              <span className="text-sm font-medium">
-                {method === 'vendor' ? 'Received by' : 'Bought by'}
-                {method === 'vendor' ? (
+            {method === 'vendor' ? (
+              <div className="space-y-1">
+                <span className="text-sm font-medium">
+                  Received by
                   <span className={cn('font-normal', hintClassName)}> (optional)</span>
-                ) : null}
-              </span>
-              <Combobox
-                value={buyerId}
-                onValueChange={setBuyerId}
-                options={buyerOptions}
-                placeholder="Choose a person"
-                aria-label="Buyer"
-                disabled={busy}
-                className={cn(showErrors && method === 'staff' && !buyerId && 'border-red-500')}
-              />
-            </div>
+                </span>
+                <Combobox
+                  value={receivedById}
+                  onValueChange={setReceivedById}
+                  options={buyerOptions}
+                  placeholder="Who took the goods"
+                  aria-label="Received by"
+                  disabled={busy}
+                />
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <span className="text-sm font-medium">Bought by</span>
+                <Combobox
+                  value={buyerId}
+                  onValueChange={setBuyerId}
+                  options={buyerOptions}
+                  placeholder="Choose a person"
+                  aria-label="Bought by"
+                  disabled={busy}
+                  className={cn(showErrors && method === 'staff' && !buyerId && 'border-red-500')}
+                />
+              </div>
+            )}
             <label className="block space-y-1">
               <span className="text-sm font-medium">Date</span>
               <input
@@ -682,7 +773,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-sm font-medium">Where</span>
+              <span className="text-sm font-medium">{method === 'staff' ? 'Shop' : 'Vendor'}</span>
               <input
                 value={place}
                 disabled={busy}
@@ -693,7 +784,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
             </label>
             <label className="block space-y-1">
               <span className="text-sm font-medium">
-                Nota / invoice no.
+                {method === 'staff' ? 'Nota no.' : 'Invoice no.'}
                 <span className={cn('font-normal', hintClassName)}> (optional)</span>
               </span>
               <input
@@ -703,15 +794,31 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                 className={cn(inputClassName, 'w-full')}
               />
             </label>
+            {method === 'vendor' ? (
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">
+                  Surat jalan no.
+                  <span className={cn('font-normal', hintClassName)}> (optional)</span>
+                </span>
+                <input
+                  value={deliveryNoteNumber}
+                  disabled={busy}
+                  onChange={(e) => setDeliveryNoteNumber(e.target.value)}
+                  className={cn(inputClassName, 'w-full')}
+                />
+              </label>
+            ) : null}
           </section>
 
           {/* Items */}
           <section className="space-y-3">
             <div>
-              <h2 className={sectionTitleClassName}>What was bought</h2>
+              <h2 className={sectionTitleClassName}>
+                {method === 'staff' ? 'What was bought' : 'What arrived'}
+              </h2>
               <p className={cn('text-sm', hintClassName)}>
-                Filled with what is still open on the PO. Change qty and price to match the nota;
-                clear a qty if it was not bought this time.
+                Filled with what is still open on the PO. Change qty and price to match the{' '}
+                {method === 'staff' ? 'nota' : 'invoice'}; clear a qty if it did not come this time.
               </p>
             </div>
             <div className="overflow-x-auto rounded-md border border-(--line)">
@@ -719,7 +826,9 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                 <thead className="text-left text-xs text-(--muted)">
                   <tr className="border-b border-(--line)">
                     <th className="px-3 py-2 font-medium">Material</th>
-                    <th className="w-36 px-3 py-2 text-right font-medium">Bought qty</th>
+                    <th className="w-36 px-3 py-2 text-right font-medium">
+                      {method === 'staff' ? 'Bought qty' : 'Arrived qty'}
+                    </th>
                     <th className="w-48 px-3 py-2 text-right font-medium">Actual price</th>
                     <th className="w-36 px-3 py-2 text-right font-medium">Amount</th>
                     <th className="w-32 px-3 py-2 text-right font-medium">vs approved</th>
@@ -749,8 +858,8 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                           </div>
                           <p className={cn('mt-0.5 text-xs tabular-nums', hintClassName)}>
                             PO {l.orderedQty} {l.uomSymbol} at {formatRupiah(l.approvedPrice)}
-                            {Number(l.realizedQty) > 0 ? ` · bought before ${l.realizedQty}` : ''}
-                            {done ? ' · all bought' : ''}
+                            {Number(l.realizedQty) > 0 ? ` · ${l.realizedQty} on other realizations` : ''}
+                            {done ? ' · all done' : ''}
                           </p>
                           {diff !== 0 || st.note ? (
                             <input
@@ -771,7 +880,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                               value={st.qty}
                               disabled={busy || (done && !st.qty)}
                               placeholder="0"
-                              aria-label={`Bought qty of ${l.materialName}`}
+                              aria-label={`Qty of ${l.materialName}`}
                               onChange={(e) => update({ qty: e.target.value })}
                               className={cn(
                                 inputClassNameCompact,
@@ -809,7 +918,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                 <tfoot>
                   <tr className="border-t border-(--line)">
                     <td colSpan={3} className="px-3 py-2 text-right font-medium">
-                      Total
+                      Goods subtotal
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums">
                       {formatRupiah(String(total))}
@@ -821,6 +930,162 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                 </tfoot>
               </table>
             </div>
+          </section>
+
+          {/* Charges */}
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className={sectionTitleClassName}>Charges</h2>
+                <p className={cn('text-sm', hintClassName)}>
+                  PPN, ongkir, packing, admin… on top of the goods. Percent charges follow the goods
+                  subtotal.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() =>
+                    setCharges([
+                      ...charges,
+                      { key: newChargeKey(), label: 'PPN 11%', kind: 'percent', rate: '11', amount: '' },
+                    ])
+                  }
+                >
+                  <Plus className="size-3.5" aria-hidden />
+                  PPN 11%
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() =>
+                    setCharges([
+                      ...charges,
+                      { key: newChargeKey(), label: '', kind: 'fixed', rate: '', amount: '' },
+                    ])
+                  }
+                >
+                  <Plus className="size-3.5" aria-hidden />
+                  Other charge
+                </Button>
+              </div>
+            </div>
+            {charges.length > 0 ? (
+              <div className="overflow-x-auto rounded-md border border-(--line)">
+                <table className="w-full min-w-[640px] text-sm">
+                  <tbody>
+                    {charges.map((c) => {
+                      const issue = showErrors ? chargeIssues.get(c.key) : undefined
+                      const amount =
+                        c.kind === 'percent' ? percentChargeAmount(String(subtotal), c.rate) : c.amount
+                      const update = (patch: Partial<ChargeState>) =>
+                        setCharges(charges.map((x) => (x.key === c.key ? { ...x, ...patch } : x)))
+                      return (
+                        <tr key={c.key} className="border-b border-(--line) align-top last:border-0">
+                          <td className="px-3 py-2">
+                            <input
+                              value={c.label}
+                              disabled={busy}
+                              placeholder="e.g. Ongkir"
+                              aria-label="Charge name"
+                              onChange={(e) => update({ label: e.target.value })}
+                              className={cn(
+                                inputClassNameCompact,
+                                'w-full max-w-xs',
+                                issue && !c.label.trim() && 'border-red-500',
+                              )}
+                            />
+                            {issue ? <p className="mt-1 text-xs text-red-600">{issue}</p> : null}
+                          </td>
+                          <td className="w-28 px-3 py-2">
+                            <div
+                              className="inline-flex rounded-md border border-(--line) p-0.5"
+                              role="radiogroup"
+                              aria-label="Charge type"
+                            >
+                              {(['percent', 'fixed'] as const).map((k) => (
+                                <button
+                                  key={k}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={c.kind === k}
+                                  disabled={busy}
+                                  onClick={() => update({ kind: k })}
+                                  className={cn(
+                                    'rounded px-2 py-0.5 text-xs',
+                                    c.kind === k ? 'bg-accent font-medium' : 'text-(--muted)',
+                                  )}
+                                >
+                                  {k === 'percent' ? '%' : 'Rp'}
+                                </button>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="w-48 px-3 py-2">
+                            {c.kind === 'percent' ? (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <input
+                                  inputMode="decimal"
+                                  value={c.rate}
+                                  disabled={busy}
+                                  aria-label={`Rate of ${c.label || 'charge'}`}
+                                  onChange={(e) => update({ rate: e.target.value })}
+                                  className={cn(
+                                    inputClassNameCompact,
+                                    'w-20 text-right tabular-nums',
+                                    issue && c.label.trim() && 'border-red-500',
+                                  )}
+                                />
+                                <span className="text-xs text-(--muted)">% of goods</span>
+                              </div>
+                            ) : (
+                              <RupiahInput
+                                value={c.amount}
+                                onValueChange={(digits) => update({ amount: digits })}
+                                disabled={busy}
+                                aria-label={`Amount of ${c.label || 'charge'}`}
+                                className={cn('h-8 text-right', issue && c.label.trim() && 'border-red-500')}
+                              />
+                            )}
+                          </td>
+                          <td className="w-36 px-3 py-2 text-right font-medium tabular-nums">
+                            {Number(amount) > 0 ? formatRupiah(amount) : '—'}
+                          </td>
+                          <td className="w-12 px-3 py-2 text-right">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              disabled={busy}
+                              aria-label={`Remove ${c.label || 'charge'}`}
+                              onClick={() => setCharges(charges.filter((x) => x.key !== c.key))}
+                            >
+                              <X aria-hidden />
+                            </Button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-(--line)">
+                      <td colSpan={3} className="px-3 py-2 text-right font-medium">
+                        Total (goods + charges)
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                        {formatRupiah(String(grandTotal))}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : null}
           </section>
 
           {photoSection}
@@ -840,10 +1105,11 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
           {/* Action bar */}
           <div className="sticky bottom-0 z-10 -mx-6 flex flex-wrap items-center justify-between gap-3 border-t border-(--line) bg-(--surface) px-6 py-3 sm:-mx-8 sm:px-8">
             <div className="text-sm">
-              <span className="font-semibold tabular-nums">{formatRupiah(String(total))}</span>
+              <span className="font-semibold tabular-nums">{formatRupiah(String(grandTotal))}</span>
               <span className={cn('tabular-nums', diffClass(difference))}>
                 {' '}
-                ({formatRupiahDiff(String(difference))} vs approved)
+                (goods {formatRupiahDiff(String(difference))} vs approved
+                {chargesTotal > 0 ? `, + ${formatRupiah(String(chargesTotal))} charges` : ''})
               </span>
               {showErrors && (formErrors.length > 0 || issues.size > 0) ? (
                 <p className="text-xs text-red-600">
@@ -855,7 +1121,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                   ].join(' · ')}
                 </p>
               ) : photos.length === 0 ? (
-                <p className={cn('text-xs', hintClassName)}>Add a nota photo to post.</p>
+                <p className={cn('text-xs', hintClassName)}>Add a file to post.</p>
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -892,7 +1158,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                 }}
               >
                 <CheckCheck className="size-3.5" aria-hidden />
-                Post nota
+                Post {docLabel(method)}
               </Button>
             </div>
           </div>
@@ -908,22 +1174,32 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
               <p className={cn('text-xs', hintClassName)}>
                 {doc.method === 'vendor' ? 'Received by' : 'Bought by'}
               </p>
-              <p>{doc.buyerName || '—'}</p>
+              <p>{(doc.method === 'vendor' ? doc.receivedByName : doc.buyerName) || '—'}</p>
             </div>
             <div>
-              <p className={cn('text-xs', hintClassName)}>Date · where</p>
+              <p className={cn('text-xs', hintClassName)}>
+                Date · {doc.method === 'staff' ? 'shop' : 'vendor'}
+              </p>
               <p className="tabular-nums">
                 {doc.purchaseDate} · {doc.place || '—'}
               </p>
             </div>
             <div>
-              <p className={cn('text-xs', hintClassName)}>Nota / invoice no.</p>
-              <p>{doc.notaNumber || '—'}</p>
+              <p className={cn('text-xs', hintClassName)}>
+                {doc.method === 'staff' ? 'Nota no.' : 'Invoice no. · surat jalan'}
+              </p>
+              <p>
+                {doc.method === 'staff'
+                  ? doc.notaNumber || '—'
+                  : `${doc.notaNumber || '—'} · ${doc.deliveryNoteNumber || '—'}`}
+              </p>
             </div>
           </section>
 
           <section className="space-y-3">
-            <h2 className={sectionTitleClassName}>What was bought</h2>
+            <h2 className={sectionTitleClassName}>
+              {doc.method === 'staff' ? 'What was bought' : 'What arrived'}
+            </h2>
             <div className="overflow-x-auto rounded-md border border-(--line)">
               <table className="w-full min-w-[720px] text-sm">
                 <thead className="text-left text-xs text-(--muted)">
@@ -962,15 +1238,38 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                 <tfoot>
                   <tr className="border-t border-(--line)">
                     <td colSpan={3} className="px-3 py-2 text-right font-medium">
-                      Total
+                      {doc.charges.length > 0 ? 'Goods subtotal' : 'Total'}
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums">
-                      {formatRupiah(doc.total)}
+                      {formatRupiah(doc.subtotal)}
                     </td>
                     <td className={cn('px-3 py-2 text-right text-xs tabular-nums', diffClass(Number(doc.difference)))}>
                       {formatRupiahDiff(doc.difference)}
                     </td>
                   </tr>
+                  {doc.charges.map((c) => (
+                    <tr key={c.id}>
+                      <td colSpan={3} className="px-3 py-1 text-right">
+                        {c.label}
+                        {c.kind === 'percent' ? (
+                          <span className={cn('text-xs', hintClassName)}> ({c.rate}% of goods)</span>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-1 text-right tabular-nums">{formatRupiah(c.amount)}</td>
+                      <td />
+                    </tr>
+                  ))}
+                  {doc.charges.length > 0 ? (
+                    <tr className="border-t border-(--line)">
+                      <td colSpan={3} className="px-3 py-2 text-right font-medium">
+                        Total
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                        {formatRupiah(doc.total)}
+                      </td>
+                      <td />
+                    </tr>
+                  ) : null}
                 </tfoot>
               </table>
             </div>
@@ -1002,7 +1301,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
               }}
             >
               <Ban className="size-3.5" aria-hidden />
-              Void nota
+              Void {docLabel(doc.method)}
             </Button>
           ) : null}
         </>
@@ -1025,9 +1324,9 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirm === 'post'
-                ? `${formatRupiah(String(total))} (${formatRupiahDiff(String(difference))} vs approved), ${photos.length} ${photos.length === 1 ? 'file' : 'files'}. It can no longer be edited.`
+                ? `${formatRupiah(String(grandTotal))} (goods ${formatRupiahDiff(String(difference))} vs approved${chargesTotal > 0 ? `, incl. ${formatRupiah(String(chargesTotal))} charges` : ''}), ${photos.length} ${photos.length === 1 ? 'file' : 'files'}. The qty counts as ${verb} on the SPP / SPK and it can no longer be edited.`
                 : confirm === 'void'
-                  ? 'It no longer counts as bought. Its quantities can be recorded again.'
+                  ? 'Its qty no longer counts as arrived on the SPP / SPK and can be recorded again.'
                   : 'The draft and its files are removed.'}
             </AlertDialogDescription>
           </AlertDialogHeader>

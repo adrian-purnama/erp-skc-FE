@@ -9,7 +9,6 @@ import {
   Plus,
   LoaderCircle,
   PackageCheck,
-  Receipt,
   RotateCcw,
   Search,
   Send,
@@ -19,7 +18,6 @@ import {
 import {
   LineFlagBadge,
   PurchaseOrderStatusChip,
-  GoodsReceiptStatusChip,
   RealizationStatusChip,
 } from '#/components/forms/purchasing/PurchaseRequestBadges'
 import {
@@ -39,8 +37,8 @@ import { RupiahInput } from '#/components/ui/rupiah-input'
 import { useAuth } from '#/context/authContext'
 import { apiDownload, apiFetch } from '#/lib/api'
 import {
+  REALIZATION_DOC_LABELS,
   REALIZATION_PROGRESS_LABELS,
-  RECEIPT_PROGRESS_LABELS,
   formatRupiah,
   formatRupiahDiff,
   parseQty,
@@ -769,7 +767,7 @@ export default function PurchaseOrderEditor({
                                   const po = order?.lines.find(
                                     (x) => x.requestLineId === r.ref.requestLineId,
                                   )
-                                  return `bought ${po?.realizedQty ?? '0'} · arrived ${po?.receivedQty ?? '0'}`
+                                  return `arrived ${po?.realizedQty ?? '0'}`
                                 })()
                               : `requested ${r.ref.requestedQty}`}
                         </p>
@@ -862,7 +860,7 @@ export default function PurchaseOrderEditor({
         <section className="space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
-              <h2 className={sectionTitleClassName}>Nota Realisasi</h2>
+              <h2 className={sectionTitleClassName}>Penerimaan / Nota Realisasi</h2>
               <p className={cn('text-sm', hintClassName)}>
                 {REALIZATION_PROGRESS_LABELS[order.realizationStatus]}
                 {order.realizedTotal !== '0'
@@ -879,8 +877,8 @@ export default function PurchaseOrderEditor({
                   'inline-flex h-8 items-center gap-1.5 no-underline',
                 )}
               >
-                <Receipt className="size-3.5" aria-hidden />
-                Record nota
+                <PackageCheck className="size-3.5" aria-hidden />
+                Record arrival / purchase
               </Link>
             ) : null}
           </div>
@@ -896,6 +894,9 @@ export default function PurchaseOrderEditor({
                     className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm no-underline hover:bg-accent"
                   >
                     <span className="font-medium tabular-nums">{n.number}</span>
+                    <span className={cn('text-xs', hintClassName)}>
+                      {REALIZATION_DOC_LABELS[n.method]}
+                    </span>
                     <span className={cn('text-xs tabular-nums', hintClassName)}>
                       {n.purchaseDate}
                     </span>
@@ -913,57 +914,6 @@ export default function PurchaseOrderEditor({
                       {formatRupiahDiff(n.difference)}
                     </span>
                     <RealizationStatusChip status={n.status} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
-
-      {/* Goods receipts (approved POs) */}
-      {order && status === 'approved' ? (
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h2 className={sectionTitleClassName}>Penerimaan Barang</h2>
-              <p className={cn('text-sm', hintClassName)}>
-                {RECEIPT_PROGRESS_LABELS[order.receiptStatus]}
-              </p>
-            </div>
-            {can('purchasing.receive') && order.receiptStatus !== 'full' ? (
-              <Link
-                to="/dashboard/purchasing/receipts/new"
-                search={{ orderId: order.id }}
-                className={cn(
-                  buttonClassName,
-                  'inline-flex h-8 items-center gap-1.5 no-underline',
-                )}
-              >
-                <PackageCheck className="size-3.5" aria-hidden />
-                Receive goods
-              </Link>
-            ) : null}
-          </div>
-          {order.receipts.length === 0 ? (
-            <p className={cn('text-sm', hintClassName)}>Nothing has arrived yet.</p>
-          ) : (
-            <ul className="divide-y divide-(--line) rounded-md border border-(--line)">
-              {order.receipts.map((r) => (
-                <li key={r.id}>
-                  <Link
-                    to="/dashboard/purchasing/receipts/$receiptId"
-                    params={{ receiptId: r.id }}
-                    className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm no-underline hover:bg-accent"
-                  >
-                    <span className="font-medium tabular-nums">{r.number}</span>
-                    <span className={cn('text-xs tabular-nums', hintClassName)}>
-                      {r.receivedDate}
-                    </span>
-                    <span className={cn('ml-auto text-xs', hintClassName)}>
-                      {r.lineCount} {r.lineCount === 1 ? 'item' : 'items'}
-                    </span>
-                    <GoodsReceiptStatusChip status={r.status} />
                   </Link>
                 </li>
               ))}

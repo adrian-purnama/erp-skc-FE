@@ -140,7 +140,11 @@ export default function PurchaseRequestsForm() {
         cellClassName: 'w-32',
         cell: (r) =>
           r.status === 'submitted' ? (
-            r.receiptStatus === 'full' ? (
+            r.receivedAt ? (
+              <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-emerald-700 dark:text-emerald-300">
+                Received
+              </span>
+            ) : r.receiptStatus === 'full' ? (
               <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-emerald-700 dark:text-emerald-300">
                 All arrived
               </span>

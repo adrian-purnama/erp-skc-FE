@@ -1,17 +1,14 @@
 import {
-  GOODS_RECEIPT_STATUS_LABELS,
   PURCHASE_ORDER_STATUS_LABELS,
   PURCHASE_REQUEST_STATUS_LABELS,
   REALIZATION_STATUS_LABELS,
   REQUEST_ORDER_STATUS_LABELS,
   realizationStatusChipClass,
-  goodsReceiptStatusChipClass,
   purchaseOrderStatusChipClass,
   purchaseRequestStatusChipClass,
   requestOrderStatusChipClass,
 } from '#/lib/purchasing'
 import type {
-  GoodsReceiptStatus,
   PurchaseOrderStatus,
   PurchaseRequestStatus,
   RealizationStatus,
@@ -62,14 +59,6 @@ export function RealizationStatusChip({ status }: { status: RealizationStatus })
   return (
     <span className={cn(chipBase, realizationStatusChipClass(status))}>
       {REALIZATION_STATUS_LABELS[status]}
-    </span>
-  )
-}
-
-export function GoodsReceiptStatusChip({ status }: { status: GoodsReceiptStatus }) {
-  return (
-    <span className={cn(chipBase, goodsReceiptStatusChipClass(status))}>
-      {GOODS_RECEIPT_STATUS_LABELS[status]}
     </span>
   )
 }

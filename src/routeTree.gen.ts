@@ -59,9 +59,6 @@ import { Route as AuthenticatedDashboardPurchasingOrdersNewRouteImport } from '.
 import { Route as AuthenticatedDashboardPurchasingRealizationsIndexRouteImport } from './routes/_authenticated/dashboard/purchasing/realizations/index'
 import { Route as AuthenticatedDashboardPurchasingRealizationsRealizationIdRouteImport } from './routes/_authenticated/dashboard/purchasing/realizations/$realizationId'
 import { Route as AuthenticatedDashboardPurchasingRealizationsNewRouteImport } from './routes/_authenticated/dashboard/purchasing/realizations/new'
-import { Route as AuthenticatedDashboardPurchasingReceiptsIndexRouteImport } from './routes/_authenticated/dashboard/purchasing/receipts/index'
-import { Route as AuthenticatedDashboardPurchasingReceiptsReceiptIdRouteImport } from './routes/_authenticated/dashboard/purchasing/receipts/$receiptId'
-import { Route as AuthenticatedDashboardPurchasingReceiptsNewRouteImport } from './routes/_authenticated/dashboard/purchasing/receipts/new'
 import { Route as AuthenticatedDashboardPurchasingRequestsIndexRouteImport } from './routes/_authenticated/dashboard/purchasing/requests/index'
 import { Route as AuthenticatedDashboardPurchasingRequestsRequestIdRouteImport } from './routes/_authenticated/dashboard/purchasing/requests/$requestId'
 import { Route as AuthenticatedDashboardPurchasingRequestsNewRouteImport } from './routes/_authenticated/dashboard/purchasing/requests/new'
@@ -346,24 +343,6 @@ const AuthenticatedDashboardPurchasingRealizationsNewRoute =
     path: '/purchasing/realizations/new',
     getParentRoute: () => AuthenticatedDashboardRouteRoute,
   } as any)
-const AuthenticatedDashboardPurchasingReceiptsIndexRoute =
-  AuthenticatedDashboardPurchasingReceiptsIndexRouteImport.update({
-    id: '/purchasing/receipts/',
-    path: '/purchasing/receipts/',
-    getParentRoute: () => AuthenticatedDashboardRouteRoute,
-  } as any)
-const AuthenticatedDashboardPurchasingReceiptsReceiptIdRoute =
-  AuthenticatedDashboardPurchasingReceiptsReceiptIdRouteImport.update({
-    id: '/purchasing/receipts/$receiptId',
-    path: '/purchasing/receipts/$receiptId',
-    getParentRoute: () => AuthenticatedDashboardRouteRoute,
-  } as any)
-const AuthenticatedDashboardPurchasingReceiptsNewRoute =
-  AuthenticatedDashboardPurchasingReceiptsNewRouteImport.update({
-    id: '/purchasing/receipts/new',
-    path: '/purchasing/receipts/new',
-    getParentRoute: () => AuthenticatedDashboardRouteRoute,
-  } as any)
 const AuthenticatedDashboardPurchasingRequestsIndexRoute =
   AuthenticatedDashboardPurchasingRequestsIndexRouteImport.update({
     id: '/purchasing/requests/',
@@ -436,8 +415,6 @@ export interface FileRoutesByFullPath {
   '/dashboard/purchasing/orders/new': typeof AuthenticatedDashboardPurchasingOrdersNewRoute
   '/dashboard/purchasing/realizations/$realizationId': typeof AuthenticatedDashboardPurchasingRealizationsRealizationIdRoute
   '/dashboard/purchasing/realizations/new': typeof AuthenticatedDashboardPurchasingRealizationsNewRoute
-  '/dashboard/purchasing/receipts/$receiptId': typeof AuthenticatedDashboardPurchasingReceiptsReceiptIdRoute
-  '/dashboard/purchasing/receipts/new': typeof AuthenticatedDashboardPurchasingReceiptsNewRoute
   '/dashboard/purchasing/requests/$requestId': typeof AuthenticatedDashboardPurchasingRequestsRequestIdRoute
   '/dashboard/purchasing/requests/new': typeof AuthenticatedDashboardPurchasingRequestsNewRoute
   '/dashboard/internal/production/': typeof AuthenticatedDashboardInternalProductionIndexRoute
@@ -448,7 +425,6 @@ export interface FileRoutesByFullPath {
   '/dashboard/purchasing/approvals/': typeof AuthenticatedDashboardPurchasingApprovalsIndexRoute
   '/dashboard/purchasing/orders/': typeof AuthenticatedDashboardPurchasingOrdersIndexRoute
   '/dashboard/purchasing/realizations/': typeof AuthenticatedDashboardPurchasingRealizationsIndexRoute
-  '/dashboard/purchasing/receipts/': typeof AuthenticatedDashboardPurchasingReceiptsIndexRoute
   '/dashboard/purchasing/requests/': typeof AuthenticatedDashboardPurchasingRequestsIndexRoute
   '/dashboard/tender/calendar/': typeof AuthenticatedDashboardTenderCalendarIndexRoute
   '/dashboard/tender/documents/': typeof AuthenticatedDashboardTenderDocumentsIndexRoute
@@ -491,8 +467,6 @@ export interface FileRoutesByTo {
   '/dashboard/purchasing/orders/new': typeof AuthenticatedDashboardPurchasingOrdersNewRoute
   '/dashboard/purchasing/realizations/$realizationId': typeof AuthenticatedDashboardPurchasingRealizationsRealizationIdRoute
   '/dashboard/purchasing/realizations/new': typeof AuthenticatedDashboardPurchasingRealizationsNewRoute
-  '/dashboard/purchasing/receipts/$receiptId': typeof AuthenticatedDashboardPurchasingReceiptsReceiptIdRoute
-  '/dashboard/purchasing/receipts/new': typeof AuthenticatedDashboardPurchasingReceiptsNewRoute
   '/dashboard/purchasing/requests/$requestId': typeof AuthenticatedDashboardPurchasingRequestsRequestIdRoute
   '/dashboard/purchasing/requests/new': typeof AuthenticatedDashboardPurchasingRequestsNewRoute
   '/dashboard/internal/production': typeof AuthenticatedDashboardInternalProductionIndexRoute
@@ -503,7 +477,6 @@ export interface FileRoutesByTo {
   '/dashboard/purchasing/approvals': typeof AuthenticatedDashboardPurchasingApprovalsIndexRoute
   '/dashboard/purchasing/orders': typeof AuthenticatedDashboardPurchasingOrdersIndexRoute
   '/dashboard/purchasing/realizations': typeof AuthenticatedDashboardPurchasingRealizationsIndexRoute
-  '/dashboard/purchasing/receipts': typeof AuthenticatedDashboardPurchasingReceiptsIndexRoute
   '/dashboard/purchasing/requests': typeof AuthenticatedDashboardPurchasingRequestsIndexRoute
   '/dashboard/tender/calendar': typeof AuthenticatedDashboardTenderCalendarIndexRoute
   '/dashboard/tender/documents': typeof AuthenticatedDashboardTenderDocumentsIndexRoute
@@ -552,8 +525,6 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/purchasing/orders/new': typeof AuthenticatedDashboardPurchasingOrdersNewRoute
   '/_authenticated/dashboard/purchasing/realizations/$realizationId': typeof AuthenticatedDashboardPurchasingRealizationsRealizationIdRoute
   '/_authenticated/dashboard/purchasing/realizations/new': typeof AuthenticatedDashboardPurchasingRealizationsNewRoute
-  '/_authenticated/dashboard/purchasing/receipts/$receiptId': typeof AuthenticatedDashboardPurchasingReceiptsReceiptIdRoute
-  '/_authenticated/dashboard/purchasing/receipts/new': typeof AuthenticatedDashboardPurchasingReceiptsNewRoute
   '/_authenticated/dashboard/purchasing/requests/$requestId': typeof AuthenticatedDashboardPurchasingRequestsRequestIdRoute
   '/_authenticated/dashboard/purchasing/requests/new': typeof AuthenticatedDashboardPurchasingRequestsNewRoute
   '/_authenticated/dashboard/internal/production/': typeof AuthenticatedDashboardInternalProductionIndexRoute
@@ -564,7 +535,6 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/purchasing/approvals/': typeof AuthenticatedDashboardPurchasingApprovalsIndexRoute
   '/_authenticated/dashboard/purchasing/orders/': typeof AuthenticatedDashboardPurchasingOrdersIndexRoute
   '/_authenticated/dashboard/purchasing/realizations/': typeof AuthenticatedDashboardPurchasingRealizationsIndexRoute
-  '/_authenticated/dashboard/purchasing/receipts/': typeof AuthenticatedDashboardPurchasingReceiptsIndexRoute
   '/_authenticated/dashboard/purchasing/requests/': typeof AuthenticatedDashboardPurchasingRequestsIndexRoute
   '/_authenticated/dashboard/tender/calendar/': typeof AuthenticatedDashboardTenderCalendarIndexRoute
   '/_authenticated/dashboard/tender/documents/': typeof AuthenticatedDashboardTenderDocumentsIndexRoute
@@ -612,8 +582,6 @@ export interface FileRouteTypes {
     | '/dashboard/purchasing/orders/new'
     | '/dashboard/purchasing/realizations/$realizationId'
     | '/dashboard/purchasing/realizations/new'
-    | '/dashboard/purchasing/receipts/$receiptId'
-    | '/dashboard/purchasing/receipts/new'
     | '/dashboard/purchasing/requests/$requestId'
     | '/dashboard/purchasing/requests/new'
     | '/dashboard/internal/production/'
@@ -624,7 +592,6 @@ export interface FileRouteTypes {
     | '/dashboard/purchasing/approvals/'
     | '/dashboard/purchasing/orders/'
     | '/dashboard/purchasing/realizations/'
-    | '/dashboard/purchasing/receipts/'
     | '/dashboard/purchasing/requests/'
     | '/dashboard/tender/calendar/'
     | '/dashboard/tender/documents/'
@@ -667,8 +634,6 @@ export interface FileRouteTypes {
     | '/dashboard/purchasing/orders/new'
     | '/dashboard/purchasing/realizations/$realizationId'
     | '/dashboard/purchasing/realizations/new'
-    | '/dashboard/purchasing/receipts/$receiptId'
-    | '/dashboard/purchasing/receipts/new'
     | '/dashboard/purchasing/requests/$requestId'
     | '/dashboard/purchasing/requests/new'
     | '/dashboard/internal/production'
@@ -679,7 +644,6 @@ export interface FileRouteTypes {
     | '/dashboard/purchasing/approvals'
     | '/dashboard/purchasing/orders'
     | '/dashboard/purchasing/realizations'
-    | '/dashboard/purchasing/receipts'
     | '/dashboard/purchasing/requests'
     | '/dashboard/tender/calendar'
     | '/dashboard/tender/documents'
@@ -727,8 +691,6 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/purchasing/orders/new'
     | '/_authenticated/dashboard/purchasing/realizations/$realizationId'
     | '/_authenticated/dashboard/purchasing/realizations/new'
-    | '/_authenticated/dashboard/purchasing/receipts/$receiptId'
-    | '/_authenticated/dashboard/purchasing/receipts/new'
     | '/_authenticated/dashboard/purchasing/requests/$requestId'
     | '/_authenticated/dashboard/purchasing/requests/new'
     | '/_authenticated/dashboard/internal/production/'
@@ -739,7 +701,6 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/purchasing/approvals/'
     | '/_authenticated/dashboard/purchasing/orders/'
     | '/_authenticated/dashboard/purchasing/realizations/'
-    | '/_authenticated/dashboard/purchasing/receipts/'
     | '/_authenticated/dashboard/purchasing/requests/'
     | '/_authenticated/dashboard/tender/calendar/'
     | '/_authenticated/dashboard/tender/documents/'
@@ -1105,27 +1066,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardPurchasingRealizationsNewRouteImport
       parentRoute: typeof AuthenticatedDashboardRouteRoute
     }
-    '/_authenticated/dashboard/purchasing/receipts/': {
-      id: '/_authenticated/dashboard/purchasing/receipts/'
-      path: '/purchasing/receipts'
-      fullPath: '/dashboard/purchasing/receipts/'
-      preLoaderRoute: typeof AuthenticatedDashboardPurchasingReceiptsIndexRouteImport
-      parentRoute: typeof AuthenticatedDashboardRouteRoute
-    }
-    '/_authenticated/dashboard/purchasing/receipts/$receiptId': {
-      id: '/_authenticated/dashboard/purchasing/receipts/$receiptId'
-      path: '/purchasing/receipts/$receiptId'
-      fullPath: '/dashboard/purchasing/receipts/$receiptId'
-      preLoaderRoute: typeof AuthenticatedDashboardPurchasingReceiptsReceiptIdRouteImport
-      parentRoute: typeof AuthenticatedDashboardRouteRoute
-    }
-    '/_authenticated/dashboard/purchasing/receipts/new': {
-      id: '/_authenticated/dashboard/purchasing/receipts/new'
-      path: '/purchasing/receipts/new'
-      fullPath: '/dashboard/purchasing/receipts/new'
-      preLoaderRoute: typeof AuthenticatedDashboardPurchasingReceiptsNewRouteImport
-      parentRoute: typeof AuthenticatedDashboardRouteRoute
-    }
     '/_authenticated/dashboard/purchasing/requests/': {
       id: '/_authenticated/dashboard/purchasing/requests/'
       path: '/purchasing/requests'
@@ -1221,8 +1161,6 @@ interface AuthenticatedDashboardRouteRouteChildren {
   AuthenticatedDashboardPurchasingOrdersNewRoute: typeof AuthenticatedDashboardPurchasingOrdersNewRoute
   AuthenticatedDashboardPurchasingRealizationsRealizationIdRoute: typeof AuthenticatedDashboardPurchasingRealizationsRealizationIdRoute
   AuthenticatedDashboardPurchasingRealizationsNewRoute: typeof AuthenticatedDashboardPurchasingRealizationsNewRoute
-  AuthenticatedDashboardPurchasingReceiptsReceiptIdRoute: typeof AuthenticatedDashboardPurchasingReceiptsReceiptIdRoute
-  AuthenticatedDashboardPurchasingReceiptsNewRoute: typeof AuthenticatedDashboardPurchasingReceiptsNewRoute
   AuthenticatedDashboardPurchasingRequestsRequestIdRoute: typeof AuthenticatedDashboardPurchasingRequestsRequestIdRoute
   AuthenticatedDashboardPurchasingRequestsNewRoute: typeof AuthenticatedDashboardPurchasingRequestsNewRoute
   AuthenticatedDashboardInternalProductionIndexRoute: typeof AuthenticatedDashboardInternalProductionIndexRoute
@@ -1232,7 +1170,6 @@ interface AuthenticatedDashboardRouteRouteChildren {
   AuthenticatedDashboardPurchasingApprovalsIndexRoute: typeof AuthenticatedDashboardPurchasingApprovalsIndexRoute
   AuthenticatedDashboardPurchasingOrdersIndexRoute: typeof AuthenticatedDashboardPurchasingOrdersIndexRoute
   AuthenticatedDashboardPurchasingRealizationsIndexRoute: typeof AuthenticatedDashboardPurchasingRealizationsIndexRoute
-  AuthenticatedDashboardPurchasingReceiptsIndexRoute: typeof AuthenticatedDashboardPurchasingReceiptsIndexRoute
   AuthenticatedDashboardPurchasingRequestsIndexRoute: typeof AuthenticatedDashboardPurchasingRequestsIndexRoute
   AuthenticatedDashboardTenderCalendarIndexRoute: typeof AuthenticatedDashboardTenderCalendarIndexRoute
   AuthenticatedDashboardTenderDocumentsIndexRoute: typeof AuthenticatedDashboardTenderDocumentsIndexRoute
@@ -1278,10 +1215,6 @@ const AuthenticatedDashboardRouteRouteChildren: AuthenticatedDashboardRouteRoute
       AuthenticatedDashboardPurchasingRealizationsRealizationIdRoute,
     AuthenticatedDashboardPurchasingRealizationsNewRoute:
       AuthenticatedDashboardPurchasingRealizationsNewRoute,
-    AuthenticatedDashboardPurchasingReceiptsReceiptIdRoute:
-      AuthenticatedDashboardPurchasingReceiptsReceiptIdRoute,
-    AuthenticatedDashboardPurchasingReceiptsNewRoute:
-      AuthenticatedDashboardPurchasingReceiptsNewRoute,
     AuthenticatedDashboardPurchasingRequestsRequestIdRoute:
       AuthenticatedDashboardPurchasingRequestsRequestIdRoute,
     AuthenticatedDashboardPurchasingRequestsNewRoute:
@@ -1300,8 +1233,6 @@ const AuthenticatedDashboardRouteRouteChildren: AuthenticatedDashboardRouteRoute
       AuthenticatedDashboardPurchasingOrdersIndexRoute,
     AuthenticatedDashboardPurchasingRealizationsIndexRoute:
       AuthenticatedDashboardPurchasingRealizationsIndexRoute,
-    AuthenticatedDashboardPurchasingReceiptsIndexRoute:
-      AuthenticatedDashboardPurchasingReceiptsIndexRoute,
     AuthenticatedDashboardPurchasingRequestsIndexRoute:
       AuthenticatedDashboardPurchasingRequestsIndexRoute,
     AuthenticatedDashboardTenderCalendarIndexRoute:
