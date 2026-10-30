@@ -1,9 +1,9 @@
 import { redirect } from '@tanstack/react-router'
-import { bootstrapAuth, canFromUser } from '#/context/authContext'
+import { bootstrapAuth, canAnyFromUser } from '#/context/authContext'
 
-/** Gate a route on a single permission; redirect when missing. */
+/** Gate a route on a permission (or any of a list); redirect when missing. */
 export async function requirePermissionBeforeLoad(
-  key: string,
+  key: string | string[],
   redirectTo:
     | '/dashboard'
     | '/dashboard/customers'
@@ -11,7 +11,7 @@ export async function requirePermissionBeforeLoad(
     | '/dashboard/projects' = '/dashboard',
 ): Promise<void> {
   const user = await bootstrapAuth()
-  if (!user || !canFromUser(user, key)) {
+  if (!user || !canAnyFromUser(user, [key].flat())) {
     throw redirect({ to: redirectTo })
   }
 }

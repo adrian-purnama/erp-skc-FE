@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
-import { LoaderCircle, Plus } from 'lucide-react'
+import {
+  CalendarClock,
+  CircleCheck,
+  CircleDot,
+  FileText,
+  Gauge,
+  Hammer,
+  ListChecks,
+  LoaderCircle,
+  Package,
+  Plus,
+  UserRound,
+} from 'lucide-react'
 import ProductionOrderDialog, {
   ProductionStatusChip,
   ProgressBar,
@@ -67,6 +79,11 @@ export default function ProjectProductionPanel({ projectId }: Props) {
   const [openOrderId, setOpenOrderId] = useState<string | null>(null)
   const [create, setCreate] = useState<CreateForm | null>(null)
   const [creating, setCreating] = useState(false)
+  const [showCancelled, setShowCancelled] = useState(false)
+  const cancelledCount = orders.filter((o) => o.status === 'cancelled').length
+  const visibleOrders = showCancelled
+    ? orders
+    : orders.filter((o) => o.status !== 'cancelled')
 
   const load = useCallback(async () => {
     setError(null)
@@ -136,6 +153,7 @@ export default function ProjectProductionPanel({ projectId }: Props) {
     () => [
       {
         header: 'Item',
+        icon: Package,
         cellClassName: 'font-medium',
         cell: (i) => (
           <div className="min-w-0">
@@ -150,21 +168,25 @@ export default function ProjectProductionPanel({ projectId }: Props) {
       },
       {
         header: 'Make',
+        icon: Hammer,
         cellClassName: 'w-16 text-right tabular-nums',
         cell: (i) => i.makeQty,
       },
       {
         header: 'In SPK',
+        icon: FileText,
         cellClassName: 'w-16 text-right tabular-nums',
         cell: (i) => i.orderedQty,
       },
       {
         header: 'Done',
+        icon: CircleCheck,
         cellClassName: 'w-16 text-right font-medium tabular-nums',
         cell: (i) => i.doneQty,
       },
       {
         header: 'Progress',
+        icon: Gauge,
         cellClassName: 'w-40',
         cell: (i) => (
           <div className="flex items-center gap-2">
@@ -177,6 +199,7 @@ export default function ProjectProductionPanel({ projectId }: Props) {
       },
       {
         header: 'Status',
+        icon: CircleDot,
         cellClassName: 'w-28',
         cell: (i) => (
           <ProductionStatusChip
@@ -219,17 +242,20 @@ export default function ProjectProductionPanel({ projectId }: Props) {
     () => [
       {
         header: 'SPK',
+        icon: FileText,
         cellClassName: 'w-40 font-medium whitespace-nowrap tabular-nums',
         cell: (o) => o.number,
       },
-      { header: 'Item', cell: (o) => o.itemLabel },
+      { header: 'Item', icon: Package, cell: (o) => o.itemLabel },
       {
         header: 'Done / qty',
+        icon: ListChecks,
         cellClassName: 'w-24 text-right tabular-nums',
         cell: (o) => `${o.doneQty} / ${o.qty}`,
       },
       {
         header: 'Planned',
+        icon: CalendarClock,
         cellClassName: 'w-48 text-xs tabular-nums whitespace-nowrap',
         cell: (o) =>
           o.plannedStart || o.plannedFinish
@@ -238,11 +264,13 @@ export default function ProjectProductionPanel({ projectId }: Props) {
       },
       {
         header: 'PIC',
+        icon: UserRound,
         cellClassName: 'w-32',
         cell: (o) => o.pic || <span className={hintClassName}>—</span>,
       },
       {
         header: 'Status',
+        icon: CircleDot,
         cellClassName: 'w-28',
         cell: (o) => (
           <ProductionStatusChip
@@ -307,11 +335,30 @@ export default function ProjectProductionPanel({ projectId }: Props) {
       </section>
 
       <section className="space-y-3">
-        <h2 className={sectionTitleClassName}>SPK Produksi</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className={sectionTitleClassName}>SPK Produksi</h2>
+          {cancelledCount > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setShowCancelled((v) => !v)}
+            >
+              {showCancelled
+                ? 'Hide cancelled'
+                : `Show ${cancelledCount} cancelled`}
+            </Button>
+          ) : null}
+        </div>
         <ListTable
-          empty="No SPK yet. Use New SPK on an item above."
+          empty={
+            orders.length > 0
+              ? 'No open SPK. Use New SPK on an item above.'
+              : 'No SPK yet. Use New SPK on an item above.'
+          }
           columns={orderColumns}
-          rows={orders}
+          rows={visibleOrders}
           rowKey={(o) => o.id}
           minWidthClassName="min-w-[760px]"
           onRowClick={(o) => setOpenOrderId(o.id)}

@@ -162,12 +162,15 @@ export function Combobox({
           aria-label={ariaLabel}
           disabled={disabled}
           className={cn(
-            'w-full justify-between font-normal',
+            // Override Button's shrink-0 so long labels truncate inside the parent.
+            'w-full min-w-0 shrink justify-between overflow-hidden font-normal',
             !selected && 'text-muted-foreground',
             className,
           )}
         >
-          <span className="truncate">{selected?.label ?? placeholder}</span>
+          <span className="min-w-0 flex-1 truncate text-left">
+            {selected?.label ?? placeholder}
+          </span>
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>

@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { LoaderCircle, Mail, UserRound } from 'lucide-react'
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react'
+import { Camera, LoaderCircle, Mail, UserRound } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { useAuth } from '#/context/authContext'
-import { apiFetch } from '#/lib/api'
+import { apiFetch, apiUpload, toAbsoluteMediaUrl } from '#/lib/api'
 import {
   cardClassName,
   hintClassName,
@@ -14,9 +22,13 @@ import {
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
+const PROFILE_PICTURE_MAX_BYTES = 2 * 1024 * 1024
+const PROFILE_PICTURE_MIME = new Set(['image/png', 'image/jpeg'])
+
 type ProfileData = {
   email: string
   fullName: string
+  profilePicture: string | null
 }
 
 function initialsFrom(fullName: string, email: string): string {
@@ -34,11 +46,15 @@ function initialsFrom(fullName: string, email: string): string {
 
 export default function ProfileForm() {
   const { user, refreshAuth } = useAuth()
+  const pictureInputId = useId()
+  const pictureInputRef = useRef<HTMLInputElement>(null)
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [savedFullName, setSavedFullName] = useState('')
+  const [pictureUrl, setPictureUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [uploadingPicture, setUploadingPicture] = useState(false)
 
   const dirty = fullName.trim() !== savedFullName.trim()
   const initials = useMemo(
@@ -59,6 +75,7 @@ export default function ProfileForm() {
         setEmail(res.data.email)
         setFullName(name)
         setSavedFullName(name)
+        setPictureUrl(toAbsoluteMediaUrl(res.data.profilePicture))
       } else {
         toast.error(res.message || 'Failed to load profile')
       }
@@ -87,8 +104,45 @@ export default function ProfileForm() {
     setEmail(res.data.email)
     setFullName(name)
     setSavedFullName(name)
+    setPictureUrl(toAbsoluteMediaUrl(res.data.profilePicture))
     await refreshAuth()
     toast.success('Profile saved')
+  }
+
+  async function onPictureSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null
+    event.target.value = ''
+    if (!file) return
+
+    if (!PROFILE_PICTURE_MIME.has(file.type)) {
+      toast.error('Profile picture must be a PNG or JPG')
+      return
+    }
+    if (file.size > PROFILE_PICTURE_MAX_BYTES) {
+      toast.error('Profile picture must be 2MB or smaller')
+      return
+    }
+
+    setUploadingPicture(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await apiUpload<{ id: string; url: string }>(
+        '/auth/profile/picture',
+        formData,
+      )
+      if (!res.success || !res.data) {
+        toast.error(res.message || 'Failed to update profile picture')
+        return
+      }
+      setPictureUrl(toAbsoluteMediaUrl(res.data.url))
+      await refreshAuth()
+      toast.success('Profile picture updated')
+    } catch {
+      toast.error('Unable to reach the server. Please try again.')
+    } finally {
+      setUploadingPicture(false)
+    }
   }
 
   if (loading) {
@@ -103,11 +157,58 @@ export default function ProfileForm() {
   return (
     <div className="mx-auto max-w-xl space-y-8">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-        <div
-          className="flex size-16 shrink-0 items-center justify-center rounded-full border border-(--line) bg-[color-mix(in_srgb,var(--accent)_12%,white)] text-lg font-semibold tracking-wide text-(--ink)"
-          aria-hidden
-        >
-          {initials}
+        <div className="flex shrink-0 flex-col items-center gap-2">
+          <button
+            type="button"
+            className={cn(
+              'relative flex size-16 items-center justify-center overflow-hidden rounded-full border border-(--line) bg-[color-mix(in_srgb,var(--accent)_12%,white)] text-lg font-semibold tracking-wide text-(--ink)',
+              'transition hover:border-(--ink) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--ink)/30',
+              uploadingPicture && 'pointer-events-none opacity-70',
+            )}
+            aria-label="Change profile picture"
+            disabled={uploadingPicture}
+            onClick={() => pictureInputRef.current?.click()}
+          >
+            {pictureUrl ? (
+              <img
+                src={pictureUrl}
+                alt=""
+                className="size-full object-cover"
+              />
+            ) : (
+              <span aria-hidden>{initials}</span>
+            )}
+            <span className="absolute inset-x-0 bottom-0 flex items-center justify-center bg-[color-mix(in_srgb,var(--ink)_55%,transparent)] py-0.5 text-white">
+              {uploadingPicture ? (
+                <LoaderCircle className="size-3 animate-spin" aria-hidden />
+              ) : (
+                <Camera className="size-3" aria-hidden />
+              )}
+            </span>
+          </button>
+          <label htmlFor={pictureInputId} className="sr-only">
+            Upload profile picture
+          </label>
+          <input
+            ref={pictureInputRef}
+            id={pictureInputId}
+            type="file"
+            accept="image/png,image/jpeg"
+            className="sr-only"
+            disabled={uploadingPicture}
+            onChange={onPictureSelected}
+          />
+          <button
+            type="button"
+            className={`text-xs font-medium text-(--muted) underline-offset-2 hover:text-(--ink) hover:underline`}
+            disabled={uploadingPicture}
+            onClick={() => pictureInputRef.current?.click()}
+          >
+            {uploadingPicture ? 'Uploading…' : 'Change photo'}
+          </button>
+          <span className={`text-center text-[0.7rem] ${hintClassName}`}>
+            PNG or JPG · max 2MB
+          </span>
         </div>
         <div className="min-w-0 space-y-1">
           <h1 className={pageTitleClassName}>{displayName}</h1>

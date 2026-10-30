@@ -34,8 +34,12 @@ export default function LoginForm({ redirectTo }: { redirectTo?: string }) {
   const { login } = useAuth()
   const { openRegister, firstRegister } = useBranding()
   const showRegister = openRegister || firstRegister
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [email, setEmail] = useState(
+    () => import.meta.env.VITE_FAST_LOGIN_EMAIL?.trim() ?? '',
+  )
+  const [password, setPassword] = useState(
+    () => import.meta.env.VITE_FAST_LOGIN_PASSWORD ?? '',
+  )
   const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
 

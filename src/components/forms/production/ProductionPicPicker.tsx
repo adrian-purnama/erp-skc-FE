@@ -12,14 +12,21 @@ type Props = {
   fallbackLabel?: string
   onChange: (userId: string | null) => void
   disabled?: boolean
+  /** Defaults are for the SPK PIC; the handover receiver passes its own. */
+  noneLabel?: string
+  placeholder?: string
+  ariaLabel?: string
 }
 
-/** Pick the SPK person in charge from active users. */
+/** Pick a user (the SPK person in charge, a handover receiver) from active users. */
 export default function ProductionPicPicker({
   value,
   fallbackLabel,
   onChange,
   disabled,
+  noneLabel = 'No PIC',
+  placeholder = 'Select PIC',
+  ariaLabel = 'Person in charge',
 }: Props) {
   const [users, setUsers] = useState<ProductionPicUser[]>([])
 
@@ -41,7 +48,7 @@ export default function ProductionPicPicker({
   }, [])
 
   const options: ComboboxOption[] = [
-    { value: NONE, label: 'No PIC' },
+    { value: NONE, label: noneLabel },
     ...users.map((u) => ({
       value: u.id,
       label: u.name === u.email ? u.name : `${u.name} · ${u.email}`,
@@ -56,11 +63,11 @@ export default function ProductionPicPicker({
       value={value ?? NONE}
       onValueChange={(next) => onChange(!next || next === NONE ? null : next)}
       options={options}
-      placeholder="Select PIC"
+      placeholder={placeholder}
       searchPlaceholder="Search users…"
       emptyText="No users found."
       disabled={disabled}
-      aria-label="Person in charge"
+      aria-label={ariaLabel}
       className="w-full"
     />
   )

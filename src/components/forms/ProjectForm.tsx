@@ -1,11 +1,30 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import toast from 'react-hot-toast'
-import { LoaderCircle, Plus, Trash2 } from 'lucide-react'
+import {
+  Building2,
+  CalendarClock,
+  CircleDot,
+  Factory,
+  FolderKanban,
+  Handshake,
+  Hash,
+  LoaderCircle,
+  Milestone,
+  Plus,
+  Trash2,
+  Wallet,
+} from 'lucide-react'
 import ListTable, {
+  ListChip,
+  ListProgress,
   ListSearchInput,
+  type ListChipTone,
   type ListTableColumn,
 } from '#/components/forms/shared/ListTable'
+import ProjectListOverview from '#/components/forms/ProjectListOverview'
+import { formatJakartaDate } from '#/lib/projectCalendar'
+import { formatRupiah } from '#/lib/quotation'
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
 import { useAuth } from '#/context/authContext'
@@ -20,12 +39,19 @@ import {
   PROJECT_LOSE_REASON_LABELS,
   PROJECT_LOSE_REASONS,
   PROJECT_STATUS_LABELS,
+  PROJECT_PHASE_LABELS,
   PROJECT_STATUSES,
+  formatRupiahCompact,
+  isProjectActive,
+  isProjectOverBudget,
+  isProjectOverdue,
+  phaseForStatus,
   type ProjectCloseReason,
   type ProjectDetail,
   type ProjectGender,
-  type ProjectListItem,
+  type ProjectListRow,
   type ProjectLoseReason,
+  type ProjectPhase,
   type ProjectStatus,
 } from '#/lib/project'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
@@ -39,9 +65,7 @@ import {
 import { cn } from '#/lib/utils'
 
 type Props =
-  | { mode: 'list' }
-  | { mode: 'create' }
-  | { mode: 'edit'; projectId: string }
+  { mode: 'list' } | { mode: 'create' } | { mode: 'edit'; projectId: string }
 
 type ContactRow = { key: string; value: string }
 
@@ -84,12 +108,26 @@ export default function ProjectForm(props: Props) {
   )
 }
 
+const PHASE_TONES: Record<ProjectPhase, ListChipTone> = {
+  tender: 'info',
+  internal: 'warning',
+  production: 'neutral',
+  aftersales: 'success',
+}
+
+function phaseOf(project: ProjectListRow): ProjectPhase {
+  return phaseForStatus(project.status, project.productionReleasedAt)
+}
+
+type StatusFilter = 'active' | 'all' | ProjectStatus
+
 function ProjectList({ canManage }: { canManage: boolean }) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [results, setResults] = useState<ProjectListItem[]>([])
+  const [results, setResults] = useState<ProjectListRow[]>([])
   const [query, setQuery] = useState('')
   const debounced = useDebouncedValue(query, 250)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [page, setPage] = useState(1)
 
   useEffect(() => {
@@ -98,7 +136,7 @@ function ProjectList({ canManage }: { canManage: boolean }) {
 
     void (async () => {
       try {
-        const response = await apiFetch<ProjectListItem[]>('/project')
+        const response = await apiFetch<ProjectListRow[]>('/project')
         if (!response.success || !response.data) {
           if (!cancelled) {
             toast.error(response.message || 'Failed to load projects')
@@ -120,20 +158,47 @@ function ProjectList({ canManage }: { canManage: boolean }) {
 
   const filtered = useMemo(() => {
     const q = debounced.trim().toLowerCase()
-    if (!q) return results
-    return results.filter(
-      (row) =>
+    return results.filter((row) => {
+      if (statusFilter === 'active' && !isProjectActive(row.status)) {
+        return false
+      }
+      if (
+        statusFilter !== 'active' &&
+        statusFilter !== 'all' &&
+        row.status !== statusFilter
+      ) {
+        return false
+      }
+      if (!q) return true
+      return (
         row.name.toLowerCase().includes(q) ||
         row.projectNumber.toLowerCase().includes(q) ||
-        (row.customerName ?? '').toLowerCase().includes(q),
-    )
-  }, [results, debounced])
+        (row.customerName ?? '').toLowerCase().includes(q)
+      )
+    })
+  }, [results, debounced, statusFilter])
+
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All statuses' },
+      { value: 'active', label: 'Active (open + win)' },
+      ...PROJECT_STATUSES.map((value) => ({
+        value,
+        label: PROJECT_STATUS_LABELS[value],
+      })),
+    ],
+    [],
+  )
 
   useEffect(() => {
     setPage(1)
-  }, [debounced])
+  }, [debounced, statusFilter])
 
-  const { pageItems, totalPages, page: safePage } = useMemo(
+  const {
+    pageItems,
+    totalPages,
+    page: safePage,
+  } = useMemo(
     () => paginate(filtered, page, DEFAULT_PAGE_SIZE),
     [filtered, page],
   )
@@ -142,25 +207,138 @@ function ProjectList({ canManage }: { canManage: boolean }) {
     if (safePage !== page) setPage(safePage)
   }, [safePage, page])
 
-  const columns = useMemo<ListTableColumn<ProjectListItem>[]>(
+  const columns = useMemo<ListTableColumn<ProjectListRow>[]>(
     () => [
       {
         header: 'Number',
-        cellClassName: 'font-medium tabular-nums',
+        icon: Hash,
+        cellClassName: 'font-medium tabular-nums whitespace-nowrap',
         cell: (project) => project.projectNumber,
+        copyValue: (project) => project.projectNumber,
       },
       {
         header: 'Name',
-        cellClassName: 'font-medium',
-        cell: (project) => project.name,
+        icon: FolderKanban,
+        widthClassName: 'min-w-48',
+        cell: (project) => (
+          <div className="min-w-0">
+            <div className="font-medium">{project.name}</div>
+            <div className={cn('text-xs', hintClassName)}>
+              {project.summary.shopDrawingCount} shop drawing item
+              {project.summary.shopDrawingCount === 1 ? '' : 's'}
+            </div>
+          </div>
+        ),
       },
       {
         header: 'Customer',
+        icon: Building2,
         cellClassName: hintClassName,
         cell: (project) => project.customerName || '—',
       },
       {
+        header: 'Phase',
+        icon: Milestone,
+        cell: (project) => (
+          <ListChip dot tone={PHASE_TONES[phaseOf(project)]}>
+            {PROJECT_PHASE_LABELS[phaseOf(project)]}
+          </ListChip>
+        ),
+      },
+      {
+        header: 'Contract',
+        icon: Handshake,
+        align: 'right',
+        cellClassName: 'whitespace-nowrap',
+        cell: (project) =>
+          project.summary.contractValue ? (
+            <div>
+              <div>{formatRupiah(project.summary.contractValue)}</div>
+              <div className={cn('text-xs', hintClassName)}>
+                {project.summary.contractStatus === 'won'
+                  ? 'Won'
+                  : 'Quoted'}
+                {project.summary.plannedMargin !== null
+                  ? ` · margin ${formatRupiahCompact(project.summary.plannedMargin)}`
+                  : ''}
+              </div>
+            </div>
+          ) : (
+            <span className={hintClassName}>—</span>
+          ),
+      },
+      {
+        header: 'Budget used',
+        icon: Wallet,
+        widthClassName: 'min-w-40',
+        cell: (project) => {
+          const rab = Number(project.summary.rabTotal ?? '')
+          if (!Number.isFinite(rab) || rab <= 0) {
+            return <span className={hintClassName}>No RAB yet</span>
+          }
+          const actual = Number(project.summary.actualCost)
+          const over = isProjectOverBudget(project)
+          return (
+            <div className="space-y-0.5">
+              <ListProgress
+                percent={(actual / rab) * 100}
+                tone={over ? 'danger' : 'neutral'}
+              />
+              <div className={cn('text-xs tabular-nums', hintClassName)}>
+                {formatRupiahCompact(actual)} /{' '}
+                {formatRupiahCompact(rab)}
+                {project.summary.rabStatus === 'draft' ? ' · draft' : ''}
+              </div>
+            </div>
+          )
+        },
+      },
+      {
+        header: 'Production',
+        icon: Factory,
+        widthClassName: 'min-w-36',
+        cell: (project) =>
+          project.productionReleasedAt ? (
+            <ListProgress
+              percent={project.summary.productionPercent}
+              tone={
+                project.summary.productionPercent >= 100 ? 'success' : 'neutral'
+              }
+            />
+          ) : (
+            <span className={hintClassName}>Not released</span>
+          ),
+      },
+      {
+        header: 'Deadline',
+        icon: CalendarClock,
+        cellClassName: 'whitespace-nowrap',
+        cell: (project) => {
+          if (!project.summary.deadline) {
+            return <span className={hintClassName}>—</span>
+          }
+          const overdue = isProjectOverdue(project)
+          return (
+            <div title={project.summary.deadlineTitle ?? undefined}>
+              <div
+                className={cn(
+                  'tabular-nums',
+                  overdue && 'font-medium text-red-700 dark:text-red-400',
+                )}
+              >
+                {formatJakartaDate(project.summary.deadline)}
+              </div>
+              <div className={cn('max-w-40 truncate text-xs', hintClassName)}>
+                {overdue ? 'Overdue · ' : ''}
+                {project.summary.deadlineTitle}
+              </div>
+            </div>
+          )
+        },
+      },
+      {
         header: 'Status',
+        icon: CircleDot,
         cell: (project) => (
           <ProjectStatusChip status={project.status ?? 'open'} />
         ),
@@ -174,9 +352,7 @@ function ProjectList({ canManage }: { canManage: boolean }) {
       <div>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className={pageTitleClassName}>
-              Project Dashboard
-            </h1>
+            <h1 className={pageTitleClassName}>Project Dashboard</h1>
             <p className={`mt-2 ${hintClassName}`}>
               Select a project to open its dashboard
               {canManage ? ', or create a new one' : ''}.
@@ -197,25 +373,45 @@ function ProjectList({ canManage }: { canManage: boolean }) {
         </div>
       </div>
 
+      <ProjectListOverview rows={results} loading={loading} />
+
       <ListTable
         filters={
-          <ListSearchInput
-            value={query}
-            onChange={setQuery}
-            placeholder="Filter name or number…"
-            aria-label="Filter projects"
-          />
+          <>
+            <ListSearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Filter name, number or customer…"
+              aria-label="Filter projects"
+            />
+            <Combobox
+              value={statusFilter}
+              onValueChange={(value) => {
+                if (value) setStatusFilter(value as StatusFilter)
+              }}
+              options={statusFilterOptions}
+              placeholder="Status"
+              searchPlaceholder="Search status…"
+              emptyText="No status found."
+              aria-label="Filter by status"
+              className="w-48 shrink-0"
+            />
+          </>
         }
         loading={loading}
         loadingLabel="Loading projects…"
         empty={
-          debounced.trim()
+          debounced.trim() || statusFilter !== 'all'
             ? 'No projects match the current filter.'
             : 'No projects yet.'
         }
         columns={columns}
         rows={pageItems}
         rowKey={(project) => project.id}
+        minWidthClassName="min-w-[1100px]"
+        isRowMuted={(project) =>
+          project.status === 'lose' || project.status === 'close'
+        }
         onRowClick={(project) =>
           void navigate({
             to: '/dashboard/projects/$projectId',
@@ -671,11 +867,7 @@ function ProjectEditor({
 
         <div className="flex flex-wrap gap-2">
           {canManage ? (
-            <button
-              type="submit"
-              className={buttonClassName}
-              disabled={saving}
-            >
+            <button type="submit" className={buttonClassName} disabled={saving}>
               {saving ? (
                 <span className="inline-flex items-center gap-2">
                   <LoaderCircle className="size-4 animate-spin" aria-hidden />

@@ -2,6 +2,7 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { CircleUser, LogOut, Menu, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import NotificationBell from '#/components/NotificationBell'
 import RootMainMenu from '#/components/RootMainMenu'
 import { useAuth } from '#/context/authContext'
 import { useBranding } from '#/context/brandingContext'
@@ -11,7 +12,7 @@ const DRAWER_TRANSITION_MS = 300
 
 export default function Header() {
   const navigate = useNavigate()
-  const { isAuthenticated, isLoading, logout } = useAuth()
+  const { user, isAuthenticated, isLoading, logout } = useAuth()
   const { appName, appLogo, openLogin, openRegister, firstRegister } =
     useBranding()
   const showLogin = openLogin
@@ -104,13 +105,22 @@ export default function Header() {
         <div className="hidden items-center gap-3 md:flex">
           {isLoading ? null : isAuthenticated ? (
             <>
+              <NotificationBell className="size-7" />
               <Link
                 to="/profile"
                 className="inline-flex items-center justify-center text-[var(--muted)] no-underline transition hover:text-[var(--ink)]"
                 aria-label="Profile"
                 title="Profile"
               >
-                <CircleUser className="size-5" aria-hidden />
+                {user?.profilePicture ? (
+                  <img
+                    src={user.profilePicture}
+                    alt=""
+                    className="size-7 rounded-full object-cover ring-1 ring-[var(--line)]"
+                  />
+                ) : (
+                  <CircleUser className="size-5" aria-hidden />
+                )}
               </Link>
               <button
                 type="button"
@@ -227,12 +237,26 @@ export default function Header() {
               <div className="mt-auto border-t border-[var(--line)] bg-white p-4">
                 {isLoading ? null : isAuthenticated ? (
                   <>
+                    <div className="mb-2 flex w-full items-center justify-center">
+                      <NotificationBell
+                        className="size-10"
+                        onNavigate={closeMenu}
+                      />
+                    </div>
                     <Link
                       to="/profile"
                       onClick={closeMenu}
                       className="mb-2 flex w-full items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--line)] px-4 py-3 text-sm font-semibold text-[var(--muted)] no-underline transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
                     >
-                      <CircleUser className="size-4" aria-hidden />
+                      {user?.profilePicture ? (
+                        <img
+                          src={user.profilePicture}
+                          alt=""
+                          className="size-5 rounded-full object-cover ring-1 ring-[var(--line)]"
+                        />
+                      ) : (
+                        <CircleUser className="size-4" aria-hidden />
+                      )}
                       Profile
                     </Link>
                     <button

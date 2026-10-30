@@ -25,12 +25,14 @@ import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import {
   ITEM_TYPES,
+  ITEM_UOM_ROUNDING_OPTIONS,
   pickCurrentTarif,
   todayYmdLocal,
   type ItemCategoryOut,
   type ItemOut,
   type ItemTarifRow,
   type ItemType,
+  type ItemUomRounding,
   type ItemUomRow,
 } from '#/lib/itemMaster'
 import type { VendorListItem } from '#/lib/vendor'
@@ -51,6 +53,9 @@ type UomFormRow = {
   isBase: boolean
   related: boolean
   factor: string
+  /** RAB decimals in this unit (0 = whole); empty = the UOM's decimals. */
+  decimals: string
+  rounding: ItemUomRounding
 }
 
 function emptyUomRow(isBase = false): UomFormRow {
@@ -60,6 +65,8 @@ function emptyUomRow(isBase = false): UomFormRow {
     isBase,
     related: isBase,
     factor: isBase ? '1' : '',
+    decimals: '',
+    rounding: 'up',
   }
 }
 
@@ -72,6 +79,8 @@ function rowsFromItemUoms(uoms: ItemUomRow[]): UomFormRow[] {
     isBase: u.isBase,
     related: u.isBase || u.conversionFactor != null,
     factor: u.isBase ? '1' : (u.conversionFactor ?? ''),
+    decimals: u.decimals == null ? '' : String(u.decimals),
+    rounding: u.rounding,
   }))
 }
 
@@ -84,6 +93,12 @@ function validateUomRows(rows: UomFormRow[]): string | null {
     if (!row.uomId) return 'Each row needs a UOM'
     if (seen.has(row.uomId)) return 'Duplicate UOM'
     seen.add(row.uomId)
+    if (row.decimals.trim()) {
+      const n = Number(row.decimals)
+      if (!Number.isInteger(n) || n < 0 || n > 8) {
+        return 'Decimals must be a whole number from 0 to 8'
+      }
+    }
     if (row.isBase) continue
     if (row.related) {
       const n = Number(row.factor)
@@ -91,6 +106,11 @@ function validateUomRows(rows: UomFormRow[]): string | null {
         return 'Related UOM factor must be greater than 0'
       }
     }
+  }
+  if (
+    rows.filter((r) => r.decimals.trim() && (r.isBase || r.related)).length > 1
+  ) {
+    return 'Only one of the base and related units can set decimals'
   }
   return null
 }
@@ -100,11 +120,9 @@ function toUomPayload(rows: UomFormRow[]): ItemUomRow[] {
     ...(row.id ? { id: row.id } : {}),
     uomId: row.uomId,
     isBase: row.isBase,
-    conversionFactor: row.isBase
-      ? '1'
-      : row.related
-        ? row.factor.trim()
-        : null,
+    conversionFactor: row.isBase ? '1' : row.related ? row.factor.trim() : null,
+    decimals: row.decimals.trim() ? Number(row.decimals) : null,
+    rounding: row.rounding,
     sortOrder: index,
   }))
 }
@@ -292,9 +310,7 @@ function trimFactor(raw: string): string {
   const n = Number(raw)
   if (!Number.isFinite(n)) return raw
   // Keep up to 8 decimal places, strip trailing zeros.
-  return n
-    .toFixed(8)
-    .replace(/\.?0+$/, '')
+  return n.toFixed(8).replace(/\.?0+$/, '')
 }
 
 export function ItemForm({
@@ -443,7 +459,9 @@ export function ItemForm({
         setTarifRows(rowsFromItemTarifs(response.data.tarifs ?? []))
       } catch (err) {
         if (!cancelled) {
-          toast.error(err instanceof Error ? err.message : 'Failed to load item')
+          toast.error(
+            err instanceof Error ? err.message : 'Failed to load item',
+          )
         }
       } finally {
         if (!cancelled) setLoadingDetail(false)
@@ -470,22 +488,25 @@ export function ItemForm({
     [uomCatalog],
   )
 
-  /** RAB totals are rounded in the base UOM (or in an unrelated UOM itself). */
-  function roundingText(uomId: string): string {
-    const uom = uomById.get(uomId)
-    if (!uom) return ''
-    const decimals = uom.decimals ?? 4
-    const mode = uom.rounding ?? 'up'
-    const how =
-      mode === 'up' ? 'rounds up' : mode === 'down' ? 'rounds down' : 'rounds'
-    return ` · RAB ${how} to ${decimals === 0 ? 'whole' : `${decimals} dp`}`
+  /**
+   * The row whose decimals and direction set the RAB rounding for `row`'s
+   * line: the row with decimals in the base group, else the base row;
+   * unrelated rows own theirs.
+   */
+  function ruleRow(row: UomFormRow): UomFormRow {
+    if (!row.isBase && !row.related) return row
+    return (
+      uomRows.find((r) => (r.isBase || r.related) && r.decimals.trim()) ??
+      uomRows.find((r) => r.isBase) ??
+      row
+    )
   }
 
   function helperText(row: UomFormRow): string {
     if (row.isBase) {
-      return `Base unit (${symbolById.get(row.uomId) ?? '…'})${roundingText(row.uomId)}`
+      return `Base unit (${symbolById.get(row.uomId) ?? '…'})`
     }
-    if (!row.related) return `Not related to base${roundingText(row.uomId)}`
+    if (!row.related) return 'Not related to base'
     const sym = row.uomId ? (symbolById.get(row.uomId) ?? '…') : '…'
     const factor = row.factor.trim() || '…'
     return `1 ${sym} = ${factor} ${baseSymbol}`
@@ -706,9 +727,7 @@ export function ItemForm({
             size="sm"
             className={buttonOutlineClassName}
             disabled={vendorsLoadFailed}
-            onClick={() =>
-              setVendorRows((rows) => [...rows, emptyVendorRow()])
-            }
+            onClick={() => setVendorRows((rows) => [...rows, emptyVendorRow()])}
           >
             <Plus className="size-3.5" aria-hidden />
             Add
@@ -802,6 +821,7 @@ export function ItemForm({
             </span>
             <p className={cn(hintClassName, 'text-xs')}>
               One base unit is required. Other units convert through it.
+              Decimals and Rounding set how the RAB rounds the need.
             </p>
           </div>
           <Button
@@ -816,13 +836,25 @@ export function ItemForm({
           </Button>
         </div>
         <div className="overflow-x-auto rounded-md border border-(--line)">
-          <table className="w-full min-w-[32rem] border-collapse text-sm">
+          <table className="w-full min-w-[44rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-(--line) text-left text-xs text-(--muted)">
                 <th className="px-2.5 py-2 font-medium">UOM</th>
                 <th className="w-16 px-2 py-2 font-medium">Base</th>
                 <th className="w-20 px-2 py-2 font-medium">Related</th>
                 <th className="w-24 px-2 py-2 font-medium">Factor</th>
+                <th
+                  className="w-24 px-2 py-2 font-medium"
+                  title="Digits after the comma on the RAB (0 = whole). Empty uses the unit's decimals."
+                >
+                  Decimals
+                </th>
+                <th
+                  className="w-28 px-2 py-2 font-medium"
+                  title="Which way the RAB rounds when the need has more digits"
+                >
+                  Rounding
+                </th>
                 <th className="w-10 px-1 py-2" />
               </tr>
             </thead>
@@ -936,9 +968,7 @@ export function ItemForm({
                         inputMode="decimal"
                         placeholder={row.related || row.isBase ? '1' : '—'}
                         disabled={row.isBase || !row.related}
-                        value={
-                          row.isBase ? '1' : row.related ? row.factor : ''
-                        }
+                        value={row.isBase ? '1' : row.related ? row.factor : ''}
                         onChange={(e) =>
                           setUomRows((rows) =>
                             rows.map((r, i) =>
@@ -950,6 +980,64 @@ export function ItemForm({
                         }
                         aria-label="Conversion factor"
                       />
+                    </td>
+                    <td className="px-2 py-2 align-middle">
+                      <input
+                        className={cn(inputClassName, 'w-20 tabular-nums')}
+                        type="number"
+                        min={0}
+                        max={8}
+                        step={1}
+                        placeholder={String(
+                          uomById.get(row.uomId)?.decimals ?? '—',
+                        )}
+                        value={row.decimals}
+                        onChange={(e) =>
+                          setUomRows((rows) =>
+                            rows.map((r, i) =>
+                              i === index
+                                ? { ...r, decimals: e.target.value }
+                                : r,
+                            ),
+                          )
+                        }
+                        aria-label="Decimals"
+                      />
+                    </td>
+                    <td className="px-2 py-2 align-middle">
+                      {ruleRow(row) === row ? (
+                        <Combobox
+                          value={row.rounding}
+                          onValueChange={(value) =>
+                            setUomRows((rows) =>
+                              rows.map((r, i) =>
+                                i === index
+                                  ? {
+                                      ...r,
+                                      rounding:
+                                        ITEM_UOM_ROUNDING_OPTIONS.find(
+                                          (o) => o.value === value,
+                                        )?.value ?? 'up',
+                                    }
+                                  : r,
+                              ),
+                            )
+                          }
+                          options={ITEM_UOM_ROUNDING_OPTIONS}
+                          placeholder="Up"
+                          searchPlaceholder="Search…"
+                          emptyText="No option."
+                          className="w-24"
+                          aria-label="Rounding"
+                        />
+                      ) : (
+                        <span
+                          className="text-xs text-(--muted)"
+                          title="Set by the base unit or the unit with decimals"
+                        >
+                          —
+                        </span>
+                      )}
                     </td>
                     <td className="px-1 py-2 align-middle">
                       <Button
@@ -1003,9 +1091,7 @@ export function ItemForm({
             variant="outline"
             size="sm"
             className={buttonOutlineClassName}
-            onClick={() =>
-              setTarifRows((rows) => [emptyTarifRow(), ...rows])
-            }
+            onClick={() => setTarifRows((rows) => [emptyTarifRow(), ...rows])}
           >
             <Plus className="size-3.5" aria-hidden />
             Add
@@ -1034,8 +1120,7 @@ export function ItemForm({
                   )
                   .map(({ row, index }) => {
                     const isCurrent =
-                      currentTarifKey ===
-                      `${row.effectiveDate}|${row.amount}`
+                      currentTarifKey === `${row.effectiveDate}|${row.amount}`
                     return (
                       <tr
                         key={row.key}
@@ -1081,10 +1166,7 @@ export function ItemForm({
                         <td className="px-2 py-2 align-middle text-xs">
                           {isCurrent ? (
                             <span className="inline-flex items-center gap-1 text-emerald-700">
-                              <CircleCheck
-                                className="size-3"
-                                aria-hidden
-                              />
+                              <CircleCheck className="size-3" aria-hidden />
                               Current
                             </span>
                           ) : row.effectiveDate > asOfToday ? (

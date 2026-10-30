@@ -219,6 +219,11 @@ export default function ProjectProductionReleaseButton({
                                 )}
                               >
                                 Qty {i.makeQty}
+                                {i.makeType === 'outsource'
+                                  ? ' · Outsource'
+                                  : i.makeType === 'subcon'
+                                    ? ' · Subcon'
+                                    : ''}
                               </p>
                             ) : null}
                           </td>
@@ -229,7 +234,16 @@ export default function ProjectProductionReleaseButton({
                             <Mark ok={i.boq} label="BOQ" />
                           </td>
                           <td className="px-1 py-2 text-center">
-                            <Mark ok={i.productionFile} label="File Produksi" />
+                            {i.productionFileRequired || i.productionFile ? (
+                              <Mark ok={i.productionFile} label="File Produksi" />
+                            ) : (
+                              <span
+                                className={cn('text-xs', hintClassName)}
+                                title="Outsource: the vendor brings its own production files"
+                              >
+                                n/a
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right text-xs">
                             {i.ready ? (

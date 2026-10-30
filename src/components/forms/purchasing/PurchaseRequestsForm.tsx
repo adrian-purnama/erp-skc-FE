@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { Plus } from 'lucide-react'
+import {
+  CalendarClock,
+  CircleDot,
+  ClipboardList,
+  FolderKanban,
+  Package,
+  Plus,
+  Target,
+  UserRound,
+} from 'lucide-react'
 import {
   PurchaseRequestStatusChip,
   RequestOrderStatusChip,
@@ -84,11 +93,13 @@ export default function PurchaseRequestsForm() {
     () => [
       {
         header: 'SPP',
+        icon: ClipboardList,
         cellClassName: 'w-40 font-medium whitespace-nowrap tabular-nums',
         cell: (r) => r.number,
       },
       {
         header: 'Project',
+        icon: FolderKanban,
         cell: (r) => (
           <div className="min-w-0">
             <p className="tabular-nums">{r.projectNumber}</p>
@@ -98,11 +109,17 @@ export default function PurchaseRequestsForm() {
       },
       {
         header: 'For',
+        icon: Target,
         cell: (r) =>
           r.productionOrderNumber ? (
             <div className="min-w-0">
               <p className="tabular-nums">{r.productionOrderNumber}</p>
               <p className="truncate text-xs text-(--muted)">{r.itemLabel}</p>
+            </div>
+          ) : r.purchaseRabNumber ? (
+            <div className="min-w-0">
+              <p className="tabular-nums">{r.purchaseRabNumber}</p>
+              <p className="truncate text-xs text-(--muted)">{r.purchaseRabTitle}</p>
             </div>
           ) : (
             <span className={hintClassName}>Extra items</span>
@@ -110,11 +127,13 @@ export default function PurchaseRequestsForm() {
       },
       {
         header: 'Needed by',
+        icon: CalendarClock,
         cellClassName: 'w-28 text-xs tabular-nums',
         cell: (r) => r.neededDate,
       },
       {
         header: 'Items',
+        icon: Package,
         cellClassName: 'w-36',
         cell: (r) => (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -132,11 +151,13 @@ export default function PurchaseRequestsForm() {
       },
       {
         header: 'Requested by',
+        icon: UserRound,
         cellClassName: 'w-36',
         cell: (r) => r.requestedBy?.name ?? '—',
       },
       {
         header: 'Status',
+        icon: CircleDot,
         cellClassName: 'w-32',
         cell: (r) =>
           r.status === 'submitted' ? (
@@ -167,7 +188,7 @@ export default function PurchaseRequestsForm() {
           <p className={cn('mt-2', hintClassName)}>
             {viewAll
               ? 'SPP from production. Flagged items are extra, over plan or not in the RAB.'
-              : 'Your SPP. Start one from an SPK, or here for extra items.'}
+              : 'Your SPP. Start one from an SPK, or from a RAB for anything outside a project.'}
           </p>
         </div>
         {can('purchasing.request') ? (

@@ -3,8 +3,13 @@ import { Check, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
 import { Input } from '#/components/ui/input'
+import { Tabs, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import type { ItemCategoryOut } from '#/lib/itemMaster'
-import type { ProjectShopDrawingBoqMaterial } from '#/lib/project'
+import type {
+  ProjectShopDrawingBoqMaterial,
+  ProjectShopDrawingBoqMaterialUom,
+} from '#/lib/project'
+import { cleanNumber, linePurchase } from '#/lib/rabRounding'
 import {
   formulaVariableCount,
   previewUomFormula,
@@ -95,23 +100,57 @@ function formatFormulaLabel(expr: string): string {
   return expr.replaceAll(' * ', ' × ').replaceAll('*', ' × ')
 }
 
-function multiplyDisplay(qtyPerUnit: string, makeQty: string): string {
-  const a = Number(qtyPerUnit)
-  const b = Number(makeQty)
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return '—'
-  const product = a * b
-  if (!Number.isFinite(product)) return '—'
-  return String(product)
+/** Finished units one UOM covers in yield mode (49 pcs per sheet). */
+function unitsPerUom(line: DraftLine): string {
+  if (line.formula === 'v1' && line.inputs.v1.trim() === '1') {
+    return line.yieldQty
+  }
+  const qty = Number(computedQtyDisplay(line))
+  const yieldQty = lineYield(line)
+  if (!Number.isFinite(qty) || qty <= 0 || yieldQty === null) return ''
+  return String(cleanNumber(yieldQty / qty))
 }
 
-function formatTotalWithUom(
-  qtyPerUnit: string,
-  makeQty: string,
-  symbol: string | undefined,
-): string {
-  const total = multiplyDisplay(qtyPerUnit, makeQty)
-  if (total === '—') return '—'
-  return symbol ? `${total} ${symbol}` : total
+const MODE_LABELS = { up: 'up', down: 'down', nearest: 'to nearest' } as const
+
+/** Need × make qty, plus what the RAB buys after the item's decimals rule. */
+function LineTotal({
+  qtyPerUnit,
+  makeQty,
+  uoms,
+  itemUomId,
+  symbol,
+}: {
+  qtyPerUnit: string
+  makeQty: string
+  uoms: ProjectShopDrawingBoqMaterialUom[]
+  itemUomId: string
+  symbol: string | undefined
+}) {
+  const total = Number(qtyPerUnit) * Number(makeQty)
+  if (!Number.isFinite(total)) return <>—</>
+  const purchase = linePurchase(uoms, itemUomId, total)
+  if (!purchase || purchase.buy === purchase.need) {
+    const need = purchase?.need ?? cleanNumber(total)
+    return (
+      <>
+        {need} {purchase?.symbol ?? symbol ?? ''}
+      </>
+    )
+  }
+  return (
+    <span
+      className="block"
+      title={`Rounded ${MODE_LABELS[purchase.mode]} to steps of ${purchase.step} ${purchase.symbol}. The RAB rounds the project total once, so leftovers shared with other drawings can lower it.`}
+    >
+      <span className="block font-medium">
+        {purchase.buy} {purchase.symbol}
+      </span>
+      <span className={cn('block text-[11px]', hintClassName)}>
+        need {purchase.need}
+      </span>
+    </span>
+  )
 }
 
 function qtyInputsSummary(line: DraftLine): string {
@@ -175,11 +214,7 @@ export default function ShopDrawingBoqLinesEditor({
   const cell = compact ? 'px-2 py-1.5' : 'px-3 py-2.5'
   const head = compact ? 'px-2 py-1.5' : 'px-3 py-2'
   const colCount =
-    (compact ? 0 : 1) +
-    1 +
-    (showSpec ? 1 : 0) +
-    3 +
-    (canManage ? 1 : 0)
+    (compact ? 0 : 1) + 1 + (showSpec ? 1 : 0) + 3 + (canManage ? 1 : 0)
   const materialOptions = materials.map((m) => ({
     value: m.id,
     label: `${m.itemId} — ${m.name}`,
@@ -201,6 +236,33 @@ export default function ShopDrawingBoqLinesEditor({
   const [editingKey, setEditingKey] = React.useState<string | null>(
     lines.length === 1 && !isLineComplete(lines[0]!) ? lines[0]!.key : null,
   )
+
+  // Lines switched to yield mode before a yield is typed.
+  const [yieldKeys, setYieldKeys] = React.useState<Set<string>>(() => new Set())
+  const isYieldMode = (line: DraftLine) =>
+    yieldKeys.has(line.key) || line.yieldQty.trim() !== ''
+
+  function setLineMode(key: string, mode: 'unit' | 'yield') {
+    setYieldKeys((prev) => {
+      const next = new Set(prev)
+      if (mode === 'yield') next.add(key)
+      else next.delete(key)
+      return next
+    })
+    onChange(
+      lines.map((row) =>
+        row.key !== key
+          ? row
+          : mode === 'yield'
+            ? { ...row, formula: 'v1', inputs: { v1: '1' }, yieldQty: '' }
+            : {
+                ...row,
+                inputs: emptyInputsFor(row.formula),
+                yieldQty: '',
+              },
+      ),
+    )
+  }
 
   // Keep editingKey valid when lines change externally
   React.useEffect(() => {
@@ -278,9 +340,11 @@ export default function ShopDrawingBoqLinesEditor({
                   : qtyPreview === '—'
                     ? qtyInputsSummary(line)
                     : `${qtyInputsSummary(line)} = ${qtyPreview}`
+              const yieldMode = isYieldMode(line)
+              const canYield = modes.includes('v1')
               const qtyView = hasYield
-                ? `${formulaView}${uomSymbol ? ` ${uomSymbol}` : ''} per ${yieldQty} unit (${perUnitQty} each)`
-                : formulaView
+                ? `${unitsPerUom(line)} units per ${uomSymbol ?? 'unit'}`
+                : `${formulaView}${uomSymbol && formulaView !== '—' ? ` ${uomSymbol}` : ''}`
 
               return (
                 <tr
@@ -423,10 +487,76 @@ export default function ShopDrawingBoqLinesEditor({
                             </div>
                           ) : null}
                           <div className="min-w-0 shrink-0 space-y-1">
-                            {compact ? null : (
-                              <p className="text-[11px] text-(--muted)">Qty</p>
-                            )}
-                            {modes.length > 1 ? (
+                            <div className="flex items-center gap-2">
+                              {compact ? null : (
+                                <p className="text-[11px] text-(--muted)">
+                                  Qty
+                                </p>
+                              )}
+                              {canYield ? (
+                                <Tabs
+                                  value={yieldMode ? 'yield' : 'unit'}
+                                  onValueChange={(value) =>
+                                    setLineMode(
+                                      line.key,
+                                      value === 'yield' ? 'yield' : 'unit',
+                                    )
+                                  }
+                                >
+                                  <TabsList className="h-6 p-0.5">
+                                    <TabsTrigger
+                                      value="unit"
+                                      className="px-2 text-[11px]"
+                                      title="How much material one finished unit uses"
+                                      disabled={disabled}
+                                    >
+                                      Per unit
+                                    </TabsTrigger>
+                                    <TabsTrigger
+                                      value="yield"
+                                      className="px-2 text-[11px]"
+                                      title={`How many finished units one ${uomSymbol ?? 'unit'} makes`}
+                                      disabled={disabled}
+                                    >
+                                      Yield
+                                    </TabsTrigger>
+                                  </TabsList>
+                                </Tabs>
+                              ) : null}
+                            </div>
+                            {yieldMode ? (
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  value={unitsPerUom(line)}
+                                  onChange={(e) =>
+                                    onChange(
+                                      lines.map((row, i) =>
+                                        i === index
+                                          ? {
+                                              ...row,
+                                              formula: 'v1',
+                                              inputs: { v1: '1' },
+                                              yieldQty: e.target.value,
+                                            }
+                                          : row,
+                                      ),
+                                    )
+                                  }
+                                  disabled={disabled}
+                                  inputMode="decimal"
+                                  placeholder="e.g. 49"
+                                  aria-label={`Units per ${uomSymbol ?? 'unit'} line ${index + 1}`}
+                                  className={cn(
+                                    'h-9 w-20',
+                                    yieldQty === null && 'border-red-500',
+                                  )}
+                                />
+                                <span className="shrink-0 text-sm text-(--muted)">
+                                  units per {uomSymbol ?? 'unit'}
+                                </span>
+                              </div>
+                            ) : null}
+                            {!yieldMode && modes.length > 1 ? (
                               <div className="flex flex-wrap gap-1">
                                 {modes.map((expr) => {
                                   const active = line.formula === expr
@@ -460,7 +590,14 @@ export default function ShopDrawingBoqLinesEditor({
                                 })}
                               </div>
                             ) : null}
-                            {varCount <= 1 ? (
+                            {yieldMode ? (
+                              hasYield && perUnitQty !== '—' ? (
+                                <p className="text-[11px] tabular-nums text-(--muted)">
+                                  = {perUnitQty}
+                                  {uomSymbol ? ` ${uomSymbol}` : ''} per unit
+                                </p>
+                              ) : null
+                            ) : varCount <= 1 ? (
                               <div className="flex items-center gap-1.5">
                                 <Input
                                   value={line.inputs.v1}
@@ -498,7 +635,9 @@ export default function ShopDrawingBoqLinesEditor({
                                       className="flex items-center gap-1.5"
                                     >
                                       {n > 0 ? (
-                                        <span className="text-(--muted)">×</span>
+                                        <span className="text-(--muted)">
+                                          ×
+                                        </span>
                                       ) : null}
                                       <Input
                                         value={line.inputs[key] ?? ''}
@@ -531,52 +670,16 @@ export default function ShopDrawingBoqLinesEditor({
                               </div>
                             )}
                           </div>
-                          <div className="shrink-0 space-y-1">
-                            {compact ? null : (
-                              <p className="text-[11px] text-(--muted)">
-                                Enough for
-                              </p>
-                            )}
-                            <div className="flex items-center gap-1.5">
-                              <span className="shrink-0 text-sm text-(--muted)">
-                                per
-                              </span>
-                              <Input
-                              value={line.yieldQty}
-                              onChange={(e) =>
-                                onChange(
-                                  lines.map((row, i) =>
-                                    i === index
-                                      ? { ...row, yieldQty: e.target.value }
-                                      : row,
-                                  ),
-                                )
-                              }
-                              disabled={disabled}
-                              inputMode="decimal"
-                              placeholder="1"
-                              title="How many finished units this quantity covers, e.g. 1 sheet per 50 units"
-                              aria-label={`Units covered line ${index + 1}`}
-                              className={cn(
-                                'h-9 w-16',
-                                yieldQty === null && 'border-red-500',
-                              )}
-                            />
-                              <span className="shrink-0 text-sm text-(--muted)">
-                                unit
-                              </span>
-                            </div>
-                            {hasYield && perUnitQty !== '—' ? (
-                              <p className="text-[11px] tabular-nums text-(--muted)">
-                                = {perUnitQty}
-                                {uomSymbol ? ` ${uomSymbol}` : ''} each
-                              </p>
-                            ) : null}
-                          </div>
                         </div>
                       </td>
                       <td className={cn(cell, 'align-top tabular-nums')}>
-                        {formatTotalWithUom(perUnitQty, makeQty, uomSymbol)}
+                        <LineTotal
+                          qtyPerUnit={perUnitQty}
+                          makeQty={makeQty}
+                          uoms={lineUoms}
+                          itemUomId={line.itemUomId}
+                          symbol={uomSymbol}
+                        />
                       </td>
                     </>
                   ) : (
@@ -603,7 +706,10 @@ export default function ShopDrawingBoqLinesEditor({
                       </td>
                       {showSpec ? (
                         <td
-                          className={cn(cell, 'align-top text-sm text-(--muted)')}
+                          className={cn(
+                            cell,
+                            'align-top text-sm text-(--muted)',
+                          )}
                         >
                           {line.spec?.trim() || '—'}
                         </td>
@@ -615,13 +721,24 @@ export default function ShopDrawingBoqLinesEditor({
                         {qtyView}
                       </td>
                       <td className={cn(cell, 'align-top tabular-nums')}>
-                        {formatTotalWithUom(perUnitQty, makeQty, uomSymbol)}
+                        <LineTotal
+                          qtyPerUnit={perUnitQty}
+                          makeQty={makeQty}
+                          uoms={lineUoms}
+                          itemUomId={line.itemUomId}
+                          symbol={uomSymbol}
+                        />
                       </td>
                     </>
                   )}
 
                   {canManage ? (
-                    <td className={cn(compact ? 'px-1 py-1' : 'px-1 py-2', 'align-top')}>
+                    <td
+                      className={cn(
+                        compact ? 'px-1 py-1' : 'px-1 py-2',
+                        'align-top',
+                      )}
+                    >
                       {lineFrozen ? (
                         <span
                           className={cn('px-1 text-[10px]', hintClassName)}
@@ -660,8 +777,7 @@ export default function ShopDrawingBoqLinesEditor({
                             size="sm"
                             className="h-7 px-2"
                             disabled={
-                              disabled ||
-                              (!allowEmpty && lines.length <= 1)
+                              disabled || (!allowEmpty && lines.length <= 1)
                             }
                             onClick={() => {
                               onChange(lines.filter((_, i) => i !== index))

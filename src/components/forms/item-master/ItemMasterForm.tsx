@@ -7,9 +7,13 @@ import {
   Folder,
   FolderInput,
   FolderPlus,
-  MoreHorizontal,
+  Hash,
+  Package,
   Pencil,
   Plus,
+  Shapes,
+  Tag,
+  ToggleRight,
   Trash2,
   Upload,
 } from 'lucide-react'
@@ -38,15 +42,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '#/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '#/components/ui/dropdown-menu'
 import { Combobox } from '#/components/ui/combobox'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '#/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { useAuth } from '#/context/authContext'
 import { apiDownload, apiFetch, apiUpload } from '#/lib/api'
@@ -84,10 +87,10 @@ import { ItemCategoryForm } from './ItemCategoryForm'
 import { ItemForm } from './ItemForm'
 import { MoveForm } from './MoveForm'
 
-type ViewMode =
-  | { type: 'browse' }
-  | { type: 'create-item'; folderId: string | null }
-  | { type: 'edit-item'; id: string }
+type ItemDrawer =
+  | null
+  | { mode: 'create'; folderId: string | null }
+  | { mode: 'edit'; id: string }
 
 type FolderDialog =
   | null
@@ -198,7 +201,7 @@ export default function ItemMasterForm() {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [view, setView] = useState<ViewMode>({ type: 'browse' })
+  const [itemDrawer, setItemDrawer] = useState<ItemDrawer>(null)
   const [folderDialog, setFolderDialog] = useState<FolderDialog>(null)
   const [moveItemId, setMoveItemId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -223,9 +226,10 @@ export default function ItemMasterForm() {
   const [itemPage, setItemPage] = useState(1)
   const bulkFileRef = useRef<HTMLInputElement>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
-  const [bulkErrors, setBulkErrors] = useState<
-    Array<{ row: number; message: string }> | null
-  >(null)
+  const [bulkErrors, setBulkErrors] = useState<Array<{
+    row: number
+    message: string
+  }> | null>(null)
   const [editorFolderId, setEditorFolderId] = useState<string | null>(null)
 
   const folderOptions = useMemo(() => flattenFolders(tree), [tree])
@@ -410,26 +414,29 @@ export default function ItemMasterForm() {
     }
   }
 
-  const setItemActive = useCallback(async (item: ItemListRow, next: boolean) => {
-    setToggling(true)
-    try {
-      const response = await apiFetch<ItemOut>(`/items/${item.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isActive: next }),
-      })
-      if (!response.success || !response.data) {
-        toast.error(response.message || 'Failed to update item')
-        return
+  const setItemActive = useCallback(
+    async (item: ItemListRow, next: boolean) => {
+      setToggling(true)
+      try {
+        const response = await apiFetch<ItemOut>(`/items/${item.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ isActive: next }),
+        })
+        if (!response.success || !response.data) {
+          toast.error(response.message || 'Failed to update item')
+          return
+        }
+        toast.success(next ? 'Item enabled' : 'Item disabled')
+        await loadTree()
+      } catch {
+        toast.error('Unable to reach the server')
+      } finally {
+        setToggling(false)
+        setPendingDisable(null)
       }
-      toast.success(next ? 'Item enabled' : 'Item disabled')
-      await loadTree()
-    } catch {
-      toast.error('Unable to reach the server')
-    } finally {
-      setToggling(false)
-      setPendingDisable(null)
-    }
-  }, [])
+    },
+    [],
+  )
 
   const onToggleActive = useCallback(
     (item: ItemListRow) => {
@@ -443,25 +450,27 @@ export default function ItemMasterForm() {
   )
 
   const editingItem =
-    view.type === 'edit-item'
-      ? (itemRows.find((r) => r.id === view.id) ?? null)
+    itemDrawer?.mode === 'edit'
+      ? (itemRows.find((r) => r.id === itemDrawer.id) ?? null)
       : null
 
   useEffect(() => {
-    if (view.type === 'create-item') {
-      setEditorFolderId(view.folderId)
+    if (itemDrawer?.mode === 'create') {
+      setEditorFolderId(itemDrawer.folderId)
       return
     }
-    if (view.type === 'edit-item') {
+    if (itemDrawer?.mode === 'edit') {
       setEditorFolderId(editingItem?.folderId ?? null)
     }
-  }, [view, editingItem?.folderId])
+  }, [itemDrawer, editingItem?.folderId])
 
   const itemColumns = useMemo<ListTableColumn<ItemListRow>[]>(
     () => [
       {
         header: 'Item ID',
-        cellClassName: 'max-w-[9rem] truncate font-mono text-sm whitespace-nowrap',
+        icon: Hash,
+        widthClassName: 'w-32',
+        cellClassName: 'truncate font-mono text-sm whitespace-nowrap',
         cell: (item) => (
           <span className="block truncate" title={item.itemId}>
             {item.itemId}
@@ -470,7 +479,9 @@ export default function ItemMasterForm() {
       },
       {
         header: 'Name',
-        cellClassName: 'min-w-0 max-w-[14rem] font-medium',
+        icon: Package,
+        widthClassName: 'min-w-[14rem]',
+        cellClassName: 'min-w-0 font-medium',
         cell: (item) => (
           <span className="block truncate" title={item.name}>
             {item.name}
@@ -479,12 +490,16 @@ export default function ItemMasterForm() {
       },
       {
         header: 'Type',
+        icon: Shapes,
+        widthClassName: 'w-28',
         cellClassName: 'whitespace-nowrap',
         cell: (item) => itemTypeLabel(item.itemType),
       },
       {
         header: 'Category',
-        cellClassName: cn(hintClassName, 'min-w-0 max-w-[10rem] whitespace-nowrap'),
+        icon: Tag,
+        widthClassName: 'min-w-[10rem] max-w-[12rem]',
+        cellClassName: cn(hintClassName, 'min-w-0 whitespace-nowrap'),
         cell: (item) => {
           const names = item.categoryIds
             .map((id) => categoryNameById.get(id))
@@ -499,7 +514,9 @@ export default function ItemMasterForm() {
       },
       {
         header: 'Folder',
-        cellClassName: cn(hintClassName, 'min-w-0 max-w-[12rem]'),
+        icon: Folder,
+        widthClassName: 'min-w-[10rem] max-w-[14rem]',
+        cellClassName: cn(hintClassName, 'min-w-0'),
         cell: (item) => (
           <span className="block truncate" title={item.folderPath || 'Root'}>
             {item.folderPath || '—'}
@@ -508,55 +525,66 @@ export default function ItemMasterForm() {
       },
       {
         header: 'Status',
-        cellClassName: 'w-[1%] whitespace-nowrap',
+        icon: ToggleRight,
+        widthClassName: 'w-28',
         cell: (item) => <StatusPill active={item.isActive} />,
       },
       {
-        header: '',
-        cellClassName: 'w-[1%] whitespace-nowrap text-right',
+        header: 'Actions',
+        align: 'right',
+        widthClassName: 'w-28 whitespace-nowrap',
+        cellClassName: 'py-1.5',
         cell: (item) => (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="size-8 shrink-0 p-0">
-                <span className="sr-only">Open menu</span>
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <DropdownMenuItem
-                onClick={() => setView({ type: 'edit-item', id: item.id })}
-              >
-                <Pencil className="size-4" aria-hidden />
-                Edit
-              </DropdownMenuItem>
-              {canManage ? (
-                <>
-                  <DropdownMenuItem onClick={() => setMoveItemId(item.id)}>
-                    <FolderInput className="size-4" aria-hidden />
-                    Move
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => onToggleActive(item)}>
-                    {item.isActive ? (
-                      <Ban className="size-4" aria-hidden />
-                    ) : (
-                      <CircleCheck className="size-4" aria-hidden />
-                    )}
-                    {item.isActive ? 'Disable' : 'Enable'}
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center justify-end gap-0.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Edit"
+              title="Edit"
+              onClick={() => setItemDrawer({ mode: 'edit', id: item.id })}
+            >
+              <Pencil />
+            </Button>
+            {canManage ? (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Move"
+                  title="Move"
+                  onClick={() => setMoveItemId(item.id)}
+                >
+                  <FolderInput />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={toggling}
+                  aria-label={item.isActive ? 'Disable' : 'Enable'}
+                  title={item.isActive ? 'Disable' : 'Enable'}
+                  className={
+                    item.isActive
+                      ? 'text-red-600 hover:bg-red-50 hover:text-red-700'
+                      : 'text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700'
+                  }
+                  onClick={() => onToggleActive(item)}
+                >
+                  {item.isActive ? <Ban /> : <CircleCheck />}
+                </Button>
+              </>
+            ) : null}
+          </div>
         ),
       },
     ],
-    [canManage, onToggleActive, categoryNameById],
+    [canManage, onToggleActive, categoryNameById, toggling],
   )
 
-  async function returnToBrowse() {
-    setView({ type: 'browse' })
+  async function closeItemDrawerAndReload() {
+    setItemDrawer(null)
     await Promise.all([loadTree(), loadCategories()])
   }
 
@@ -579,13 +607,12 @@ export default function ItemMasterForm() {
     try {
       const form = new FormData()
       form.append('file', file)
-      const response = await apiUpload<{ created: number }>(
-        '/items/bulk',
-        form,
-      )
+      const response = await apiUpload<{ created: number }>('/items/bulk', form)
       if (!response.success) {
         const errors = (
-          response.data as { errors?: Array<{ row: number; message: string }> } | null
+          response.data as {
+            errors?: Array<{ row: number; message: string }>
+          } | null
         )?.errors
         if (errors?.length) {
           setBulkErrors(errors)
@@ -595,8 +622,7 @@ export default function ItemMasterForm() {
         return
       }
       toast.success(
-        response.message ||
-          `Created ${response.data?.created ?? 0} item(s)`,
+        response.message || `Created ${response.data?.created ?? 0} item(s)`,
       )
       await loadTree()
     } catch {
@@ -605,129 +631,6 @@ export default function ItemMasterForm() {
       setBulkBusy(false)
       if (bulkFileRef.current) bulkFileRef.current.value = ''
     }
-  }
-
-  if (view.type === 'create-item' || view.type === 'edit-item') {
-    const locationLabel = folderNamePath(tree, editorFolderId)
-
-    return (
-      <div className="space-y-8">
-        <div>
-          <h1 className={pageTitleClassName}>
-            {view.type === 'create-item' ? 'New item' : 'Edit item'}
-          </h1>
-          <p className={`mt-2 ${hintClassName}`}>
-            {view.type === 'create-item'
-              ? 'Fill in the details for the new item.'
-              : 'Update item details, folder, vendors, units, and tarifs.'}
-          </p>
-          <div className="mt-3 max-w-md space-y-1.5">
-            <span className="inline-flex items-center gap-1.5 text-sm font-medium">
-              <Folder className="size-3.5 text-(--muted)" aria-hidden />
-              Location
-            </span>
-            {canManage ? (
-              <Combobox
-                value={editorFolderId ?? FOLDER_ROOT}
-                onValueChange={(value) =>
-                  setEditorFolderId(value === FOLDER_ROOT ? null : value)
-                }
-                options={[
-                  { value: FOLDER_ROOT, label: 'Root' },
-                  ...folderNameOptions.map((opt) => ({
-                    value: opt.id,
-                    label: opt.label,
-                  })),
-                ]}
-                placeholder="Select folder…"
-                searchPlaceholder="Search folders…"
-                emptyText="No folder found."
-                className="w-full min-w-0"
-                aria-label="Item folder"
-              />
-            ) : (
-              <p className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-(--line) bg-(--surface) px-3 py-1.5 text-sm font-medium">
-                <span className="min-w-0 truncate">{locationLabel}</span>
-              </p>
-            )}
-          </div>
-        </div>
-
-        <ItemForm
-          title={view.type === 'create-item' ? 'New item' : 'Edit item'}
-          itemId={view.type === 'edit-item' ? view.id : undefined}
-          initialName={editingItem?.name ?? ''}
-          initialDescription={editingItem?.description ?? ''}
-          initialItemType={editingItem?.itemType ?? 'material'}
-          initialCategoryIds={editingItem?.categoryIds ?? []}
-          showItemId={editingItem?.itemId}
-          saving={saving}
-          setSaving={setSaving}
-          onCancel={() => setView({ type: 'browse' })}
-          onSubmit={async (
-            name,
-            description,
-            itemType,
-            categoryIds,
-            uoms,
-            tarifs,
-            vendorIds,
-          ) => {
-            if (view.type === 'create-item') {
-              const response = await apiFetch<ItemOut>('/items', {
-                method: 'POST',
-                body: JSON.stringify({
-                  name,
-                  description,
-                  itemType,
-                  folderId: editorFolderId,
-                  categoryIds,
-                  vendorIds,
-                  uoms,
-                  tarifs,
-                }),
-              })
-              if (!response.success || !response.data) {
-                throw new Error(response.message || 'Create failed')
-              }
-              toast.success('Item created')
-              await returnToBrowse()
-              return
-            }
-            const response = await apiFetch<ItemOut>(`/items/${view.id}`, {
-              method: 'PATCH',
-              body: JSON.stringify({
-                name,
-                description,
-                itemType,
-                categoryIds,
-                vendorIds,
-                uoms,
-                tarifs,
-              }),
-            })
-            if (!response.success || !response.data) {
-              throw new Error(response.message || 'Update failed')
-            }
-            const previousFolderId = editingItem?.folderId ?? null
-            if (editorFolderId !== previousFolderId) {
-              const moved = await apiFetch<ItemOut>(
-                `/items/${view.id}/move`,
-                {
-                  method: 'POST',
-                  body: JSON.stringify({ newFolderId: editorFolderId }),
-                },
-              )
-              if (!moved.success || !moved.data) {
-                throw new Error(moved.message || 'Move failed')
-              }
-            }
-            toast.success('Item updated')
-            await returnToBrowse()
-          }}
-        />
-      </div>
-    )
   }
 
   const filtersActive =
@@ -742,9 +645,7 @@ export default function ItemMasterForm() {
       <div>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className={pageTitleClassName}>
-              Item Master Data
-            </h1>
+            <h1 className={pageTitleClassName}>Item Master Data</h1>
             <p className={`mt-1 ${hintClassName}`}>
               Browse items by folder. Filter by type, category, or status
               {canManage ? ', or create and edit' : ''}.
@@ -799,8 +700,8 @@ export default function ItemMasterForm() {
                 type="button"
                 className={buttonClassName}
                 onClick={() =>
-                  setView({
-                    type: 'create-item',
+                  setItemDrawer({
+                    mode: 'create',
                     folderId: createItemFolderId(),
                   })
                 }
@@ -833,207 +734,207 @@ export default function ItemMasterForm() {
           <ItemCategoryForm />
         </TabsContent>
         <TabsContent value="items" className="pt-3">
-      <div className="grid min-h-[32rem] gap-4 lg:h-[calc(100dvh-11rem)] lg:min-h-[32rem] lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-stretch">
-        <aside
-          className={cn(
-            cardClassName,
-            'hidden min-h-0 flex-col overflow-hidden lg:flex',
-          )}
-        >
-          <div className="flex shrink-0 items-center justify-between border-b border-(--line) bg-(--paper) px-3 py-2.5">
-            <button
-              type="button"
+          <div className="grid min-h-[32rem] gap-4 lg:h-[calc(100dvh-11rem)] lg:min-h-[32rem] lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-stretch">
+            <aside
               className={cn(
-                'rounded-sm px-2 py-1 text-sm transition',
-                folderFilter === 'all'
-                  ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] font-medium text-(--accent)'
-                  : 'text-(--muted) hover:bg-(--surface) hover:text-(--ink)',
+                cardClassName,
+                'hidden min-h-0 flex-col overflow-hidden lg:flex',
               )}
-              onClick={() => setFolderFilter('all')}
             >
-              All
-            </button>
-            <button
-              type="button"
-              className={cn(
-                'inline-flex items-center gap-1 rounded-sm px-2 py-1 text-sm transition',
-                folderFilter === 'root'
-                  ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] font-medium text-(--accent)'
-                  : 'text-(--muted) hover:bg-(--surface) hover:text-(--ink)',
-              )}
-              onClick={() => setFolderFilter('root')}
-            >
-              <Folder className="size-3.5" aria-hidden />
-              Root
-            </button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 py-2">
-            {loading ? (
-              <p className={cn(hintClassName, 'px-2 py-4')}>Loading…</p>
-            ) : (
-              <FolderNav
-                nodes={tree}
-                expanded={expanded}
-                selectedFolderId={
-                  folderFilter !== 'all' && folderFilter !== 'root'
-                    ? folderFilter
-                    : null
-                }
-                onToggle={toggleFolder}
-                onSelectFolder={selectFolderFilter}
-              />
-            )}
-          </div>
-          {canManage && selectedFolder ? (
-            <div className="flex flex-wrap gap-1 border-t border-(--line) px-2 py-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() =>
-                  setFolderDialog({
-                    type: 'edit-folder',
-                    id: selectedFolder.id,
-                  })
-                }
-              >
-                <Pencil className="size-3.5" aria-hidden />
-                Rename
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() =>
-                  setFolderDialog({
-                    type: 'move-folder',
-                    id: selectedFolder.id,
-                  })
-                }
-              >
-                <FolderInput className="size-3.5" aria-hidden />
-                Move
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-xs text-red-700"
-                onClick={() => {
-                  setDeleteFolderForce(false)
-                  setPendingDeleteFolder({
-                    id: selectedFolder.id,
-                    name: selectedFolder.name,
-                    code: selectedFolder.code,
-                  })
-                }}
-              >
-                <Trash2 className="size-3.5" aria-hidden />
-                Delete
-              </Button>
-            </div>
-          ) : null}
-        </aside>
+              <div className="flex shrink-0 items-center justify-between border-b border-(--line) bg-(--paper) px-3 py-2.5">
+                <button
+                  type="button"
+                  className={cn(
+                    'rounded-sm px-2 py-1 text-sm transition',
+                    folderFilter === 'all'
+                      ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] font-medium text-(--accent)'
+                      : 'text-(--muted) hover:bg-(--surface) hover:text-(--ink)',
+                  )}
+                  onClick={() => setFolderFilter('all')}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-sm px-2 py-1 text-sm transition',
+                    folderFilter === 'root'
+                      ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] font-medium text-(--accent)'
+                      : 'text-(--muted) hover:bg-(--surface) hover:text-(--ink)',
+                  )}
+                  onClick={() => setFolderFilter('root')}
+                >
+                  <Folder className="size-3.5" aria-hidden />
+                  Root
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 py-2">
+                {loading ? (
+                  <p className={cn(hintClassName, 'px-2 py-4')}>Loading…</p>
+                ) : (
+                  <FolderNav
+                    nodes={tree}
+                    expanded={expanded}
+                    selectedFolderId={
+                      folderFilter !== 'all' && folderFilter !== 'root'
+                        ? folderFilter
+                        : null
+                    }
+                    onToggle={toggleFolder}
+                    onSelectFolder={selectFolderFilter}
+                  />
+                )}
+              </div>
+              {canManage && selectedFolder ? (
+                <div className="flex flex-wrap gap-1 border-t border-(--line) px-2 py-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={() =>
+                      setFolderDialog({
+                        type: 'edit-folder',
+                        id: selectedFolder.id,
+                      })
+                    }
+                  >
+                    <Pencil className="size-3.5" aria-hidden />
+                    Rename
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={() =>
+                      setFolderDialog({
+                        type: 'move-folder',
+                        id: selectedFolder.id,
+                      })
+                    }
+                  >
+                    <FolderInput className="size-3.5" aria-hidden />
+                    Move
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-xs text-red-700"
+                    onClick={() => {
+                      setDeleteFolderForce(false)
+                      setPendingDeleteFolder({
+                        id: selectedFolder.id,
+                        name: selectedFolder.name,
+                        code: selectedFolder.code,
+                      })
+                    }}
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                    Delete
+                  </Button>
+                </div>
+              ) : null}
+            </aside>
 
-        <div
-          className={cn(
-            cardClassName,
-            'flex min-h-0 min-w-0 flex-col overflow-hidden px-4 py-4',
-          )}
-        >
-          <div className="min-h-0 flex-1 overflow-auto">
-          <ListTable
-            filters={
-              <>
-                <ListSearchInput
-                  value={itemQuery}
-                  onChange={setItemQuery}
-                  placeholder="Filter names…"
-                  aria-label="Filter items"
-                  className="min-w-0 max-w-none flex-1"
-                />
-                <Combobox
-                  value={typeFilter}
-                  onValueChange={(value) => {
-                    if (
-                      value === 'all' ||
-                      value === 'material' ||
-                      value === 'labour'
-                    ) {
-                      setTypeFilter(value)
-                    }
+            <div
+              className={cn(
+                cardClassName,
+                'flex min-h-0 min-w-0 flex-col overflow-hidden px-4 py-4',
+              )}
+            >
+              <div className="min-h-0 flex-1 overflow-auto">
+                <ListTable
+                  filters={
+                    <>
+                      <ListSearchInput
+                        value={itemQuery}
+                        onChange={setItemQuery}
+                        placeholder="Filter names…"
+                        aria-label="Filter items"
+                        className="min-w-0 max-w-none flex-1"
+                      />
+                      <Combobox
+                        value={typeFilter}
+                        onValueChange={(value) => {
+                          if (
+                            value === 'all' ||
+                            value === 'material' ||
+                            value === 'labour'
+                          ) {
+                            setTypeFilter(value)
+                          }
+                        }}
+                        options={[...TYPE_FILTER_OPTIONS]}
+                        placeholder="All types"
+                        searchPlaceholder="Search type…"
+                        emptyText="No type found."
+                        aria-label="Type filter"
+                        className="w-[8.5rem] shrink-0"
+                      />
+                      <Combobox
+                        value={categoryFilter}
+                        onValueChange={setCategoryFilter}
+                        options={categoryFilterOptions}
+                        placeholder="All categories"
+                        searchPlaceholder="Search category…"
+                        emptyText="No category found."
+                        aria-label="Category filter"
+                        className="w-[10rem] shrink-0"
+                      />
+                      <Combobox
+                        value={statusFilter}
+                        onValueChange={(value) => {
+                          if (
+                            value === 'all' ||
+                            value === 'enabled' ||
+                            value === 'disabled'
+                          ) {
+                            setStatusFilter(value)
+                          }
+                        }}
+                        options={[...STATUS_FILTER_OPTIONS]}
+                        placeholder="All statuses"
+                        searchPlaceholder="Search status…"
+                        emptyText="No status found."
+                        aria-label="Status filter"
+                        className="w-[9rem] shrink-0"
+                      />
+                      <Combobox
+                        value={folderFilter}
+                        onValueChange={setFolderFilter}
+                        options={folderFilterOptions}
+                        placeholder="All folders"
+                        searchPlaceholder="Search folders…"
+                        emptyText="No folder found."
+                        aria-label="Folder filter"
+                        className="w-[10rem] shrink-0 lg:hidden"
+                      />
+                    </>
+                  }
+                  loading={loading}
+                  loadingLabel="Loading items…"
+                  empty={
+                    filtersActive
+                      ? 'No items match the current filters.'
+                      : 'No items yet.'
+                  }
+                  columns={itemColumns}
+                  rows={itemPageItems}
+                  rowKey={(item) => item.id}
+                  minWidthClassName="min-w-[720px] table-fixed"
+                  pagination={{
+                    page: safeItemPage,
+                    totalPages: itemTotalPages,
+                    totalItems: filteredItems.length,
+                    pageSize: DEFAULT_PAGE_SIZE,
+                    onPageChange: setItemPage,
                   }}
-                  options={[...TYPE_FILTER_OPTIONS]}
-                  placeholder="All types"
-                  searchPlaceholder="Search type…"
-                  emptyText="No type found."
-                  aria-label="Type filter"
-                  className="w-[8.5rem] shrink-0"
                 />
-                <Combobox
-                  value={categoryFilter}
-                  onValueChange={setCategoryFilter}
-                  options={categoryFilterOptions}
-                  placeholder="All categories"
-                  searchPlaceholder="Search category…"
-                  emptyText="No category found."
-                  aria-label="Category filter"
-                  className="w-[10rem] shrink-0"
-                />
-                <Combobox
-                  value={statusFilter}
-                  onValueChange={(value) => {
-                    if (
-                      value === 'all' ||
-                      value === 'enabled' ||
-                      value === 'disabled'
-                    ) {
-                      setStatusFilter(value)
-                    }
-                  }}
-                  options={[...STATUS_FILTER_OPTIONS]}
-                  placeholder="All statuses"
-                  searchPlaceholder="Search status…"
-                  emptyText="No status found."
-                  aria-label="Status filter"
-                  className="w-[9rem] shrink-0"
-                />
-                <Combobox
-                  value={folderFilter}
-                  onValueChange={setFolderFilter}
-                  options={folderFilterOptions}
-                  placeholder="All folders"
-                  searchPlaceholder="Search folders…"
-                  emptyText="No folder found."
-                  aria-label="Folder filter"
-                  className="w-[10rem] shrink-0 lg:hidden"
-                />
-              </>
-            }
-            loading={loading}
-            loadingLabel="Loading items…"
-            empty={
-              filtersActive
-                ? 'No items match the current filters.'
-                : 'No items yet.'
-            }
-            columns={itemColumns}
-            rows={itemPageItems}
-            rowKey={(item) => item.id}
-            minWidthClassName="min-w-[720px] table-fixed"
-            pagination={{
-              page: safeItemPage,
-              totalPages: itemTotalPages,
-              totalItems: filteredItems.length,
-              pageSize: DEFAULT_PAGE_SIZE,
-              onPageChange: setItemPage,
-            }}
-          />
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
         </TabsContent>
       </Tabs>
 
@@ -1166,8 +1067,8 @@ export default function ItemMasterForm() {
                 ? `“${pendingDeleteFolder.name}” (${pendingDeleteFolder.code}) must be empty to delete normally.`
                 : 'This folder must be empty to delete normally.'}{' '}
               With override, all items in this folder and its subfolders move to
-              the root Orphan folder (created if needed), then the folder tree is
-              removed.
+              the root Orphan folder (created if needed), then the folder tree
+              is removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <label className="flex items-start gap-2 rounded-md border border-(--line) px-3 py-2 text-sm">
@@ -1254,6 +1155,147 @@ export default function ItemMasterForm() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Sheet
+        open={itemDrawer !== null}
+        onOpenChange={(open) => {
+          if (!open) setItemDrawer(null)
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full overflow-y-auto sm:max-w-3xl"
+        >
+          <SheetHeader>
+            <SheetTitle>
+              {itemDrawer?.mode === 'edit' ? 'Edit item' : 'New item'}
+            </SheetTitle>
+            <SheetDescription>
+              {itemDrawer?.mode === 'edit'
+                ? 'Update item details, folder, vendors, units, and tarifs.'
+                : 'Fill in the details for the new item.'}
+            </SheetDescription>
+          </SheetHeader>
+          {itemDrawer ? (
+            <div className="space-y-6 px-4 pb-4">
+              <div className="space-y-1.5">
+                <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+                  <Folder className="size-3.5 text-(--muted)" aria-hidden />
+                  Location
+                </span>
+                {canManage ? (
+                  <Combobox
+                    value={editorFolderId ?? FOLDER_ROOT}
+                    onValueChange={(value) =>
+                      setEditorFolderId(value === FOLDER_ROOT ? null : value)
+                    }
+                    options={[
+                      { value: FOLDER_ROOT, label: 'Root' },
+                      ...folderNameOptions.map((opt) => ({
+                        value: opt.id,
+                        label: opt.label,
+                      })),
+                    ]}
+                    placeholder="Select folder…"
+                    searchPlaceholder="Search folders…"
+                    emptyText="No folder found."
+                    className="w-full min-w-0"
+                    aria-label="Item folder"
+                  />
+                ) : (
+                  <p className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-(--line) bg-(--surface) px-3 py-1.5 text-sm font-medium">
+                    <span className="min-w-0 truncate">
+                      {folderNamePath(tree, editorFolderId)}
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              <ItemForm
+                key={
+                  itemDrawer.mode === 'edit'
+                    ? itemDrawer.id
+                    : `create-${itemDrawer.folderId ?? 'root'}`
+                }
+                title={itemDrawer.mode === 'edit' ? 'Edit item' : 'New item'}
+                itemId={itemDrawer.mode === 'edit' ? itemDrawer.id : undefined}
+                initialName={editingItem?.name ?? ''}
+                initialDescription={editingItem?.description ?? ''}
+                initialItemType={editingItem?.itemType ?? 'material'}
+                initialCategoryIds={editingItem?.categoryIds ?? []}
+                showItemId={editingItem?.itemId}
+                saving={saving}
+                setSaving={setSaving}
+                onCancel={() => setItemDrawer(null)}
+                onSubmit={async (
+                  name,
+                  description,
+                  itemType,
+                  categoryIds,
+                  uoms,
+                  tarifs,
+                  vendorIds,
+                ) => {
+                  if (itemDrawer.mode === 'create') {
+                    const response = await apiFetch<ItemOut>('/items', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        name,
+                        description,
+                        itemType,
+                        folderId: editorFolderId,
+                        categoryIds,
+                        vendorIds,
+                        uoms,
+                        tarifs,
+                      }),
+                    })
+                    if (!response.success || !response.data) {
+                      throw new Error(response.message || 'Create failed')
+                    }
+                    toast.success('Item created')
+                    await closeItemDrawerAndReload()
+                    return
+                  }
+                  const response = await apiFetch<ItemOut>(
+                    `/items/${itemDrawer.id}`,
+                    {
+                      method: 'PATCH',
+                      body: JSON.stringify({
+                        name,
+                        description,
+                        itemType,
+                        categoryIds,
+                        vendorIds,
+                        uoms,
+                        tarifs,
+                      }),
+                    },
+                  )
+                  if (!response.success || !response.data) {
+                    throw new Error(response.message || 'Update failed')
+                  }
+                  const previousFolderId = editingItem?.folderId ?? null
+                  if (editorFolderId !== previousFolderId) {
+                    const moved = await apiFetch<ItemOut>(
+                      `/items/${itemDrawer.id}/move`,
+                      {
+                        method: 'POST',
+                        body: JSON.stringify({ newFolderId: editorFolderId }),
+                      },
+                    )
+                    if (!moved.success || !moved.data) {
+                      throw new Error(moved.message || 'Move failed')
+                    }
+                  }
+                  toast.success('Item updated')
+                  await closeItemDrawerAndReload()
+                }}
+              />
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

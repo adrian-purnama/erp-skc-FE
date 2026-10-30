@@ -4,6 +4,7 @@ import { requirePermissionBeforeLoad } from '#/lib/requirePermissionBeforeLoad'
 
 type NewPurchaseRequestSearch = {
   productionOrderId?: string
+  purchaseRabId?: string
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -18,16 +19,18 @@ export const Route = createFileRoute(
     search: Record<string, unknown>,
   ): NewPurchaseRequestSearch => ({
     productionOrderId: optionalString(search.productionOrderId),
+    purchaseRabId: optionalString(search.purchaseRabId),
   }),
   component: NewPurchaseRequestPage,
 })
 
 function NewPurchaseRequestPage() {
-  const { productionOrderId } = Route.useSearch()
+  const { productionOrderId, purchaseRabId } = Route.useSearch()
   return (
     <PurchaseRequestEditor
-      key={productionOrderId ?? 'none'}
+      key={productionOrderId ?? purchaseRabId ?? 'none'}
       productionOrderId={productionOrderId}
+      purchaseRabId={purchaseRabId}
     />
   )
 }

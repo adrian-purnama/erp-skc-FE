@@ -35,12 +35,27 @@ export type FolderOut = {
   parentId: string | null
 }
 
+export type ItemUomRounding = 'up' | 'nearest' | 'down'
+
+export const ITEM_UOM_ROUNDING_OPTIONS: {
+  value: ItemUomRounding
+  label: string
+}[] = [
+  { value: 'up', label: 'Up' },
+  { value: 'nearest', label: 'Nearest' },
+  { value: 'down', label: 'Down' },
+]
+
 export type ItemUomRow = {
   id?: string
   uomId: string
   isBase: boolean
   /** Related factor vs base; null = not related. */
   conversionFactor: string | null
+  /** RAB decimals in this unit (0 = whole); null = the UOM's decimals. */
+  decimals: number | null
+  /** RAB rounding direction; applies when this row sets the step. */
+  rounding: ItemUomRounding
   sortOrder?: number
   symbol?: string
   name?: string
@@ -124,10 +139,7 @@ export function folderNamePath(
 ): string {
   if (folderId === null) return 'Root'
 
-  function walk(
-    list: TreeNode[],
-    path: string[],
-  ): string[] | null {
+  function walk(list: TreeNode[], path: string[]): string[] | null {
     for (const node of list) {
       if (node.type !== 'folder') continue
       const next = [...path, node.name]
@@ -166,9 +178,7 @@ export function flattenItems(
   const result: ItemListRow[] = []
   for (const node of nodes) {
     if (node.type === 'folder') {
-      const nextPath = folderPath
-        ? `${folderPath} / ${node.code}`
-        : node.code
+      const nextPath = folderPath ? `${folderPath} / ${node.code}` : node.code
       result.push(...flattenItems(node.children, nextPath, node.id))
       continue
     }

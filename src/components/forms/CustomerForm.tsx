@@ -1,32 +1,41 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from '@tanstack/react-router'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from 'react'
 import toast from 'react-hot-toast'
 import {
   Ban,
+  Building2,
+  Check,
   CircleCheck,
+  FileDigit,
+  ListFilter,
   LoaderCircle,
-  MoreHorizontal,
+  MapPin,
   Pencil,
   Plus,
+  ToggleRight,
   Trash2,
+  X,
 } from 'lucide-react'
 import ConfirmDisableDialog from '#/components/forms/shared/ConfirmDisableDialog'
 import ListTable, {
-  ListSearchInput,
+  ListChip,
   type ListTableColumn,
 } from '#/components/forms/shared/ListTable'
-import StatusPill from '#/components/forms/shared/StatusPill'
 import { Button } from '#/components/ui/button'
 import { Checkbox } from '#/components/ui/checkbox'
 import { Combobox } from '#/components/ui/combobox'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '#/components/ui/dropdown-menu'
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '#/components/ui/sheet'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import {
@@ -53,8 +62,20 @@ import { cn } from '#/lib/utils'
 
 type Props =
   | { mode: 'list' }
-  | { mode: 'create' }
-  | { mode: 'edit'; customerId: string }
+  | {
+      mode: 'create'
+      onCreated?: () => void
+      onCancel?: () => void
+    }
+  | {
+      mode: 'edit'
+      customerId: string
+      onSaved?: () => void
+      onCancel?: () => void
+    }
+
+type CustomerDrawer =
+  null | { mode: 'create' } | { mode: 'edit'; customerId: string }
 
 function emptyEmail(): CustomerEmail {
   return { address: '', type: 'work', isPreferred: true }
@@ -77,6 +98,9 @@ export default function CustomerForm(props: Props) {
       mode={props.mode}
       customerId={props.mode === 'edit' ? props.customerId : undefined}
       canManage={canManage}
+      onCreated={props.mode === 'create' ? props.onCreated : undefined}
+      onSaved={props.mode === 'edit' ? props.onSaved : undefined}
+      onCancel={props.onCancel}
     />
   )
 }
@@ -90,43 +114,37 @@ const STATUS_FILTER_OPTIONS = [
 ] as const
 
 function CustomerList({ canManage }: { canManage: boolean }) {
-  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [results, setResults] = useState<CustomerListItem[]>([])
   const [query, setQuery] = useState('')
   const debounced = useDebouncedValue(query, 250)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [page, setPage] = useState(1)
+  const [drawer, setDrawer] = useState<CustomerDrawer>(null)
   const [pendingDisable, setPendingDisable] = useState<CustomerListItem | null>(
     null,
   )
   const [toggling, setToggling] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
+  const reload = useCallback(async () => {
     setLoading(true)
-
-    void (async () => {
-      try {
-        const response = await apiFetch<CustomerListItem[]>('/customer')
-        if (!response.success || !response.data) {
-          if (!cancelled) {
-            toast.error(response.message || 'Failed to load customers')
-          }
-          return
-        }
-        if (!cancelled) setResults(response.data)
-      } catch {
-        if (!cancelled) toast.error('Unable to reach the server')
-      } finally {
-        if (!cancelled) setLoading(false)
+    try {
+      const response = await apiFetch<CustomerListItem[]>('/customer')
+      if (!response.success || !response.data) {
+        toast.error(response.message || 'Failed to load customers')
+        return
       }
-    })()
-
-    return () => {
-      cancelled = true
+      setResults(response.data)
+    } catch {
+      toast.error('Unable to reach the server')
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
 
   const setActive = useCallback(
     async (customer: CustomerListItem, next: boolean) => {
@@ -179,7 +197,11 @@ function CustomerList({ canManage }: { canManage: boolean }) {
     setPage(1)
   }, [debounced, statusFilter])
 
-  const { pageItems, totalPages, page: safePage } = useMemo(
+  const {
+    pageItems,
+    totalPages,
+    page: safePage,
+  } = useMemo(
     () => paginate(filtered, page, DEFAULT_PAGE_SIZE),
     [filtered, page],
   )
@@ -192,74 +214,88 @@ function CustomerList({ canManage }: { canManage: boolean }) {
     () => [
       {
         header: 'Name',
+        icon: Building2,
+        widthClassName: 'min-w-[14rem]',
         cellClassName: 'font-medium',
         cell: (customer) => customer.name,
+        copyValue: (customer) => customer.name,
       },
       {
         header: 'Address',
-        cellClassName: hintClassName,
+        icon: MapPin,
+        widthClassName: 'min-w-[12rem]',
         cell: (customer) => customer.address || '—',
+        copyValue: (customer) => customer.address,
       },
       {
         header: 'NPWP',
-        cellClassName: hintClassName,
+        icon: FileDigit,
+        widthClassName: 'w-36',
+        cellClassName: 'whitespace-nowrap tabular-nums',
         cell: (customer) => customer.npwp || '—',
+        copyValue: (customer) => customer.npwp,
       },
       {
         header: 'Status',
-        cell: (customer) => <StatusPill active={customer.isActive} />,
+        icon: ToggleRight,
+        widthClassName: 'w-28',
+        cell: (customer) =>
+          customer.isActive ? (
+            <ListChip tone="success" icon={Check}>
+              Enabled
+            </ListChip>
+          ) : (
+            <ListChip tone="danger" icon={X}>
+              Disabled
+            </ListChip>
+          ),
       },
       {
-        header: '',
-        cellClassName: 'text-right',
+        header: 'Actions',
+        align: 'right',
+        widthClassName: 'w-56 whitespace-nowrap',
+        cellClassName: 'py-1.5',
         cell: (customer) => (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="size-8 p-0">
-                <span className="sr-only">Open menu</span>
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <DropdownMenuItem
-                onClick={() =>
-                  void navigate({
-                    to: '/dashboard/customers/$customerId',
-                    params: { customerId: customer.id },
-                  })
+          <div className="flex items-center justify-end gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setDrawer({ mode: 'edit', customerId: customer.id })
+              }
+            >
+              <Pencil />
+              Edit
+            </Button>
+            {canManage ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={toggling}
+                className={
+                  customer.isActive
+                    ? 'border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700'
+                    : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700'
                 }
+                onClick={() => {
+                  if (customer.isActive) {
+                    setPendingDisable(customer)
+                    return
+                  }
+                  void setActive(customer, true)
+                }}
               >
-                <Pencil className="size-4" aria-hidden />
-                Edit
-              </DropdownMenuItem>
-              {canManage ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      if (customer.isActive) {
-                        setPendingDisable(customer)
-                        return
-                      }
-                      void setActive(customer, true)
-                    }}
-                  >
-                    {customer.isActive ? (
-                      <Ban className="size-4" aria-hidden />
-                    ) : (
-                      <CircleCheck className="size-4" aria-hidden />
-                    )}
-                    {customer.isActive ? 'Disable' : 'Enable'}
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {customer.isActive ? <Ban /> : <CircleCheck />}
+                {customer.isActive ? 'Disable' : 'Enable'}
+              </Button>
+            ) : null}
+          </div>
         ),
       },
     ],
-    [canManage, navigate, setActive],
+    [canManage, setActive, toggling],
   )
 
   return (
@@ -267,59 +303,70 @@ function CustomerList({ canManage }: { canManage: boolean }) {
       <div>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className={pageTitleClassName}>
-              Customer Master Data
-            </h1>
+            <h1 className={pageTitleClassName}>Customer Master Data</h1>
             <p className={`mt-2 ${hintClassName}`}>
               Browse customers. Open one to view details
               {canManage ? ', or create and edit' : ''}.
             </p>
           </div>
-          {canManage ? (
-            <Link
-              to="/dashboard/customers/new"
-              className={cn(
-                buttonClassName,
-                'inline-flex items-center gap-2 no-underline',
-              )}
-            >
-              <Plus className="size-4" aria-hidden />
-              New customer
-            </Link>
-          ) : null}
         </div>
       </div>
 
       <ListTable
-        filters={
-          <>
-            <ListSearchInput
-              value={query}
-              onChange={setQuery}
-              placeholder="Filter names…"
-              aria-label="Filter customers"
-              className="min-w-0 max-w-none flex-1"
-            />
-            <Combobox
-              value={statusFilter}
-              onValueChange={(value) => {
-                if (
-                  value === 'all' ||
-                  value === 'enabled' ||
-                  value === 'disabled'
-                ) {
-                  setStatusFilter(value)
-                }
-              }}
-              options={[...STATUS_FILTER_OPTIONS]}
-              placeholder="All statuses"
-              searchPlaceholder="Search status…"
-              emptyText="No status found."
-              aria-label="Status filter"
-              className="w-[9rem] shrink-0"
-            />
-          </>
+        toolbarStart={
+          loading ? null : (
+            <span className={hintClassName}>
+              {filtered.length}{' '}
+              {filtered.length === 1 ? 'customer' : 'customers'}
+            </span>
+          )
         }
+        search={{
+          value: query,
+          onChange: setQuery,
+          placeholder: 'Search…',
+          'aria-label': 'Search customers',
+        }}
+        toolbarActions={[
+          {
+            key: 'filter',
+            label: 'Filter',
+            icon: ListFilter,
+            active: statusFilter !== 'all',
+            popover: (
+              <>
+                <p className="text-xs font-medium text-(--muted)">Status</p>
+                <Combobox
+                  value={statusFilter}
+                  onValueChange={(value) => {
+                    if (
+                      value === 'all' ||
+                      value === 'enabled' ||
+                      value === 'disabled'
+                    ) {
+                      setStatusFilter(value)
+                    }
+                  }}
+                  options={[...STATUS_FILTER_OPTIONS]}
+                  placeholder="All statuses"
+                  searchPlaceholder="Search status…"
+                  emptyText="No status found."
+                  aria-label="Status filter"
+                  className="w-full"
+                />
+              </>
+            ),
+          },
+        ]}
+        addAction={
+          canManage
+            ? {
+                label: 'Add',
+                onClick: () => setDrawer({ mode: 'create' }),
+              }
+            : undefined
+        }
+        isRowMuted={(customer) => !customer.isActive}
         loading={loading}
         loadingLabel="Loading customers…"
         empty={
@@ -355,6 +402,54 @@ function CustomerList({ canManage }: { canManage: boolean }) {
           if (pendingDisable) void setActive(pendingDisable, false)
         }}
       />
+
+      <Sheet
+        open={drawer !== null}
+        onOpenChange={(open) => {
+          if (!open) setDrawer(null)
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full overflow-y-auto sm:max-w-2xl"
+        >
+          <SheetHeader>
+            <SheetTitle>
+              {drawer?.mode === 'edit' ? 'Edit customer' : 'New customer'}
+            </SheetTitle>
+            <SheetDescription>
+              {drawer?.mode === 'edit'
+                ? 'Update this customer without leaving the list.'
+                : 'Add a customer without leaving this list.'}
+            </SheetDescription>
+          </SheetHeader>
+          {drawer?.mode === 'create' ? (
+            <div className="px-4 pb-4">
+              <CustomerForm
+                mode="create"
+                onCreated={() => {
+                  setDrawer(null)
+                  void reload()
+                }}
+                onCancel={() => setDrawer(null)}
+              />
+            </div>
+          ) : null}
+          {drawer?.mode === 'edit' ? (
+            <div className="px-4 pb-4">
+              <CustomerForm
+                mode="edit"
+                customerId={drawer.customerId}
+                onSaved={() => {
+                  setDrawer(null)
+                  void reload()
+                }}
+                onCancel={() => setDrawer(null)}
+              />
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
@@ -363,12 +458,17 @@ function CustomerEditor({
   mode,
   customerId,
   canManage,
+  onCreated,
+  onSaved,
+  onCancel,
 }: {
   mode: 'create' | 'edit'
   customerId?: string
   canManage: boolean
+  onCreated?: () => void
+  onSaved?: () => void
+  onCancel?: () => void
 }) {
-  const navigate = useNavigate()
   const [loading, setLoading] = useState(mode === 'edit')
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
@@ -390,7 +490,7 @@ function CustomerEditor({
         )
         if (!response.success || !response.data) {
           toast.error(response.message || 'Customer not found')
-          void navigate({ to: '/dashboard/customers' })
+          onCancel?.()
           return
         }
         if (cancelled) return
@@ -428,7 +528,7 @@ function CustomerEditor({
     return () => {
       cancelled = true
     }
-  }, [mode, customerId, navigate])
+  }, [mode, customerId, onCancel])
 
   function setPreferredEmail(index: number) {
     setEmails((rows) =>
@@ -488,10 +588,7 @@ function CustomerEditor({
           return
         }
         toast.success('Customer created')
-        void navigate({
-          to: '/dashboard/customers/$customerId',
-          params: { customerId: response.data.id },
-        })
+        onCreated?.()
         return
       }
 
@@ -514,22 +611,8 @@ function CustomerEditor({
         return
       }
       toast.success('Customer saved')
-      setEmails(
-        response.data.emails.map((e) => ({
-          id: e.id,
-          address: e.address,
-          type: e.type,
-          isPreferred: e.isPreferred,
-        })),
-      )
-      setPhones(
-        response.data.phones.map((p) => ({
-          id: p.id,
-          number: p.number,
-          type: p.type,
-          isPreferred: p.isPreferred,
-        })),
-      )
+      onSaved?.()
+      return
     } catch {
       toast.error('Unable to reach the server')
     } finally {
@@ -589,20 +672,6 @@ function CustomerEditor({
 
   return (
     <form onSubmit={onSubmit} className="space-y-8">
-      <div>
-        <h1 className={pageTitleClassName}>
-          {mode === 'create' ? 'New customer' : 'Customer'}
-        </h1>
-        <p className={`mt-2 ${hintClassName}`}>
-          Name, address, NPWP, and contact emails / phones.
-          {mode === 'edit'
-            ? isActive
-              ? ' This customer is enabled.'
-              : ' This customer is disabled.'
-            : ''}
-        </p>
-      </div>
-
       <section className="max-w-2xl space-y-4">
         <label className="block space-y-1.5">
           <span className="text-sm font-medium">Name</span>
@@ -637,8 +706,8 @@ function CustomerEditor({
         </label>
       </section>
 
-      <div className="grid gap-6 md:grid-cols-[1fr_auto_1fr] md:gap-0">
-        <section className="min-w-0 space-y-2 md:pr-6">
+      <div className="space-y-6">
+        <section className="min-w-0 space-y-2">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-medium">Emails</h2>
             {!readOnly ? (
@@ -739,12 +808,7 @@ function CustomerEditor({
           </ul>
         </section>
 
-        <div
-          className="h-px bg-[var(--line)] md:mx-0 md:h-auto md:w-px md:self-stretch"
-          aria-hidden
-        />
-
-        <section className="min-w-0 space-y-2 md:pl-6">
+        <section className="min-w-0 space-y-2">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-medium">Phones</h2>
             {!readOnly ? (
@@ -799,9 +863,7 @@ function CustomerEditor({
                   onChange={(e) => {
                     const number = e.target.value
                     setPhones((rows) =>
-                      rows.map((r, i) =>
-                        i === index ? { ...r, number } : r,
-                      ),
+                      rows.map((r, i) => (i === index ? { ...r, number } : r)),
                     )
                   }}
                   placeholder="Phone number"
@@ -862,9 +924,9 @@ function CustomerEditor({
         <button
           type="button"
           className={buttonOutlineClassName}
-          onClick={() => void navigate({ to: '/dashboard/customers' })}
+          onClick={() => onCancel?.()}
         >
-          Back
+          Cancel
         </button>
         {mode === 'edit' && canManage ? (
           <Button

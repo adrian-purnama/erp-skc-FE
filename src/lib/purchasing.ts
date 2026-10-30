@@ -1,11 +1,11 @@
-import type { ProjectRabUserRef, ProjectShopDrawingBoqMaterial } from '#/lib/project'
+import type {
+  ProjectRabUserRef,
+  ProjectShopDrawingBoqMaterial,
+} from '#/lib/project'
 
 export type PurchaseRequestStatus =
-  | 'draft'
-  | 'submitted'
-  | 'cancelled'
-  | 'declined'
-export type PurchaseRequestLineSource = 'spk' | 'extra'
+  'draft' | 'submitted' | 'cancelled' | 'declined'
+export type PurchaseRequestLineSource = 'spk' | 'rab' | 'extra'
 
 export const PURCHASE_REQUEST_STATUSES: PurchaseRequestStatus[] = [
   'draft',
@@ -43,6 +43,13 @@ export type PurchasingSpk = {
   projectName: string
 }
 
+/** A locked Purchasing RAB that an SPP can be made for. */
+export type PurchasingRabOption = {
+  id: string
+  number: string
+  title: string
+}
+
 export type PurchasingProjectContext = PurchasingProject & {
   rabKeys: string[]
   orders: Array<{ id: string; number: string; itemLabel: string }>
@@ -75,12 +82,16 @@ export type PurchaseRequestSummary = {
   id: string
   number: string
   status: PurchaseRequestStatus
-  projectId: string
+  projectId: string | null
+  /** "—" / "No project" for a Purchasing RAB without a project. */
   projectNumber: string
   projectName: string
   productionOrderId: string | null
   productionOrderNumber: string | null
   itemLabel: string | null
+  purchaseRabId: string | null
+  purchaseRabNumber: string | null
+  purchaseRabTitle: string | null
   neededDate: string
   lineCount: number
   flaggedCount: number
@@ -126,22 +137,31 @@ export type PurchaseRequestPlanRow = {
   requestedQty: string
   remainingQty: string
   inRab: boolean
+  /** RAB basis only: budget unit price. */
+  unitPrice: string | null
   orderedQty: string
   receivedQty: string
 }
 
+/** What an SPK or a Purchasing RAB still has to request. */
 export type PurchaseRequestPlan = {
-  productionOrderId: string
-  productionOrderNumber: string
-  projectId: string
-  projectNumber: string
-  projectName: string
+  basis: 'spk' | 'rab'
+  productionOrderId: string | null
+  productionOrderNumber: string | null
+  purchaseRabId: string | null
+  purchaseRabNumber: string | null
+  projectId: string | null
+  projectNumber: string | null
+  projectName: string | null
+  /** SPK: shop drawing item; RAB: its title. */
   itemLabel: string
   plannedStart: string | null
+  /** Keys counted as on the RAB for this SPP. */
+  rabKeys: string[]
   rows: PurchaseRequestPlanRow[]
 }
 
-/** SPK vs extra is decided by the server from the SPK material list. */
+/** SPK / RAB vs extra is decided by the server from the SPK or RAB list. */
 export type PurchaseRequestLineInput = {
   materialItemId: string
   itemUomId: string
@@ -194,11 +214,7 @@ export const REQUEST_ORDER_STATUS_LABELS: Record<
 }
 
 export type PurchaseOrderStatus =
-  | 'draft'
-  | 'pending_approval'
-  | 'approved'
-  | 'rejected'
-  | 'cancelled'
+  'draft' | 'pending_approval' | 'approved' | 'rejected' | 'cancelled'
 
 export const PURCHASE_ORDER_STATUSES: PurchaseOrderStatus[] = [
   'draft',
@@ -219,16 +235,30 @@ export const PURCHASE_ORDER_STATUS_LABELS: Record<PurchaseOrderStatus, string> =
 
 export type PurchasingOption = { id: string; label: string; detail: string }
 
+/** One vendor's past prices for a material×UOM, from approved POs. */
+export type VendorPrice = {
+  vendorId: string
+  vendorName: string
+  lastPrice: string
+  lastOrderNumber: string
+  lastDate: string | null
+  minPrice: string
+  orderCount: number
+}
+
 export type OpenRequestLine = {
   requestId: string
   requestNumber: string
   requestLineId: string
   neededDate: string
-  projectId: string
+  projectId: string | null
   projectNumber: string
   projectName: string
   productionOrderNumber: string | null
   itemLabel: string | null
+  purchaseRabId: string | null
+  /** "Project RAB" or the Purchasing RAB's number · title. */
+  rabLabel: string | null
   materialItemId: string
   materialCode: string
   materialName: string
@@ -242,6 +272,12 @@ export type OpenRequestLine = {
   overPlan: boolean
   note: string
   rabUnitPrice: string | null
+  /** RAB purchase qty; null when the material is not on the RAB. */
+  rabQty: string | null
+  /** Ordered against the same RAB on other live POs. */
+  rabOrderedQty: string
+  /** Per vendor, cheapest last price first. */
+  priceHistory: VendorPrice[]
 }
 
 export type PurchaseOrderLine = Omit<
@@ -255,6 +291,8 @@ export type PurchaseOrderLine = Omit<
   orderedElsewhereQty: string
   overRequest: boolean
   overBudget: boolean
+  /** With other live POs this goes past the RAB qty. */
+  overRabQty: boolean
   orderNote: string
   /** Arrived / bought on posted realizations. */
   realizedQty: string
@@ -266,19 +304,111 @@ export type PurchaseOrderSummary = {
   status: PurchaseOrderStatus
   vendorId: string
   vendorName: string
+  /** Goods only. */
   total: string
+  /** Goods + estimated tax / delivery / other (= total when nothing is estimated). */
+  estimatedTotal: string
   lineCount: number
   overBudgetCount: number
   requestId: string
   requestNumber: string
   projectNumber: string
   projectName: string
+  /** The SPP's Purchasing RAB; null for an SPK (project RAB) SPP. */
+  purchaseRabId: string | null
+  /** "Project RAB" or the Purchasing RAB's number · title. */
+  rabLabel: string | null
   expectedDate: string | null
   createdBy: ProjectRabUserRef | null
   createdAt: string | null
   submittedAt: string | null
+  approver1: ProjectRabUserRef | null
+  approver2: ProjectRabUserRef | null
+  /** Pending POs: the level waiting to approve. */
+  approvalLevel: 1 | 2 | null
+  approved1At: string | null
   approvedAt: string | null
+  /** Posted receipts against the PO's lines. */
+  receiptStatus: RealizationProgress
+  /** Vendor payments marked paid, integer rupiah. */
+  paidTotal: string
 }
+
+/** One material×UOM on the PO's RAB and/or the PO itself. */
+export type PurchaseOrderRabCompareLine = {
+  key: string
+  materialItemId: string
+  materialCode: string
+  materialName: string
+  uomSymbol: string
+  /** Null when the item is not on the RAB. */
+  rabQty: string | null
+  rabUnitPrice: string | null
+  rabAmount: string | null
+  /** Qty on other live POs of the same RAB. */
+  otherOrderedQty: string
+  /** Null when the item is not on this PO. */
+  poQty: string | null
+  poUnitPrice: string | null
+  poAmount: string | null
+  /** Posted realizations; null when the item is not on this PO. */
+  realizedQty: string | null
+  realizedUnitPrice: string | null
+  realizedAmount: string | null
+}
+
+export type PurchaseOrderRabCompare = {
+  orderId: string
+  orderNumber: string
+  status: PurchaseOrderStatus
+  vendorName: string
+  projectNumber: string
+  projectName: string
+  rab: {
+    label: string
+    purchaseRabId: string | null
+    projectId: string | null
+    status: 'draft' | 'locked'
+    total: string
+    /** The RAB's own tax / delivery / other budget (whole RAB). */
+    chargesTotal: string
+    chargesByCategory: Record<PurchaseChargeCategory, string>
+  } | null
+  poTotal: string
+  /** Posted realizations: goods only, charges, and count. */
+  realizedSubtotal: string
+  realizedCharges: string
+  /** Posted charges per category vs the PO's estimates. */
+  realizedChargesByCategory: Record<PurchaseChargeCategory, string>
+  estimates: PurchaseChargeAmounts
+  realizationCount: number
+  lines: PurchaseOrderRabCompareLine[]
+}
+
+/** One version of the PO's vendor quotation (versioned like project documents). */
+export type PurchaseOrderQuotation = {
+  id: string
+  version: number
+  isCurrent: boolean
+  isDeleted: boolean
+  /** Earlier version with identical content, unless uploaded as forced different. */
+  sameAsVersion: number | null
+  originalFilename: string
+  contentType: string
+  sizeBytes: number
+  uploadedAt: string | null
+  uploadedByName: string | null
+  deletedAt: string | null
+  deletedByName: string | null
+}
+
+export type PurchaseOrderQuotations = {
+  current: PurchaseOrderQuotation | null
+  /** Newest first, deleted ones included. */
+  versions: PurchaseOrderQuotation[]
+}
+
+export const PO_QUOTATION_MAX_BYTES = 15 * 1024 * 1024
 
 export type PurchaseOrder = PurchaseOrderSummary & {
   termOfPaymentId: string | null
@@ -287,17 +417,32 @@ export type PurchaseOrder = PurchaseOrderSummary & {
   lines: PurchaseOrderLine[]
   rabTotal: string
   submittedBy: ProjectRabUserRef | null
+  approved1By: ProjectRabUserRef | null
   approvedBy: ProjectRabUserRef | null
+  quotation: PurchaseOrderQuotations
+  /** Estimated tax / delivery / other rows; percents follow the goods total. */
+  estimatedCharges: RealizationCharge[]
+  /** Estimates per category (null = nothing estimated there). */
+  estimates: PurchaseChargeAmounts
+  /** Goods total + estimates. */
+  estimatedTotal: string
   rejectedAt: string | null
   rejectedBy: ProjectRabUserRef | null
   rejectReason: string
   cancelledAt: string | null
   cancelledBy: ProjectRabUserRef | null
   cancelReason: string
+  /** Cancelled after part of it arrived: the received part stays on record. */
+  closedPartial: boolean
   /** You created it, so you may edit, send, revise or cancel it. */
   canChange: boolean
+  /** You are the approver the PO waits on now. */
+  canApprove: boolean
   realizationStatus: RealizationProgress
+  /** Posted notas incl. their charges. */
   realizedTotal: string
+  /** Posted notas, goods only: compares with `total`. */
+  realizedSubtotal: string
   realizations: Array<{
     id: string
     number: string
@@ -313,10 +458,14 @@ export type PurchaseOrder = PurchaseOrderSummary & {
 export function formatRupiah(digits: string | null | undefined): string {
   if (!digits) return '—'
   const n = Number(digits)
-  return Number.isFinite(n) ? `Rp ${new Intl.NumberFormat('id-ID').format(n)}` : '—'
+  return Number.isFinite(n)
+    ? `Rp ${new Intl.NumberFormat('id-ID').format(n)}`
+    : '—'
 }
 
-export function purchaseOrderStatusChipClass(status: PurchaseOrderStatus): string {
+export function purchaseOrderStatusChipClass(
+  status: PurchaseOrderStatus,
+): string {
   switch (status) {
     case 'draft':
       return 'border-(--line) text-(--muted)'
@@ -367,16 +516,39 @@ export const REALIZATION_DOC_LABELS: Record<RealizationMethod, string> = {
   staff: 'Nota Realisasi',
 }
 
-export const REALIZATION_PROGRESS_LABELS: Record<RealizationProgress, string> = {
-  none: 'Not arrived yet',
-  partial: 'Partly arrived',
-  full: 'All arrived',
-}
+export const REALIZATION_PROGRESS_LABELS: Record<RealizationProgress, string> =
+  {
+    none: 'Not arrived yet',
+    partial: 'Partly arrived',
+    full: 'All arrived',
+  }
 
 export type RealizationChargeKind = 'percent' | 'fixed'
 
+/** Spending buckets for costs on top of the goods. */
+export type PurchaseChargeCategory = 'tax' | 'delivery' | 'other'
+
+export const PURCHASE_CHARGE_CATEGORIES: PurchaseChargeCategory[] = [
+  'tax',
+  'delivery',
+  'other',
+]
+
+export const PURCHASE_CHARGE_CATEGORY_LABELS: Record<
+  PurchaseChargeCategory,
+  string
+> = {
+  tax: 'Tax',
+  delivery: 'Delivery',
+  other: 'Others',
+}
+
+/** Integer rupiah per category; null = not estimated / nothing. */
+export type PurchaseChargeAmounts = Record<PurchaseChargeCategory, string | null>
+
 export type RealizationCharge = {
   id: string
+  category: PurchaseChargeCategory
   label: string
   kind: RealizationChargeKind
   /** Percent of the goods subtotal, for `percent`. */
@@ -413,7 +585,13 @@ export type RealizationPlan = {
   projectNumber: string
   projectName: string
   approvedTotal: string
+  /** The PO's tax / delivery / other estimates, as a guide for the charges. */
+  estimates: PurchaseChargeAmounts
   lines: RealizationPoLine[]
+  /** Other drafts on this PO; their qty is already held. */
+  drafts: RealizationDraftRef[]
+  /** Subcon SPK material: vendors it may be delivered straight to; null when not possible. */
+  directToVendor: string[] | null
 }
 
 export type RealizationLine = {
@@ -455,6 +633,14 @@ export type RealizationSummary = {
   purchaseDate: string
   place: string
   deliveryNoteNumber: string
+  /** `vendor`: the supplier delivered straight to the subcon vendor. */
+  deliveredTo: 'us' | 'vendor'
+  /** Staff notas: the reimbursement paying it back, if any. */
+  reimbursement: {
+    id: string
+    number: string
+    status: PurchasePaymentStatus
+  } | null
   /** Σ goods lines. */
   subtotal: string
   chargesTotal: string
@@ -483,9 +669,15 @@ export type Realization = RealizationSummary & {
   canChange: boolean
 }
 
+export type RealizationDraftRef = { id: string; number: string }
+
 export type RealizationQueueRow = PurchaseOrderSummary & {
   realizationStatus: RealizationProgress
   realizedTotal: string
+  /** Drafts not posted yet on this PO. */
+  drafts: RealizationDraftRef[]
+  /** Posted + draft qty already cover the whole PO. */
+  heldByDrafts: boolean
 }
 
 export type PurchasingUser = { id: string; name: string; email: string }
@@ -506,5 +698,235 @@ export function realizationStatusChipClass(status: RealizationStatus): string {
       return 'border-(--line) text-(--muted) line-through'
     default:
       return 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+  }
+}
+
+// ---- Purchasing RAB (budget outside the BOQ) ----
+
+export type PurchaseRabStatus = 'draft' | 'locked'
+
+export const PURCHASE_RAB_STATUSES: PurchaseRabStatus[] = ['draft', 'locked']
+
+export const PURCHASE_RAB_STATUS_LABELS: Record<PurchaseRabStatus, string> = {
+  draft: 'Draft',
+  locked: 'Locked',
+}
+
+export type PurchaseRabSummary = {
+  id: string
+  number: string
+  title: string
+  status: PurchaseRabStatus
+  lineCount: number
+  total: string
+  createdBy: ProjectRabUserRef | null
+  createdAt: string | null
+  lockedAt: string | null
+}
+
+export type PurchaseRabLine = {
+  key: string
+  materialItemId: string
+  materialCode: string
+  materialName: string
+  itemUomId: string
+  uomSymbol: string
+  qty: string
+  unitPrice: string
+  amount: string
+  note: string
+  /** On live SPPs made for this RAB. */
+  requestedQty: string
+  /** On live POs for those SPPs. */
+  orderedQty: string
+}
+
+export type PurchaseRab = PurchaseRabSummary & {
+  notes: string
+  lines: PurchaseRabLine[]
+  /** Budgeted tax / delivery / other; percents follow the lines total. */
+  charges: RealizationCharge[]
+  chargesTotal: string
+  /** Lines total + charges. */
+  grandTotal: string
+  lockedBy: ProjectRabUserRef | null
+  requests: Array<{ id: string; number: string; status: PurchaseRequestStatus }>
+  /** Locked and no live SPP uses it. */
+  canUnlock: boolean
+}
+
+export type PurchaseRabLineInput = {
+  materialItemId: string
+  itemUomId: string
+  qty: string
+  unitPrice: string
+  note: string
+}
+
+// ---- Payments (vendor stages, staff reimbursements) ----
+
+export type PurchasePaymentKind = 'vendor' | 'reimburse'
+export type PurchasePaymentStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'approved'
+  | 'paid'
+  | 'rejected'
+  | 'cancelled'
+export type PurchasePaymentStage = 'dp' | 'termin' | 'pelunasan'
+export type PurchasePaymentMethod = 'transfer' | 'cash' | 'other'
+
+/** Level 1 → level 2 sign-off. */
+export type PaymentApproval = {
+  approver1: ProjectRabUserRef | null
+  approver2: ProjectRabUserRef | null
+  approvalLevel: 1 | 2 | null
+  awaitingUserId: string | null
+  /** You are the approver this waits on now. */
+  viewerCanApprove: boolean
+  approved1By: ProjectRabUserRef | null
+  approved1At: string | null
+  approvedBy: ProjectRabUserRef | null
+  approvedAt: string | null
+  rejectedBy: ProjectRabUserRef | null
+  rejectedAt: string | null
+  rejectReason: string
+}
+
+export type ReimburseItem = PaymentApproval & {
+  id: string
+  realizationId: string
+  realizationNumber: string
+  purchaseOrderId: string
+  purchaseOrderNumber: string
+  purchaseDate: string
+  place: string
+  amount: string
+  status: 'pending' | 'approved' | 'rejected'
+}
+
+export type PaymentProof = {
+  id: string
+  originalFilename: string
+  contentType: string
+  sizeBytes: number
+  uploadedAt: string
+}
+
+export type PurchasePayment = PaymentApproval & {
+  /** You made this request (may edit, send, cancel). */
+  viewerIsOwner: boolean
+  id: string
+  number: string
+  kind: PurchasePaymentKind
+  status: PurchasePaymentStatus
+  purchaseOrderId: string | null
+  purchaseOrderNumber: string | null
+  vendorName: string | null
+  stage: PurchasePaymentStage | null
+  basis: 'percent' | 'fixed' | null
+  rate: string | null
+  realizations: Array<{
+    id: string
+    number: string
+    purchaseDate: string
+    total: string
+  }>
+  payeeUserId: string | null
+  payeeName: string
+  items: ReimburseItem[]
+  amount: string
+  dueDate: string | null
+  notes: string
+  createdBy: ProjectRabUserRef | null
+  createdAt: string | null
+  submittedAt: string | null
+  paidAt: string | null
+  paidBy: ProjectRabUserRef | null
+  paidDate: string | null
+  method: PurchasePaymentMethod | null
+  reference: string
+  proofs: PaymentProof[]
+  cancelledAt: string | null
+  cancelledBy: ProjectRabUserRef | null
+  cancelReason: string
+}
+
+/** A PO's vendor payments and what is left to pay. */
+export type PurchaseOrderPayments = {
+  purchaseOrderId: string
+  /** Estimate until fully received, then the actual received amount. */
+  payable: string
+  final: boolean
+  scheduledTotal: string
+  paidTotal: string
+  remaining: string
+  /** Bought by staff: paid by reimbursement, not to the vendor. */
+  staffRealizedTotal: string
+  payments: PurchasePayment[]
+}
+
+/** Slim row for Finance → Payments vendor-stage PO picker. */
+export type PayablePurchaseOrder = {
+  id: string
+  number: string
+  vendorName: string
+  payable: string
+  remaining: string
+  final: boolean
+}
+
+export type ReimbursableNota = {
+  realizationId: string
+  number: string
+  purchaseOrderId: string
+  purchaseOrderNumber: string
+  purchaseDate: string
+  place: string
+  total: string
+}
+
+export const PAYMENT_STATUS_LABELS: Record<PurchasePaymentStatus, string> = {
+  draft: 'Draft',
+  pending_approval: 'Waiting approval',
+  approved: 'To pay',
+  paid: 'Paid',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+}
+
+export const PAYMENT_STAGE_LABELS: Record<PurchasePaymentStage, string> = {
+  dp: 'DP',
+  termin: 'Termin',
+  pelunasan: 'Pelunasan',
+}
+
+export const PAYMENT_METHOD_LABELS: Record<PurchasePaymentMethod, string> = {
+  transfer: 'Bank transfer',
+  cash: 'Cash',
+  other: 'Other',
+}
+
+/** "DP 30%", "Termin", "Reimbursement". */
+export function paymentLabel(p: PurchasePayment): string {
+  if (p.kind === 'reimburse') return 'Reimbursement'
+  const stage = p.stage ? PAYMENT_STAGE_LABELS[p.stage] : 'Payment'
+  return p.basis === 'percent' && p.rate ? `${stage} ${p.rate}%` : stage
+}
+
+export function paymentStatusTone(
+  status: PurchasePaymentStatus,
+): 'neutral' | 'success' | 'danger' | 'warning' | 'info' {
+  switch (status) {
+    case 'paid':
+      return 'success'
+    case 'approved':
+      return 'info'
+    case 'pending_approval':
+      return 'warning'
+    case 'rejected':
+      return 'danger'
+    default:
+      return 'neutral'
   }
 }

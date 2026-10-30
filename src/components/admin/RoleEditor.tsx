@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import toast from 'react-hot-toast'
-import { ChevronDown, LoaderCircle } from 'lucide-react'
+import { AlertTriangle, LoaderCircle, Search } from 'lucide-react'
 import { useAuth } from '#/context/authContext'
 import type { AdminPermission, AdminRole } from '#/lib/adminUser'
 import { apiFetch } from '#/lib/api'
@@ -24,7 +24,39 @@ function slugify(name: string): string {
     .replace(/^_|_$/g, '')
 }
 
-type FilterChip = 'all' | 'selected' | 'unselected' | 'deprecated'
+type Filter = 'all' | 'selected'
+
+/** Module (first key segment) → heading, in menu order; unknown modules go last. */
+const MODULES: Array<[string, string]> = [
+  ['project', 'Projects'],
+  ['quotation', 'Quotations'],
+  ['production', 'Production'],
+  ['purchasing', 'Purchasing'],
+  ['itemMaster', 'Item master'],
+  ['uom', 'Units of measure'],
+  ['customer', 'Customers'],
+  ['vendor', 'Vendors'],
+  ['termOfPayment', 'Terms of payment'],
+  ['admin', 'Admin'],
+]
+
+function moduleOf(key: string): string {
+  return key.split('.')[0] ?? key
+}
+
+function moduleTitle(module: string): string {
+  return (
+    MODULES.find(([m]) => m === module)?.[1] ??
+    module
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/^./, (c) => c.toUpperCase())
+  )
+}
+
+function moduleRank(module: string): number {
+  const i = MODULES.findIndex(([m]) => m === module)
+  return i === -1 ? MODULES.length : i
+}
 
 type Props = {
   mode: 'create' | 'edit'
@@ -36,10 +68,7 @@ export default function RoleEditor({ mode, roleKey, duplicateFrom }: Props) {
   const { can, user } = useAuth()
   const canManage = can('admin.role.manage')
   const navigate = useNavigate()
-  const actorPerms = useMemo(
-    () => new Set(user?.permissions ?? []),
-    [user],
-  )
+  const actorPerms = useMemo(() => new Set(user?.permissions ?? []), [user])
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -53,16 +82,12 @@ export default function RoleEditor({ mode, roleKey, duplicateFrom }: Props) {
   const [initial, setInitial] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [allRoles, setAllRoles] = useState<AdminRole[]>([])
-  const [permGroups, setPermGroups] = useState<Record<string, AdminPermission[]>>(
-    {},
-  )
+  const [permGroups, setPermGroups] = useState<
+    Record<string, AdminPermission[]>
+  >({})
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 250)
-  const [chip, setChip] = useState<FilterChip>('all')
-  const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({})
-  const [expandedRoutes, setExpandedRoutes] = useState<Record<string, boolean>>(
-    {},
-  )
+  const [filter, setFilter] = useState<Filter>('all')
 
   useEffect(() => {
     let cancelled = false
@@ -208,25 +233,35 @@ export default function RoleEditor({ mode, roleKey, duplicateFrom }: Props) {
     [permGroups],
   )
 
-  function matchesSearch(p: AdminPermission): boolean {
-    const q = debouncedSearch.trim().toLowerCase()
-    if (!q) return true
-    if (p.key.toLowerCase().includes(q)) return true
-    if (p.label.toLowerCase().includes(q)) return true
-    if (p.category.toLowerCase().includes(q)) return true
-    return p.routes.some((r) => r.path.toLowerCase().includes(q))
-  }
+  const isOn = (k: string) =>
+    permissions.includes(k) || inherited.has(k) || impliedBy.has(k)
 
-  function matchesChip(p: AdminPermission): boolean {
-    const selected =
-      permissions.includes(p.key) ||
-      inherited.has(p.key) ||
-      impliedBy.has(p.key)
-    if (chip === 'all') return true
-    if (chip === 'selected') return selected
-    if (chip === 'unselected') return !selected
-    return p.status === 'deprecated'
-  }
+  /** Grantable permissions grouped by module; retired ones are left out. */
+  const modules = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase()
+    const groups = new Map<string, AdminPermission[]>()
+    for (const p of flatPerms) {
+      if (p.status === 'deprecated') continue
+      const module = moduleOf(p.key)
+      if (
+        q &&
+        ![p.key, p.label, moduleTitle(module)].some((v) =>
+          v.toLowerCase().includes(q),
+        )
+      ) {
+        continue
+      }
+      groups.set(module, [...(groups.get(module) ?? []), p])
+    }
+    return [...groups].sort(
+      ([a], [b]) => moduleRank(a) - moduleRank(b) || a.localeCompare(b),
+    )
+  }, [flatPerms, debouncedSearch])
+
+  /** Retired permissions this role still holds: shown so they can be removed. */
+  const retiredOnRole = flatPerms.filter(
+    (p) => p.status === 'deprecated' && permissions.includes(p.key),
+  )
 
   async function save() {
     if (!canManage) return
@@ -308,354 +343,329 @@ export default function RoleEditor({ mode, roleKey, duplicateFrom }: Props) {
 
   const readOnly = !canManage
   const systemLocked = isSystem
+  const locked = readOnly || systemLocked
+  const allPerms =
+    permissions.includes('*') || (isSystem && key === 'super_admin')
+  const holds = (k: string) => actorPerms.has('*') || actorPerms.has(k)
+
+  function toggle(k: string) {
+    setPermissions((prev) =>
+      prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k],
+    )
+  }
 
   return (
-    <div className="pb-24 text-[var(--ink)]">
-      <h1 className={cn('mb-6', pageTitleClassName)}>
-        {mode === 'create' ? 'New role' : name || 'Edit role'}
-      </h1>
+    <div className="space-y-8 pb-24 text-[var(--ink)]">
+      <div>
+        <h1 className={pageTitleClassName}>
+          {mode === 'create' ? 'New role' : name || 'Edit role'}
+        </h1>
+        {systemLocked ? (
+          <p className={cn('mt-2 text-sm', hintClassName)}>
+            System role: its permissions are fixed; name and description stay
+            editable.
+          </p>
+        ) : null}
+      </div>
 
-      {systemLocked ? (
-        <div className={`${cardClassName} mb-6 border-[var(--accent)] bg-[var(--surface)] p-4 text-sm`}>
-          System roles lock permissions; name and description stay editable.
+      <section className={cn(cardClassName, 'grid gap-4 p-4 md:grid-cols-2')}>
+        <div>
+          <label
+            htmlFor="role-name"
+            className="mb-1.5 block text-sm font-medium"
+          >
+            Name
+          </label>
+          <input
+            id="role-name"
+            className={inputClassName}
+            value={name}
+            disabled={readOnly}
+            onChange={(e) => setName(e.target.value)}
+          />
+          {fieldErrors.name ? (
+            <p className="mt-1 text-xs text-red-700">{fieldErrors.name}</p>
+          ) : null}
         </div>
-      ) : null}
-
-      <div className="grid gap-8 lg:grid-cols-2">
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="role-name" className="mb-1.5 block text-sm">
-              Name
-            </label>
-            <input
-              id="role-name"
-              className={inputClassName}
-              value={name}
-              disabled={readOnly}
-              onChange={(e) => setName(e.target.value)}
-            />
-            {fieldErrors.name ? (
-              <p className="mt-1 text-xs text-red-700">{fieldErrors.name}</p>
-            ) : null}
-          </div>
-          <div>
-            <label htmlFor="role-key" className="mb-1.5 block text-sm">
-              Key
-            </label>
-            <input
-              id="role-key"
-              className={cn(inputClassName, 'font-mono')}
-              value={key}
-              disabled={readOnly || mode === 'edit'}
-              onChange={(e) => {
-                setKeyTouched(true)
-                setKey(e.target.value)
-              }}
-            />
-            {fieldErrors.key ? (
-              <p className="mt-1 text-xs text-red-700">{fieldErrors.key}</p>
-            ) : null}
-          </div>
-          <div>
-            <label htmlFor="role-desc" className="mb-1.5 block text-sm">
-              Description
-            </label>
-            <textarea
-              id="role-desc"
-              className={cn(inputClassName, 'min-h-24')}
-              value={description}
-              disabled={readOnly}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-          <div>
-            <p className="mb-1.5 text-sm">Includes roles</p>
-            <p className={`mb-2 text-xs ${hintClassName}`}>
-              Only roles that do not include other roles.
-            </p>
-            <div className="space-y-2">
-              {includeOptions.map((role) => (
-                <label
-                  key={role.key}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={includes.includes(role.key)}
-                    disabled={readOnly || systemLocked}
-                    onChange={() =>
-                      setIncludes((prev) =>
-                        prev.includes(role.key)
-                          ? prev.filter((k) => k !== role.key)
-                          : [...prev, role.key],
-                      )
-                    }
-                  />
-                  {role.name}
-                  <span className={`font-mono text-xs ${hintClassName}`}>
-                    {role.key}
-                  </span>
-                </label>
-              ))}
-            </div>
-            {fieldErrors.includes ? (
-              <p className="mt-1 text-xs text-red-700">{fieldErrors.includes}</p>
-            ) : null}
-          </div>
+        <div>
+          <label
+            htmlFor="role-key"
+            className="mb-1.5 block text-sm font-medium"
+          >
+            Key
+          </label>
+          <input
+            id="role-key"
+            className={cn(inputClassName, 'font-mono')}
+            value={key}
+            disabled={readOnly || mode === 'edit'}
+            onChange={(e) => {
+              setKeyTouched(true)
+              setKey(e.target.value)
+            }}
+          />
+          {fieldErrors.key ? (
+            <p className="mt-1 text-xs text-red-700">{fieldErrors.key}</p>
+          ) : null}
         </div>
-
-        <div className="space-y-3">
-          {permissions.includes('*') || (isSystem && key === 'super_admin') ? (
-            <div className={`${cardClassName} p-4 text-sm`}>
-              All permissions (*)
-            </div>
-          ) : (
-            <>
-              <p className={`text-sm ${hintClassName}`}>
-                {permissions.length} permissions granted ({effectiveCount}{' '}
-                effective)
-              </p>
-              <input
-                type="search"
-                className={inputClassName}
-                placeholder="Search permissions…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                aria-label="Search permissions"
-              />
-              <div className="flex flex-wrap gap-2">
-                {(
-                  ['all', 'selected', 'unselected', 'deprecated'] as FilterChip[]
-                ).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
+        <div className="md:col-span-2">
+          <label
+            htmlFor="role-desc"
+            className="mb-1.5 block text-sm font-medium"
+          >
+            Description
+          </label>
+          <textarea
+            id="role-desc"
+            rows={2}
+            className={inputClassName}
+            value={description}
+            disabled={readOnly}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+        {includeOptions.length > 0 ? (
+          <div className="md:col-span-2">
+            <p className="text-sm font-medium">Also gets everything from</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {includeOptions.map((role) => {
+                const on = includes.includes(role.key)
+                return (
+                  <label
+                    key={role.key}
                     className={cn(
-                      'rounded-full border px-3 py-1 text-xs capitalize',
-                      chip === c
+                      'flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-sm',
+                      on
                         ? 'border-[var(--ink)] bg-[var(--surface)]'
                         : 'border-[var(--line)]',
+                      locked && 'cursor-default opacity-60',
                     )}
-                    onClick={() => setChip(c)}
                   >
-                    {c}
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      disabled={locked}
+                      onChange={() =>
+                        setIncludes((prev) =>
+                          prev.includes(role.key)
+                            ? prev.filter((k) => k !== role.key)
+                            : [...prev, role.key],
+                        )
+                      }
+                    />
+                    {role.name}
+                  </label>
+                )
+              })}
+            </div>
+            {fieldErrors.includes ? (
+              <p className="mt-1 text-xs text-red-700">
+                {fieldErrors.includes}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Permissions</h2>
+            <p className={cn('text-sm', hintClassName)}>
+              {allPerms
+                ? 'This role can do everything.'
+                : `${permissions.length} picked · ${effectiveCount} in effect, counting included ones.`}
+            </p>
+          </div>
+          {!allPerms ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-[var(--muted)]"
+                  aria-hidden
+                />
+                <input
+                  type="search"
+                  className={cn(inputClassName, 'w-64 pl-8')}
+                  placeholder="Search permissions…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  aria-label="Search permissions"
+                />
+              </div>
+              <div className="flex rounded-md border border-[var(--line)] p-0.5 text-xs">
+                {(['all', 'selected'] as Filter[]).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className={cn(
+                      'rounded px-3 py-1',
+                      filter === f
+                        ? 'bg-[var(--ink)] text-[var(--surface)]'
+                        : 'text-[var(--muted)]',
+                    )}
+                    onClick={() => setFilter(f)}
+                  >
+                    {f === 'all' ? 'All' : 'Granted'}
                   </button>
                 ))}
               </div>
+            </div>
+          ) : null}
+        </div>
 
-              <div className="space-y-2">
-                {Object.entries(permGroups).map(([category, perms]) => {
-                  const visible = perms.filter(
-                    (p) => matchesSearch(p) && matchesChip(p),
+        {retiredOnRole.length > 0 && !allPerms ? (
+          <div className="flex flex-wrap items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+            <AlertTriangle
+              className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300"
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">
+                This role still holds retired permissions
+              </p>
+              <p className={hintClassName}>
+                They no longer do anything:{' '}
+                {retiredOnRole.map((p) => p.label).join(', ')}.
+              </p>
+            </div>
+            {!locked ? (
+              <button
+                type="button"
+                className={buttonOutlineClassName}
+                onClick={() =>
+                  setPermissions((prev) =>
+                    prev.filter((k) => !retiredOnRole.some((p) => p.key === k)),
                   )
-                  if (visible.length === 0) return null
-                  const selectable = visible.filter(
-                    (p) =>
-                      p.status !== 'deprecated' || permissions.includes(p.key),
-                  )
-                  const selectedCount = selectable.filter((p) =>
-                    permissions.includes(p.key),
-                  ).length
-                  const allSelected =
-                    selectable.length > 0 &&
-                    selectedCount === selectable.length
-                  const someSelected =
-                    selectedCount > 0 && selectedCount < selectable.length
-                  const open = expandedCats[category] ?? true
+                }
+              >
+                Remove them
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
-                  return (
-                    <div key={category} className={cardClassName}>
-                      <div className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2">
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          className="flex flex-1 items-center gap-2 text-left text-sm font-medium"
-                          onClick={() =>
-                            setExpandedCats((s) => ({
-                              ...s,
-                              [category]: !open,
-                            }))
-                          }
-                        >
-                          <ChevronDown
-                            className={cn(
-                              'size-4 transition',
-                              open ? '' : '-rotate-90',
-                            )}
-                            aria-hidden
-                          />
-                          {category}
-                          <span className={hintClassName}>
-                            {selectedCount} / {selectable.length} selected
-                          </span>
-                        </button>
-                        <input
-                          type="checkbox"
-                          checked={allSelected}
-                          ref={(el) => {
-                            if (el) el.indeterminate = someSelected
-                          }}
-                          aria-checked={
-                            someSelected ? 'mixed' : allSelected
-                          }
-                          disabled={readOnly || systemLocked}
-                          onChange={() => {
-                            if (allSelected) {
-                              setPermissions((prev) =>
-                                prev.filter(
-                                  (k) => !selectable.some((p) => p.key === k),
-                                ),
-                              )
-                            } else {
-                              setPermissions((prev) => [
-                                ...new Set([
-                                  ...prev,
-                                  ...selectable
-                                    .filter((p) => actorPerms.has('*') || actorPerms.has(p.key))
-                                    .filter((p) => p.status !== 'deprecated')
-                                    .map((p) => p.key),
-                                ]),
-                              ])
+        {allPerms ? null : (
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            {modules.map(([module, perms]) => {
+              const shown =
+                filter === 'selected' ? perms.filter((p) => isOn(p.key)) : perms
+              if (shown.length === 0) return null
+              const grantable = perms.filter(
+                (p) =>
+                  holds(p.key) &&
+                  !inherited.has(p.key) &&
+                  !impliedBy.has(p.key),
+              )
+              const onCount = perms.filter((p) => isOn(p.key)).length
+              const allOn =
+                grantable.length > 0 &&
+                grantable.every((p) => permissions.includes(p.key))
+              return (
+                <div key={module} className={cardClassName}>
+                  <div className="flex items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-2.5">
+                    <div className="flex items-baseline gap-2">
+                      <h3 className="text-sm font-semibold">
+                        {moduleTitle(module)}
+                      </h3>
+                      <span
+                        className={cn('text-xs tabular-nums', hintClassName)}
+                      >
+                        {onCount} / {perms.length}
+                      </span>
+                    </div>
+                    {!locked && grantable.length > 0 ? (
+                      <button
+                        type="button"
+                        className={cn(
+                          'text-xs underline-offset-4 hover:underline',
+                          hintClassName,
+                        )}
+                        onClick={() =>
+                          setPermissions((prev) =>
+                            allOn
+                              ? prev.filter(
+                                  (k) => !grantable.some((p) => p.key === k),
+                                )
+                              : [
+                                  ...new Set([
+                                    ...prev,
+                                    ...grantable.map((p) => p.key),
+                                  ]),
+                                ],
+                          )
+                        }
+                      >
+                        {allOn ? 'Clear all' : 'Select all'}
+                      </button>
+                    ) : null}
+                  </div>
+                  <ul className="divide-y divide-[var(--line)]">
+                    {shown.map((p) => {
+                      const via = impliedBy.get(p.key) ?? inherited.get(p.key)
+                      const direct = permissions.includes(p.key)
+                      const disabled =
+                        locked || (!direct && Boolean(via)) || !holds(p.key)
+                      return (
+                        <li key={p.key}>
+                          <label
+                            title={
+                              !holds(p.key)
+                                ? `${p.key} · you can't grant a permission you don't have`
+                                : p.key
                             }
-                          }}
-                        />
-                      </div>
-                      {open ? (
-                        <ul className="divide-y divide-[var(--line)]">
-                          {visible.map((p) => {
-                            const isImplied = impliedBy.has(p.key)
-                            const isInherited = inherited.has(p.key)
-                            const holds =
-                              actorPerms.has('*') || actorPerms.has(p.key)
-                            const deprecatedOnRole =
-                              p.status === 'deprecated' &&
-                              permissions.includes(p.key)
-                            const checked =
-                              permissions.includes(p.key) ||
-                              isImplied ||
-                              isInherited
-                            const disabled =
-                              readOnly ||
-                              systemLocked ||
-                              isImplied ||
-                              isInherited ||
-                              !holds ||
-                              (p.status === 'deprecated' && !deprecatedOnRole)
-
-                            return (
-                              <li
-                                key={p.key}
+                            className={cn(
+                              'flex items-start gap-3 px-4 py-2 text-sm',
+                              disabled
+                                ? 'cursor-default'
+                                : 'cursor-pointer hover:bg-[var(--surface)]',
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={isOn(p.key)}
+                              disabled={disabled}
+                              onChange={() => toggle(p.key)}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span
                                 className={cn(
-                                  'px-3 py-2',
-                                  deprecatedOnRole ? 'bg-amber-50' : '',
+                                  !isOn(p.key) &&
+                                    disabled &&
+                                    'text-[var(--muted)]',
                                 )}
                               >
-                                <label className="flex items-start gap-2 text-sm">
-                                  <input
-                                    type="checkbox"
-                                    className="mt-1"
-                                    checked={checked}
-                                    disabled={disabled}
-                                    title={
-                                      !holds
-                                        ? "You can't grant a permission you don't have"
-                                        : undefined
-                                    }
-                                    onChange={() =>
-                                      setPermissions((prev) =>
-                                        prev.includes(p.key)
-                                          ? prev.filter((k) => k !== p.key)
-                                          : [...prev, p.key],
-                                      )
-                                    }
-                                  />
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block font-medium">
-                                      {p.label}
-                                    </span>
-                                    <span
-                                      className={`block font-mono text-xs ${hintClassName}`}
-                                    >
-                                      {p.key}
-                                    </span>
-                                    <span className="mt-1 flex flex-wrap gap-1">
-                                      {p.status !== 'active' || p.manual ? (
-                                        <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-xs">
-                                          {p.manual ? 'manual' : p.status}
-                                        </span>
-                                      ) : null}
-                                      {isImplied ? (
-                                        <span className={`text-xs ${hintClassName}`}>
-                                          Included via {impliedBy.get(p.key)}
-                                        </span>
-                                      ) : null}
-                                      {isInherited ? (
-                                        <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-xs">
-                                          from {inherited.get(p.key)}
-                                        </span>
-                                      ) : null}
-                                    </span>
-                                    {deprecatedOnRole ? (
-                                      <button
-                                        type="button"
-                                        className="mt-1 text-xs text-red-700 underline"
-                                        onClick={() =>
-                                          setPermissions((prev) =>
-                                            prev.filter((k) => k !== p.key),
-                                          )
-                                        }
-                                      >
-                                        Remove
-                                      </button>
-                                    ) : null}
-                                    <button
-                                      type="button"
-                                      className={`mt-1 block text-xs ${hintClassName}`}
-                                      aria-expanded={Boolean(
-                                        expandedRoutes[p.key],
-                                      )}
-                                      onClick={() =>
-                                        setExpandedRoutes((s) => ({
-                                          ...s,
-                                          [p.key]: !s[p.key],
-                                        }))
-                                      }
-                                    >
-                                      Used by {p.routes.length} routes
-                                    </button>
-                                    {expandedRoutes[p.key] ? (
-                                      <ul className="mt-1 font-mono text-xs text-[var(--muted)]">
-                                        {p.routes.map((r) => (
-                                          <li key={`${r.method}${r.path}`}>
-                                            {r.method} {r.path}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    ) : null}
-                                  </span>
-                                </label>
-                              </li>
-                            )
-                          })}
-                        </ul>
-                      ) : null}
-                    </div>
-                  )
-                })}
-              </div>
-              {fieldErrors.permissions ? (
-                <p className="text-xs text-red-700">{fieldErrors.permissions}</p>
-              ) : null}
-              {flatPerms.length === 0 ? (
-                <p className={hintClassName}>No permissions in registry.</p>
-              ) : null}
-            </>
-          )}
-        </div>
-      </div>
+                                {p.label}
+                              </span>
+                              {via && !direct ? (
+                                <span
+                                  className={cn('block text-xs', hintClassName)}
+                                >
+                                  Included with {via}
+                                </span>
+                              ) : null}
+                            </span>
+                          </label>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {fieldErrors.permissions ? (
+          <p className="text-xs text-red-700">{fieldErrors.permissions}</p>
+        ) : null}
+        {flatPerms.length === 0 ? (
+          <p className={hintClassName}>No permissions in registry.</p>
+        ) : null}
+      </section>
 
       {!readOnly ? (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-white/95 backdrop-blur-sm">
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-[var(--surface)]/95 backdrop-blur-sm">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6">
             <span className={`text-sm ${hintClassName}`}>
               {dirty ? 'Unsaved changes' : 'No changes'}

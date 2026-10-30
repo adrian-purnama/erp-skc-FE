@@ -1,3 +1,5 @@
+import type { RealizationCharge } from '#/lib/purchasing'
+
 export const PROJECT_GENDERS = ['male', 'female'] as const
 export type ProjectGender = (typeof PROJECT_GENDERS)[number]
 
@@ -156,6 +158,66 @@ export type ProjectListItem = {
   productionReleasedAt: string | null
 }
 
+/** List roll-up from `GET /project`. Money is IDR digits. */
+export type ProjectSummary = {
+  /** Won quotation grand total, else latest issued one. */
+  contractValue: string | null
+  contractStatus: 'won' | 'issued' | null
+  /** Contract before tax minus RAB total. */
+  plannedMargin: string | null
+  rabTotal: string | null
+  rabStatus: 'draft' | 'locked' | null
+  /** Posted purchase realizations. */
+  actualCost: string
+  shopDrawingCount: number
+  productionOrderedQty: string
+  productionDoneQty: string
+  productionPercent: number
+  deadline: string | null
+  deadlineTitle: string | null
+}
+
+export type ProjectListRow = ProjectListItem & {
+  createdAt: string | null
+  summary: ProjectSummary
+}
+
+/** Still being worked on: not lost, closed or finished. */
+export function isProjectActive(status: ProjectStatus): boolean {
+  return status === 'open' || status === 'win'
+}
+
+export function isProjectOverdue(
+  row: Pick<ProjectListRow, 'status' | 'summary'>,
+  now: Date = new Date(),
+): boolean {
+  if (!isProjectActive(row.status) || !row.summary.deadline) return false
+  return new Date(row.summary.deadline).getTime() < now.getTime()
+}
+
+/** Actual spend above the RAB budget. */
+export function isProjectOverBudget(
+  row: Pick<ProjectListRow, 'summary'>,
+): boolean {
+  const rab = Number(row.summary.rabTotal ?? '')
+  const actual = Number(row.summary.actualCost)
+  return Number.isFinite(rab) && rab > 0 && actual > rab
+}
+
+/** Short rupiah for tiles and chart labels: Rp 1,2 M / Rp 482 jt. */
+export function formatRupiahCompact(amount: string | number | null): string {
+  if (amount === null || amount === '') return '—'
+  const n = Number(amount)
+  if (!Number.isFinite(n)) return '—'
+  const abs = Math.abs(n)
+  const fmt = (v: number) =>
+    new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(v)
+  if (abs >= 1e12) return `Rp ${fmt(n / 1e12)} T`
+  if (abs >= 1e9) return `Rp ${fmt(n / 1e9)} M`
+  if (abs >= 1e6) return `Rp ${fmt(n / 1e6)} jt`
+  return `Rp ${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(n)}`
+}
+
 export type ProjectDetail = ProjectListItem & {
   customerContact: ProjectCustomerContact
 }
@@ -210,7 +272,7 @@ export type ProjectShopDrawingItem = {
   name: string
   /** `{code}-{name}`. */
   label: string
-  /** Keterangan, one spec line per entry. */
+  /** Keterangan, built from the current BOQ's materials (read-only). */
   descriptions: string[]
   /** Ukuran, free text (p x tebal x t mm). */
   dimension: string
@@ -218,6 +280,8 @@ export type ProjectShopDrawingItem = {
   category: string | null
   /** YYYY-MM-DD when mockup was approved; null if not needed / not yet. */
   mockupApproveDate: string | null
+  /** Who makes it; outsource needs no File Produksi. */
+  makeType: 'inhouse' | 'subcon' | 'outsource'
   current: ProjectShopDrawingFile | null
   versions: ProjectShopDrawingFile[]
   /** File Produksi (CNC / cutting files), versioned like the drawing. */
@@ -236,12 +300,7 @@ export type ProjectShopDrawingBoqLineInputs = {
 export type ProjectShopDrawingBoqFinishPlacement = 'top' | 'bottom'
 
 export type ProjectShopDrawingBoqMountingType =
-  | 'mounted'
-  | 'hanging'
-  | 'pylon'
-  | 'blade'
-  | 'freestanding'
-  | 'other'
+  'mounted' | 'hanging' | 'pylon' | 'blade' | 'freestanding' | 'other'
 
 export type ProjectShopDrawingBoqLine = {
   materialItemId: string
@@ -329,10 +388,14 @@ export type ProjectShopDrawingBoqMaterialUom = {
   uomId: string
   isBase: boolean
   conversionFactor: string | null
+  decimals: number | null
+  rounding: 'up' | 'nearest' | 'down'
   sortOrder: number
   symbol: string
   name: string
   formulas: string[]
+  /** The UOM's own decimals: the RAB fallback when `decimals` is null. */
+  uomDecimals: number
 }
 
 export type ProjectShopDrawingBoqMaterial = {
@@ -362,6 +425,8 @@ export type ProjectShopDrawingBoqItemSummary = {
 export type ProjectRabUserRef = {
   id: string
   name: string
+  /** Absolute or `/media/<id>` path when known. */
+  profilePicture?: string | null
 }
 
 export type ProjectRabLine = {
@@ -378,16 +443,30 @@ export type ProjectRabLine = {
   exactQty: string | null
   /** totalQty − exactQty; negative when rounded down below need. */
   wasteQty: string | null
-  rounding: { decimals: number; mode: 'up' | 'nearest' | 'down' } | null
+  /** Purchase qty is rounded by `mode` to a multiple of `step` (line UOM). */
+  rounding: {
+    step: string
+    source: 'item' | 'unit'
+    mode: 'up' | 'nearest' | 'down'
+  } | null
   unitPrice: string | null
   tarifId: string | null
   lineTotal: string | null
+  /** Price was typed as the line total; reopen the row in total mode. */
+  priceByTotal: boolean
   hasTarif: boolean
   origin: 'lock' | 'append' | 'labour' | null
   addedAt: string | null
   addedBy: ProjectRabUserRef | null
   addReason: string | null
   priceEditable: boolean
+  /** Labour: shop drawing item it is costed to (null = project-wide). */
+  shopDrawingItemId: string | null
+  shopDrawingItemName: string | null
+  /** Inhouse process order within the drawing (null if unset). */
+  sequence: number | null
+  /** Inhouse process weight percent (null if unset). */
+  weightPercent: number | null
 }
 
 export type ProjectRabLabourItem = {
@@ -514,6 +593,20 @@ export type ProjectRabChangeDetail = ProjectRabChangeSummary & {
   lines: ProjectRabLine[]
 }
 
+/** First lock of the RAB: who locked it and lines present then. */
+export type ProjectRabLockOrigin = {
+  lockedAt: string
+  lockedBy: ProjectRabUserRef
+  grandTotal: string | null
+  lines: Array<
+    ProjectRabChangeLineDiff & {
+      materialItemId: string | null
+      materialCode: string | null
+      uomSymbol: string | null
+    }
+  >
+}
+
 export type ProjectRab = {
   id: string
   projectId: string
@@ -526,6 +619,12 @@ export type ProjectRab = {
   /** Locked RAB: shop drawing material changes per change, newest first. */
   materialChanges: ProjectRabMaterialChangeGroup[]
   groups: ProjectRabItemGroup[]
+  /** Σ priced line totals; null while no line is priced. */
+  subtotal: string | null
+  /** Extra costs on the whole RAB; percent rows priced on `subtotal`. */
+  charges: RealizationCharge[]
+  chargesTotal: string
+  /** subtotal + chargesTotal. */
   grandTotal: string | null
   /** Latest committed change revision; 0 if locked with no commits. */
   currentRevision: number

@@ -2,45 +2,48 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type FormEvent,
 } from 'react'
 import toast from 'react-hot-toast'
 import {
+  ArrowDownUp,
   Ban,
   CircleCheck,
+  ListFilter,
   LoaderCircle,
-  MoreHorizontal,
   Pencil,
   Plus,
+  Ruler,
+  Sigma,
+  Tag,
+  ToggleRight,
   Trash2,
+  Type,
 } from 'lucide-react'
 import ConfirmDisableDialog from '#/components/forms/shared/ConfirmDisableDialog'
 import ListTable, {
-  ListSearchInput,
   type ListTableColumn,
 } from '#/components/forms/shared/ListTable'
 import StatusPill from '#/components/forms/shared/StatusPill'
 import { Button } from '#/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '#/components/ui/dropdown-menu'
 import { Combobox } from '#/components/ui/combobox'
 import { Input } from '#/components/ui/input'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '#/components/ui/sheet'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
 import {
   hintClassName,
+  inputClassName,
   pageTitleClassName,
-  sectionTitleClassName,
 } from '#/lib/ui-classes'
 import {
   FORMULA_PRESETS,
@@ -59,17 +62,8 @@ export type UomItem = {
   name: string
   formulas: string[]
   decimals: number
-  rounding: UomRounding
   isActive: boolean
 }
-
-export type UomRounding = 'up' | 'nearest' | 'down'
-
-const ROUNDING_OPTIONS: { value: UomRounding; label: string }[] = [
-  { value: 'up', label: 'Round up' },
-  { value: 'nearest', label: 'Round to nearest' },
-  { value: 'down', label: 'Round down' },
-]
 
 type FieldErrors = {
   symbol?: string
@@ -85,8 +79,9 @@ const emptyForm = {
   name: '',
   formulas: ['v1'] as string[],
   decimals: '4',
-  rounding: 'up' as UomRounding,
 }
+
+type Drawer = null | { mode: 'create' } | { mode: 'edit'; id: string }
 
 function formatFormulaDisplay(expr: string): string {
   return expr.replaceAll(' * ', ' × ').replaceAll('*', ' × ')
@@ -95,13 +90,11 @@ function formatFormulaDisplay(expr: string): string {
 export default function UomForm() {
   const { can } = useAuth()
   const canManage = can('uom.manage')
-  const formRef = useRef<HTMLFormElement>(null)
-  const symbolRef = useRef<HTMLInputElement>(null)
 
   const [items, setItems] = useState<UomItem[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [drawer, setDrawer] = useState<Drawer>(null)
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [query, setQuery] = useState('')
@@ -124,12 +117,10 @@ export default function UomForm() {
     return [...set].sort((a, b) => a.localeCompare(b))
   }, [items])
 
-  const editingItem = useMemo(
-    () => (editingId ? items.find((item) => item.id === editingId) : null),
-    [editingId, items],
-  )
+  const editingId = drawer?.mode === 'edit' ? drawer.id : null
 
-  const activePreviewExpr = form.formulas[previewIndex] ?? form.formulas[0] ?? ''
+  const activePreviewExpr =
+    form.formulas[previewIndex] ?? form.formulas[0] ?? ''
   const previewVarCount = formulaVariableCount(activePreviewExpr)
   const previewResult = useMemo(() => {
     if (!isValidUomFormulaShape(activePreviewExpr)) return null
@@ -145,7 +136,7 @@ export default function UomForm() {
     return previewUomFormula(activePreviewExpr, nums)
   }, [activePreviewExpr, previewVarCount, previewValues])
 
-  async function loadList() {
+  const loadList = useCallback(async () => {
     setLoading(true)
     try {
       const response = await apiFetch<UomItem[]>('/uom')
@@ -165,17 +156,24 @@ export default function UomForm() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     void loadList()
-  }, [])
+  }, [loadList])
 
-  function resetForm() {
-    setEditingId(null)
+  function closeDrawer() {
+    setDrawer(null)
     setForm(emptyForm)
     setErrors({})
     setPreviewIndex(0)
+  }
+
+  function openCreate() {
+    setForm(emptyForm)
+    setErrors({})
+    setPreviewIndex(0)
+    setDrawer({ mode: 'create' })
   }
 
   function validate(): FieldErrors {
@@ -196,7 +194,6 @@ export default function UomForm() {
   }
 
   const startEdit = useCallback((item: UomItem) => {
-    setEditingId(item.id)
     setForm({
       symbol: item.symbol,
       category: item.category,
@@ -204,14 +201,10 @@ export default function UomForm() {
       formulas:
         item.formulas && item.formulas.length > 0 ? [...item.formulas] : ['v1'],
       decimals: String(item.decimals ?? 4),
-      rounding: item.rounding ?? 'up',
     })
     setErrors({})
     setPreviewIndex(0)
-    requestAnimationFrame(() => {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      symbolRef.current?.focus()
-    })
+    setDrawer({ mode: 'edit', id: item.id })
   }, [])
 
   function setFormulaAt(index: number, value: string) {
@@ -254,7 +247,6 @@ export default function UomForm() {
       name: form.name.trim(),
       formulas: form.formulas.map((f) => f.trim()),
       decimals: Number(form.decimals),
-      rounding: form.rounding,
     }
 
     setSaving(true)
@@ -281,7 +273,7 @@ export default function UomForm() {
       }
 
       toast.success(editingId ? 'Unit updated' : 'Unit created')
-      resetForm()
+      closeDrawer()
       await loadList()
     } catch {
       toast.error('Unable to reach the server')
@@ -337,7 +329,11 @@ export default function UomForm() {
     setPage(1)
   }, [debounced, categoryFilter])
 
-  const { pageItems, totalPages, page: safePage } = useMemo(
+  const {
+    pageItems,
+    totalPages,
+    page: safePage,
+  } = useMemo(
     () => paginate(filtered, page, DEFAULT_PAGE_SIZE),
     [filtered, page],
   )
@@ -350,78 +346,355 @@ export default function UomForm() {
     () => [
       {
         header: 'Symbol',
+        icon: Ruler,
+        widthClassName: 'w-28',
         cellClassName: 'font-mono text-sm',
         cell: (item) => item.symbol,
       },
       {
         header: 'Category',
+        icon: Tag,
+        widthClassName: 'w-32',
         cell: (item) => item.category,
       },
       {
         header: 'Name',
+        icon: Type,
+        widthClassName: 'min-w-[14rem]',
         cell: (item) => item.name,
       },
       {
         header: 'Formula',
-        cellClassName: 'font-mono text-xs text-(--muted)',
+        icon: Sigma,
+        widthClassName: 'min-w-[10rem] max-w-[16rem]',
+        cellClassName: 'truncate font-mono text-xs text-(--muted)',
         cell: (item) => summarizeFormulas(item.formulas ?? ['v1']),
       },
       {
-        header: 'Rounding',
+        header: 'Decimals',
+        icon: ArrowDownUp,
+        align: 'right',
+        widthClassName: 'w-28',
         cellClassName: 'text-xs text-(--muted)',
         cell: (item) =>
-          `${item.decimals ?? 4} dp · ${item.rounding ?? 'up'}`,
+          (item.decimals ?? 4) === 0 ? 'Whole' : `${item.decimals ?? 4} dp`,
       },
       {
         header: 'Status',
+        icon: ToggleRight,
+        widthClassName: 'w-28',
         cell: (item) => <StatusPill active={item.isActive} />,
       },
       {
-        header: '',
-        cellClassName: 'text-right',
+        header: 'Actions',
+        align: 'right',
+        widthClassName: 'w-56 whitespace-nowrap',
+        cellClassName: 'py-1.5',
         cell: (item) => (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="size-8 p-0">
-                <span className="sr-only">Open menu</span>
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              {canManage ? (
-                <>
-                  <DropdownMenuItem onClick={() => startEdit(item)}>
-                    <Pencil className="size-4" aria-hidden />
-                    Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      if (item.isActive) {
-                        setPendingDisable(item)
-                        return
-                      }
-                      void setActive(item, true)
-                    }}
-                  >
-                    {item.isActive ? (
-                      <Ban className="size-4" aria-hidden />
-                    ) : (
-                      <CircleCheck className="size-4" aria-hidden />
-                    )}
-                    {item.isActive ? 'Disable' : 'Enable'}
-                  </DropdownMenuItem>
-                </>
-              ) : (
-                <DropdownMenuItem disabled>View only</DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center justify-end gap-1.5">
+            {canManage ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => startEdit(item)}
+                >
+                  <Pencil />
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={toggling}
+                  className={
+                    item.isActive
+                      ? 'border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700'
+                      : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700'
+                  }
+                  onClick={() => {
+                    if (item.isActive) {
+                      setPendingDisable(item)
+                      return
+                    }
+                    void setActive(item, true)
+                  }}
+                >
+                  {item.isActive ? <Ban /> : <CircleCheck />}
+                  {item.isActive ? 'Disable' : 'Enable'}
+                </Button>
+              </>
+            ) : null}
+          </div>
         ),
       },
     ],
-    [canManage, setActive, startEdit],
+    [canManage, setActive, startEdit, toggling],
+  )
+
+  const editorForm = (
+    <form onSubmit={onSubmit} className="space-y-5 px-4 pb-4" noValidate>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium">Symbol</span>
+          <Input
+            className={cn(inputClassName, errors.symbol && 'border-red-500')}
+            value={form.symbol}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, symbol: e.target.value }))
+            }
+            placeholder="e.g. kg"
+            autoComplete="off"
+            autoFocus
+          />
+          {errors.symbol ? (
+            <span className="text-xs text-red-600">{errors.symbol}</span>
+          ) : null}
+        </label>
+
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium">Category</span>
+          <Input
+            className={cn(inputClassName, errors.category && 'border-red-500')}
+            list="uom-category-options"
+            value={form.category}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, category: e.target.value }))
+            }
+            placeholder="Select or type new…"
+            autoComplete="off"
+          />
+          <datalist id="uom-category-options">
+            {categories.map((category) => (
+              <option key={category} value={category} />
+            ))}
+          </datalist>
+          {errors.category ? (
+            <span className="text-xs text-red-600">{errors.category}</span>
+          ) : (
+            <span className={hintClassName}>
+              Existing category or type a new one
+            </span>
+          )}
+        </label>
+
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium">Name</span>
+          <Input
+            className={cn(inputClassName, errors.name && 'border-red-500')}
+            value={form.name}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, name: e.target.value }))
+            }
+            placeholder="e.g. Kilogram"
+            autoComplete="off"
+          />
+          {errors.name ? (
+            <span className="text-xs text-red-600">{errors.name}</span>
+          ) : null}
+        </label>
+      </div>
+
+      <div className="space-y-3 border-t border-(--line) pt-4">
+        <div>
+          <h3 className="text-sm font-medium">Purchase decimals</h3>
+          <p className={`mt-1 ${hintClassName}`}>
+            RAB rounds to this unless the item sets its own decimals.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Decimals</span>
+            <Input
+              type="number"
+              min={0}
+              max={8}
+              step={1}
+              className={cn(
+                inputClassName,
+                errors.decimals && 'border-red-500',
+              )}
+              value={form.decimals}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, decimals: e.target.value }))
+              }
+            />
+            {errors.decimals ? (
+              <span className="text-xs text-red-600">{errors.decimals}</span>
+            ) : (
+              <span className={hintClassName}>0 = whole units</span>
+            )}
+          </label>
+        </div>
+      </div>
+
+      <div className="space-y-3 border-t border-(--line) pt-4">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-medium">Quantity formulas</h3>
+            <p className={`mt-1 ${hintClassName}`}>
+              How quantity is built from inputs.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {FORMULA_PRESETS.map((preset) => {
+              const exists = form.formulas.some(
+                (f) => f.trim() === preset.expression,
+              )
+              return (
+                <Button
+                  key={preset.expression}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={exists}
+                  className="h-7 px-2 text-xs"
+                  onClick={() => addFormula(preset.expression)}
+                >
+                  {preset.label}
+                  <span className="ml-1 font-mono text-(--muted)">
+                    {formatFormulaDisplay(preset.expression)}
+                  </span>
+                </Button>
+              )
+            })}
+          </div>
+        </div>
+
+        <ul className="space-y-2">
+          {form.formulas.map((expr, index) => {
+            const count = formulaVariableCount(expr)
+            const valid = !expr.trim() || isValidUomFormulaShape(expr)
+            const selected = index === previewIndex
+            return (
+              <li
+                key={index}
+                className={cn(
+                  'flex flex-wrap items-center gap-2 rounded-md border px-3 py-2',
+                  selected
+                    ? 'border-(--ink)/25 bg-(--surface)'
+                    : 'border-(--line) bg-white',
+                  !valid && 'border-red-400',
+                )}
+              >
+                <button
+                  type="button"
+                  className="font-mono text-xs text-(--muted) tabular-nums"
+                  onClick={() => setPreviewIndex(index)}
+                  aria-label={`Preview formula ${index + 1}`}
+                >
+                  #{index + 1}
+                </button>
+                <Input
+                  className={cn(
+                    inputClassName,
+                    'min-w-48 flex-1 font-mono text-sm',
+                    !valid && 'border-red-500',
+                  )}
+                  value={expr}
+                  onChange={(e) => setFormulaAt(index, e.target.value)}
+                  onFocus={() => setPreviewIndex(index)}
+                  placeholder="e.g. v1 * v2"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <span
+                  className={cn(
+                    'rounded px-1.5 py-0.5 text-xs',
+                    count > 0
+                      ? 'bg-(--surface) text-(--muted)'
+                      : 'bg-red-50 text-red-600',
+                  )}
+                >
+                  {count > 0
+                    ? `${count} input${count === 1 ? '' : 's'}`
+                    : 'invalid'}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="size-8 p-0 text-(--muted)"
+                  disabled={form.formulas.length <= 1}
+                  onClick={() => removeFormula(index)}
+                  aria-label={`Remove formula ${index + 1}`}
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                </Button>
+              </li>
+            )
+          })}
+        </ul>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => addFormula('v1')}
+          >
+            <Plus className="size-4" aria-hidden />
+            Add formula
+          </Button>
+        </div>
+
+        {errors.formulas ? (
+          <span className="text-xs text-red-600">{errors.formulas}</span>
+        ) : null}
+
+        {previewVarCount > 0 && isValidUomFormulaShape(activePreviewExpr) ? (
+          <div className="rounded-md border border-dashed border-(--line) bg-(--surface)/60 px-3 py-3">
+            <p className="text-xs font-medium text-(--muted)">
+              Preview{' '}
+              <span className="font-mono text-(--ink)">
+                {formatFormulaDisplay(activePreviewExpr)}
+              </span>
+            </p>
+            <div className="mt-2 flex flex-wrap items-end gap-3">
+              {Array.from({ length: previewVarCount }, (_, i) => {
+                const key = `v${i + 1}` as UomVar
+                return (
+                  <label key={key} className="space-y-1">
+                    <span className="block text-xs text-(--muted)">{key}</span>
+                    <Input
+                      type="number"
+                      step="any"
+                      className={cn(inputClassName, 'w-24 font-mono text-sm')}
+                      value={previewValues[key] ?? ''}
+                      onChange={(e) =>
+                        setPreviewValues((prev) => ({
+                          ...prev,
+                          [key]: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                )
+              })}
+              <div className="pb-1.5 text-sm">
+                <span className="text-(--muted)">= </span>
+                <span className="font-mono font-medium tabular-nums">
+                  {previewResult === null ? '—' : previewResult}
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={saving}>
+          {saving ? (
+            <LoaderCircle className="size-4 animate-spin" aria-hidden />
+          ) : null}
+          {saving ? 'Saving…' : editingId ? 'Save' : 'Create'}
+        </Button>
+        <Button type="button" variant="outline" onClick={closeDrawer}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   )
 
   return (
@@ -435,368 +708,69 @@ export default function UomForm() {
         </p>
       </div>
 
-      {canManage ? (
-        <form
-          ref={formRef}
-          onSubmit={onSubmit}
-          className="space-y-5 rounded-md border border-(--line) bg-white px-4 py-5"
-          noValidate
-        >
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h2 className={sectionTitleClassName}>
-                {editingId ? 'Edit unit' : 'New unit'}
-              </h2>
-              <p className={`mt-1 ${hintClassName}`}>
-                {editingId && editingItem
-                  ? `Editing ${editingItem.symbol}`
-                  : 'Identity fields, then how quantity is built from inputs.'}
-              </p>
-            </div>
-            {editingId ? (
-              <StatusPill active={editingItem?.isActive !== false} />
-            ) : null}
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Symbol</span>
-              <Input
-                ref={symbolRef}
-                className={cn(
-                  'border-(--line)',
-                  errors.symbol && 'border-red-500',
-                )}
-                value={form.symbol}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, symbol: e.target.value }))
-                }
-                placeholder="e.g. kg"
-                autoComplete="off"
-              />
-              {errors.symbol ? (
-                <span className="text-xs text-red-600">{errors.symbol}</span>
-              ) : null}
-            </label>
-
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Category</span>
-              <Input
-                className={cn(
-                  'border-(--line)',
-                  errors.category && 'border-red-500',
-                )}
-                list="uom-category-options"
-                value={form.category}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, category: e.target.value }))
-                }
-                placeholder="Select or type new…"
-                autoComplete="off"
-              />
-              <datalist id="uom-category-options">
-                {categories.map((category) => (
-                  <option key={category} value={category} />
-                ))}
-              </datalist>
-              {errors.category ? (
-                <span className="text-xs text-red-600">{errors.category}</span>
-              ) : (
-                <span className={hintClassName}>
-                  Existing category or type a new one
-                </span>
-              )}
-            </label>
-
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Name</span>
-              <Input
-                className={cn(
-                  'border-(--line)',
-                  errors.name && 'border-red-500',
-                )}
-                value={form.name}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, name: e.target.value }))
-                }
-                placeholder="e.g. Kilogram"
-                autoComplete="off"
-              />
-              {errors.name ? (
-                <span className="text-xs text-red-600">{errors.name}</span>
-              ) : null}
-            </label>
-          </div>
-
-          <div className="space-y-3 border-t border-(--line) pt-4">
-            <div>
-              <h3 className="text-sm font-medium">RAB rounding</h3>
-              <p className={`mt-1 ${hintClassName}`}>
-                How the project total in this unit becomes the purchase
-                quantity. Sheets: 0 decimals, round up.
-              </p>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium">Decimals</span>
-                <Input
-                  type="number"
-                  min={0}
-                  max={8}
-                  step={1}
-                  className={cn(
-                    'border-(--line)',
-                    errors.decimals && 'border-red-500',
-                  )}
-                  value={form.decimals}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, decimals: e.target.value }))
-                  }
-                />
-                {errors.decimals ? (
-                  <span className="text-xs text-red-600">
-                    {errors.decimals}
-                  </span>
-                ) : (
-                  <span className={hintClassName}>0 = whole units</span>
-                )}
-              </label>
-              <div className="space-y-1.5">
-                <span className="text-sm font-medium">Rounding</span>
-                <Combobox
-                  value={form.rounding}
-                  onValueChange={(value) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      rounding: value as UomRounding,
-                    }))
-                  }
-                  options={ROUNDING_OPTIONS}
-                  placeholder="Round up"
-                  searchPlaceholder="Search…"
-                  emptyText="No option."
-                  className="w-full"
-                  aria-label="Rounding"
-                />
-                {form.rounding === 'down' ? (
-                  <span className="text-xs text-amber-600">
-                    Rounding down can buy less than the BOQ needs.
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3 border-t border-(--line) pt-4">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-medium">Quantity formulas</h3>
-                <p className={`mt-1 ${hintClassName}`}>
-                  How quantity is built from inputs.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {FORMULA_PRESETS.map((preset) => {
-                  const exists = form.formulas.some(
-                    (f) => f.trim() === preset.expression,
-                  )
-                  return (
-                    <Button
-                      key={preset.expression}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={exists}
-                      className="h-7 px-2 text-xs"
-                      onClick={() => addFormula(preset.expression)}
-                    >
-                      {preset.label}
-                      <span className="ml-1 font-mono text-(--muted)">
-                        {formatFormulaDisplay(preset.expression)}
-                      </span>
-                    </Button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <ul className="space-y-2">
-              {form.formulas.map((expr, index) => {
-                const count = formulaVariableCount(expr)
-                const valid = !expr.trim() || isValidUomFormulaShape(expr)
-                const selected = index === previewIndex
-                return (
-                  <li
-                    key={index}
-                    className={cn(
-                      'flex flex-wrap items-center gap-2 rounded-md border px-3 py-2',
-                      selected
-                        ? 'border-(--ink)/25 bg-(--surface)'
-                        : 'border-(--line) bg-white',
-                      !valid && 'border-red-400',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      className="font-mono text-xs text-(--muted) tabular-nums"
-                      onClick={() => setPreviewIndex(index)}
-                      aria-label={`Preview formula ${index + 1}`}
-                    >
-                      #{index + 1}
-                    </button>
-                    <Input
-                      className={cn(
-                        'min-w-48 flex-1 border-(--line) font-mono text-sm',
-                        !valid && 'border-red-500',
-                      )}
-                      value={expr}
-                      onChange={(e) => setFormulaAt(index, e.target.value)}
-                      onFocus={() => setPreviewIndex(index)}
-                      placeholder="e.g. v1 * v2"
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                    <span
-                      className={cn(
-                        'rounded px-1.5 py-0.5 text-xs',
-                        count > 0
-                          ? 'bg-(--surface) text-(--muted)'
-                          : 'bg-red-50 text-red-600',
-                      )}
-                    >
-                      {count > 0
-                        ? `${count} input${count === 1 ? '' : 's'}`
-                        : 'invalid'}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="size-8 p-0 text-(--muted)"
-                      disabled={form.formulas.length <= 1}
-                      onClick={() => removeFormula(index)}
-                      aria-label={`Remove formula ${index + 1}`}
-                    >
-                      <Trash2 className="size-4" aria-hidden />
-                    </Button>
-                  </li>
-                )
-              })}
-            </ul>
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => addFormula('v1')}
-              >
-                <Plus className="size-4" aria-hidden />
-                Add formula
-              </Button>
-            </div>
-
-            {errors.formulas ? (
-              <span className="text-xs text-red-600">{errors.formulas}</span>
-            ) : null}
-
-            {previewVarCount > 0 && isValidUomFormulaShape(activePreviewExpr) ? (
-              <div className="rounded-md border border-dashed border-(--line) bg-(--surface)/60 px-3 py-3">
-                <p className="text-xs font-medium text-(--muted)">
-                  Preview{' '}
-                  <span className="font-mono text-(--ink)">
-                    {formatFormulaDisplay(activePreviewExpr)}
-                  </span>
-                </p>
-                <div className="mt-2 flex flex-wrap items-end gap-3">
-                  {Array.from({ length: previewVarCount }, (_, i) => {
-                    const key = `v${i + 1}` as UomVar
-                    return (
-                      <label key={key} className="space-y-1">
-                        <span className="block text-xs text-(--muted)">
-                          {key}
-                        </span>
-                        <Input
-                          type="number"
-                          step="any"
-                          className="w-24 border-(--line) font-mono text-sm"
-                          value={previewValues[key] ?? ''}
-                          onChange={(e) =>
-                            setPreviewValues((prev) => ({
-                              ...prev,
-                              [key]: e.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                    )
-                  })}
-                  <div className="pb-1.5 text-sm">
-                    <span className="text-(--muted)">= </span>
-                    <span className="font-mono font-medium tabular-nums">
-                      {previewResult === null ? '—' : previewResult}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={saving}>
-              {saving ? (
-                <LoaderCircle className="size-4 animate-spin" aria-hidden />
-              ) : editingId ? null : (
-                <Plus className="size-4" aria-hidden />
-              )}
-              {saving
-                ? 'Saving…'
-                : editingId
-                  ? 'Save changes'
-                  : 'Add unit'}
-            </Button>
-            {editingId ? (
-              <Button type="button" variant="outline" onClick={resetForm}>
-                Cancel
-              </Button>
-            ) : null}
-          </div>
-        </form>
-      ) : null}
-
       <ListTable
-        filters={
-          <>
-            <ListSearchInput
-              value={query}
-              onChange={setQuery}
-              placeholder="Filter symbols…"
-              aria-label="Filter units"
-            />
-            <Combobox
-              value={categoryFilter}
-              onValueChange={setCategoryFilter}
-              options={[
-                { value: 'all', label: 'All categories' },
-                ...categories.map((category) => ({
-                  value: category,
-                  label: category,
-                })),
-              ]}
-              placeholder="All categories"
-              searchPlaceholder="Search category…"
-              emptyText="No category found."
-              className="w-full sm:w-[180px]"
-              aria-label="Category filter"
-            />
-          </>
+        toolbarStart={
+          loading ? null : (
+            <span className={hintClassName}>
+              {filtered.length} {filtered.length === 1 ? 'unit' : 'units'}
+            </span>
+          )
         }
+        search={{
+          value: query,
+          onChange: setQuery,
+          placeholder: 'Search…',
+          'aria-label': 'Search units',
+        }}
+        toolbarActions={[
+          {
+            key: 'category',
+            label: 'Category',
+            icon: ListFilter,
+            active: categoryFilter !== 'all',
+            popover: (
+              <>
+                <p className="text-xs font-medium text-(--muted)">Category</p>
+                <Combobox
+                  value={categoryFilter}
+                  onValueChange={setCategoryFilter}
+                  options={[
+                    { value: 'all', label: 'All categories' },
+                    ...categories.map((category) => ({
+                      value: category,
+                      label: category,
+                    })),
+                  ]}
+                  placeholder="All categories"
+                  searchPlaceholder="Search category…"
+                  emptyText="No category found."
+                  className="w-full"
+                  aria-label="Category filter"
+                />
+              </>
+            ),
+          },
+        ]}
+        addAction={
+          canManage
+            ? {
+                label: 'Add',
+                onClick: openCreate,
+              }
+            : undefined
+        }
+        isRowMuted={(item) => !item.isActive}
         loading={loading}
         loadingLabel="Loading units…"
-        empty="No units match the current filters."
+        empty={
+          debounced.trim() || categoryFilter !== 'all'
+            ? 'No units match the current filters.'
+            : 'No units yet.'
+        }
         columns={uomColumns}
         rows={pageItems}
         rowKey={(item) => item.id}
+        minWidthClassName="min-w-[720px]"
         pagination={{
           page: safePage,
           totalPages,
@@ -822,6 +796,28 @@ export default function UomForm() {
           if (pendingDisable) void setActive(pendingDisable, false)
         }}
       />
+
+      <Sheet
+        open={drawer !== null}
+        onOpenChange={(open) => {
+          if (!open) closeDrawer()
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full overflow-y-auto sm:max-w-3xl"
+        >
+          <SheetHeader>
+            <SheetTitle>
+              {drawer?.mode === 'edit' ? 'Edit unit' : 'New unit'}
+            </SheetTitle>
+            <SheetDescription>
+              Identity fields, then how quantity is built from inputs.
+            </SheetDescription>
+          </SheetHeader>
+          {drawer && canManage ? editorForm : null}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

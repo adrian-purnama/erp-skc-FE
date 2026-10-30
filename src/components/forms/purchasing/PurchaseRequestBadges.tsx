@@ -1,5 +1,8 @@
+import { Link } from '@tanstack/react-router'
+import { useAuth } from '#/context/authContext'
 import {
   PURCHASE_ORDER_STATUS_LABELS,
+  PURCHASE_RAB_STATUS_LABELS,
   PURCHASE_REQUEST_STATUS_LABELS,
   REALIZATION_STATUS_LABELS,
   REQUEST_ORDER_STATUS_LABELS,
@@ -10,6 +13,8 @@ import {
 } from '#/lib/purchasing'
 import type {
   PurchaseOrderStatus,
+  PurchaseRabStatus,
+  PurchaseRequestLineSource,
   PurchaseRequestStatus,
   RealizationStatus,
   RequestLineOrderStatus,
@@ -27,6 +32,21 @@ export function PurchaseRequestStatusChip({
   return (
     <span className={cn(chipBase, purchaseRequestStatusChipClass(status))}>
       {PURCHASE_REQUEST_STATUS_LABELS[status]}
+    </span>
+  )
+}
+
+export function PurchaseRabStatusChip({ status }: { status: PurchaseRabStatus }) {
+  return (
+    <span
+      className={cn(
+        chipBase,
+        status === 'locked'
+          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+          : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+      )}
+    >
+      {PURCHASE_RAB_STATUS_LABELS[status]}
     </span>
   )
 }
@@ -55,7 +75,11 @@ export function RequestOrderStatusChip({
   )
 }
 
-export function RealizationStatusChip({ status }: { status: RealizationStatus }) {
+export function RealizationStatusChip({
+  status,
+}: {
+  status: RealizationStatus
+}) {
   return (
     <span className={cn(chipBase, realizationStatusChipClass(status))}>
       {REALIZATION_STATUS_LABELS[status]}
@@ -69,21 +93,24 @@ export type LineFlag =
   | 'overPlan'
   | 'overRequest'
   | 'overBudget'
+  | 'overRabQty'
 
-const FLAG_LABELS: Record<LineFlag, string> = {
+export const FLAG_LABELS: Record<LineFlag, string> = {
   extra: 'Extra',
   notInRab: 'Not in RAB',
   overPlan: 'Over plan',
   overRequest: 'More than requested',
   overBudget: 'Above RAB price',
+  overRabQty: 'Above RAB qty',
 }
 
-const FLAG_TITLES: Record<LineFlag, string> = {
-  extra: 'Not on the SPK material list',
-  notInRab: 'This material and unit are not budgeted on the project RAB',
-  overPlan: 'More than the SPK needs in total',
+export const FLAG_TITLES: Record<LineFlag, string> = {
+  extra: 'Not on the SPK material list or the RAB',
+  notInRab: 'This material and unit are not budgeted on the RAB',
+  overPlan: 'More than the SPK needs / the RAB budgets in total',
   overRequest: 'Ordering more than the request still needs',
   overBudget: 'Unit price is higher than the RAB price',
+  overRabQty: 'With the other POs on this RAB, more than the RAB qty',
 }
 
 /** Small marker for lines purchasing should look at. */
@@ -105,7 +132,7 @@ export function LineFlagBadge({ flag }: { flag: LineFlag }) {
 }
 
 export function lineFlags(line: {
-  source: 'spk' | 'extra'
+  source: PurchaseRequestLineSource
   inRab: boolean
   overPlan: boolean
 }): LineFlag[] {
@@ -114,4 +141,45 @@ export function lineFlags(line: {
   if (line.overPlan) flags.push('overPlan')
   if (!line.inRab) flags.push('notInRab')
   return flags
+}
+
+/**
+ * Link to the RAB an SPP / PO is checked against: the Purchasing RAB, or the
+ * project RAB of an SPK's project. Plain text when the viewer cannot open it.
+ */
+export function RabLink({
+  purchaseRabId,
+  projectId,
+  label,
+  className,
+}: {
+  purchaseRabId: string | null
+  projectId: string | null
+  label: string
+  className?: string
+}) {
+  const { can } = useAuth()
+  const linkClass = cn(
+    'font-medium tabular-nums underline-offset-4 hover:underline',
+    className,
+  )
+  if (purchaseRabId) {
+    return (
+      <Link
+        to="/dashboard/purchasing/rabs/$rabId"
+        params={{ rabId: purchaseRabId }}
+        className={linkClass}
+      >
+        {label}
+      </Link>
+    )
+  }
+  if (projectId && can('project.view')) {
+    return (
+      <Link to="/dashboard/internal/rab" search={{ projectId }} className={linkClass}>
+        {label}
+      </Link>
+    )
+  }
+  return <span className={cn('font-medium', className)}>{label}</span>
 }

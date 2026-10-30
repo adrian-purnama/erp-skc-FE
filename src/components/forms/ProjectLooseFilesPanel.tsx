@@ -19,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '#/components/ui/alert-dialog'
+import UploadProgress from '#/components/forms/shared/UploadProgress'
 import { Button } from '#/components/ui/button'
 import { Checkbox } from '#/components/ui/checkbox'
 import { Input } from '#/components/ui/input'
@@ -906,33 +907,11 @@ export default function ProjectLooseFilesPanel({
             </div>
 
             {uploading ? (
-              <div className="space-y-2 rounded-md border border-(--line) p-3">
-                <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className={hintClassName}>
-                    Uploading {uploadIndex} / {pendingFiles.length}
-                  </span>
-                  <span className="font-medium tabular-nums">
-                    {uploadPercent}%
-                  </span>
-                </div>
-                {uploadFileName ? (
-                  <p className="truncate text-xs font-medium">
-                    {uploadFileName}
-                  </p>
-                ) : null}
-                <div
-                  className="h-2 overflow-hidden rounded-full bg-(--line)"
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={uploadPercent}
-                >
-                  <div
-                    className="h-full bg-(--ink) transition-[width] duration-150"
-                    style={{ width: `${uploadPercent}%` }}
-                  />
-                </div>
-              </div>
+              <UploadProgress
+                percent={uploadPercent}
+                label={`Uploading ${uploadIndex} / ${pendingFiles.length}`}
+                fileName={uploadFileName}
+              />
             ) : null}
           </div>
 

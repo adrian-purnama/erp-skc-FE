@@ -5,15 +5,20 @@ import {
   Check,
   ChevronDown,
   Download,
+  Hash,
   History,
-  Layers,
   Info,
+  Layers,
+  ListOrdered,
   LoaderCircle,
   Lock,
   MoreHorizontal,
+  Package,
+  Paperclip,
   Pencil,
   Plus,
   RotateCcw,
+  Ruler,
   Trash2,
   Upload,
   X,
@@ -28,6 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '#/components/ui/alert-dialog'
+import UploadProgress from '#/components/forms/shared/UploadProgress'
 import { Button } from '#/components/ui/button'
 import { Checkbox } from '#/components/ui/checkbox'
 import {
@@ -39,9 +45,14 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog'
 import ListTable, {
+  ListChip,
   ListSearchInput,
   type ListTableColumn,
 } from '#/components/forms/shared/ListTable'
+import {
+  MAKE_TYPE_OPTIONS,
+  PRODUCTION_ORDER_TYPE_LABELS,
+} from '#/lib/production'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,7 +61,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
-import { apiDownload, apiFetch, apiUpload } from '#/lib/api'
+import { apiDownload, apiFetch, apiUploadWithProgress } from '#/lib/api'
 import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
 import type {
   ProjectRab,
@@ -248,6 +259,7 @@ export default function ProjectShopDrawingPanel({
   const [historyItemId, setHistoryItemId] = useState<string | null>(null)
   const [historyOpenId, setHistoryOpenId] = useState<string | null>(null)
   const [busyItemId, setBusyItemId] = useState<string | null>(null)
+  const [uploadPercent, setUploadPercent] = useState(0)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
   const [usingId, setUsingId] = useState<string | null>(null)
   const [rab, setRab] = useState<ProjectRab | null>(null)
@@ -269,10 +281,11 @@ export default function ProjectShopDrawingPanel({
   >(null)
   const [codeDraft, setCodeDraft] = useState('')
   const [nameDraft, setNameDraft] = useState('')
-  const [descriptionsDraft, setDescriptionsDraft] = useState('')
   const [dimensionDraft, setDimensionDraft] = useState('')
   const [categoryDraft, setCategoryDraft] = useState('')
   const [mockupApproveDateDraft, setMockupApproveDateDraft] = useState('')
+  const [makeTypeDraft, setMakeTypeDraft] =
+    useState<ProjectShopDrawingItem['makeType']>('inhouse')
   const [groupByCategory, setGroupByCategory] = useState(false)
   const [nameBusy, setNameBusy] = useState(false)
 
@@ -344,20 +357,20 @@ export default function ProjectShopDrawingPanel({
   function openCreateItem() {
     setCodeDraft('')
     setNameDraft('')
-    setDescriptionsDraft('')
     setDimensionDraft('')
     setCategoryDraft('')
     setMockupApproveDateDraft('')
+    setMakeTypeDraft('inhouse')
     setNameDialog({ mode: 'create' })
   }
 
   function openRenameItem(item: ProjectShopDrawingItem) {
     setCodeDraft(item.code)
     setNameDraft(item.name)
-    setDescriptionsDraft(item.descriptions.join('\n'))
     setDimensionDraft(item.dimension)
     setCategoryDraft(item.category ?? '')
     setMockupApproveDateDraft(item.mockupApproveDate ?? '')
+    setMakeTypeDraft(item.makeType)
     setNameDialog({ mode: 'rename', item })
   }
 
@@ -372,15 +385,12 @@ export default function ProjectShopDrawingPanel({
     const payload = {
       code,
       name,
-      descriptions: descriptionsDraft
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean),
       dimension: dimensionDraft.trim(),
       category: categoryDraft.trim() || null,
       mockupApproveDate: mockupApproveDateDraft.trim()
         ? mockupApproveDateDraft.trim()
         : null,
+      makeType: makeTypeDraft,
     }
     setNameBusy(true)
     try {
@@ -427,13 +437,15 @@ export default function ProjectShopDrawingPanel({
     const itemId = uploadItemId
     const force = forceDifferent
     setBusyItemId(itemId)
+    setUploadPercent(0)
     try {
       const form = new FormData()
       form.append('file', pendingFile)
       const qs = force ? '?force=true' : ''
-      const response = await apiUpload<ProjectShopDrawingFile>(
+      const response = await apiUploadWithProgress<ProjectShopDrawingFile>(
         `/project/${projectId}/shop-drawing/items/${itemId}/${fileKind === 'sd' ? 'files' : 'production-files'}${qs}`,
         form,
+        { onProgress: setUploadPercent },
       )
       if (!response.success || !response.data) {
         toast.error(response.message || 'Upload failed')
@@ -626,11 +638,13 @@ export default function ProjectShopDrawingPanel({
     () => [
       {
         header: 'Kode',
+        icon: Hash,
         cellClassName: 'w-20 font-medium whitespace-nowrap tabular-nums',
         cell: (item) => item.code || <span className={hintClassName}>—</span>,
       },
       {
         header: 'Item',
+        icon: Package,
         cellClassName: 'min-w-[12rem] font-medium',
         cell: (item) => (
           <div className="min-w-0">
@@ -647,6 +661,11 @@ export default function ProjectShopDrawingPanel({
                 label="Removed in change · deleted on commit"
               />
             ) : null}
+            {item.makeType !== 'inhouse' ? (
+              <ListChip dot tone="info" className="mt-0.5">
+                {PRODUCTION_ORDER_TYPE_LABELS[item.makeType]}
+              </ListChip>
+            ) : null}
             {item.category && !groupByCategory ? (
               <p className="text-[10px] font-normal tracking-wide text-(--muted)">
                 {item.category}
@@ -657,12 +676,14 @@ export default function ProjectShopDrawingPanel({
       },
       {
         header: 'Ukuran',
+        icon: Ruler,
         cellClassName: 'whitespace-nowrap text-xs tabular-nums',
         cell: (item) =>
           item.dimension || <span className={hintClassName}>—</span>,
       },
       {
         header: 'BOQ',
+        icon: ListOrdered,
         cellClassName: 'whitespace-nowrap',
         cell: (item) => {
           const current = item.current
@@ -720,6 +741,7 @@ export default function ProjectShopDrawingPanel({
       },
       {
         header: 'Files',
+        icon: Paperclip,
         cellClassName: 'w-[22rem] max-w-[22rem]',
         cell: (item) => {
           const busy = busyItemId === item.id
@@ -735,16 +757,23 @@ export default function ProjectShopDrawingPanel({
                 onDownload={(f) => void onDownload(f, 'sd')}
                 onHistory={() => openHistory(item, 'sd')}
               />
-              <FileSlot
-                kind="production"
-                file={item.productionCurrent}
-                versionCount={item.productionVersions.length}
-                busy={busy && fileKind === 'production'}
-                canManage={canManage}
-                onUpload={() => openUpload(item, 'production')}
-                onDownload={(f) => void onDownload(f, 'production')}
-                onHistory={() => openHistory(item, 'production')}
-              />
+              {item.makeType === 'outsource' &&
+              item.productionVersions.length === 0 ? (
+                <p className={cn('mt-1 text-xs', hintClassName)}>
+                  File Produksi not needed (outsource)
+                </p>
+              ) : (
+                <FileSlot
+                  kind="production"
+                  file={item.productionCurrent}
+                  versionCount={item.productionVersions.length}
+                  busy={busy && fileKind === 'production'}
+                  canManage={canManage}
+                  onUpload={() => openUpload(item, 'production')}
+                  onDownload={(f) => void onDownload(f, 'production')}
+                  onHistory={() => openHistory(item, 'production')}
+                />
+              )}
             </div>
           )
         },
@@ -891,7 +920,7 @@ export default function ProjectShopDrawingPanel({
             </DialogTitle>
             <DialogDescription>
               Kode and name make the item label (e.g. SA1-Sky Sign). Keterangan
-              and ukuran are printed on the quotation.
+              (from the BOQ) and ukuran are printed on the quotation.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">
@@ -931,21 +960,23 @@ export default function ProjectShopDrawingPanel({
               project.
             </p>
           </div>
-          <label className="block space-y-1.5">
+          <div className="space-y-1.5">
             <span className="text-sm font-medium">
-              Keterangan <span className={hintClassName}>(one per line)</span>
+              Keterangan <span className={hintClassName}>(from the BOQ)</span>
             </span>
-            <textarea
-              value={descriptionsDraft}
-              rows={5}
-              disabled={nameBusy}
-              placeholder={
-                'Polished brass panel\nDeeply etched logo\nPin mounted'
-              }
-              className="w-full resize-y rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm leading-relaxed"
-              onChange={(e) => setDescriptionsDraft(e.target.value)}
-            />
-          </label>
+            {nameDialog?.mode === 'rename' &&
+            nameDialog.item.descriptions.length > 0 ? (
+              <ul className="space-y-0.5 rounded-md border border-(--line) bg-(--surface) px-3 py-2 text-sm leading-relaxed">
+                {nameDialog.item.descriptions.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className={cn('text-xs', hintClassName)}>
+                Listed from the current BOQ materials once one is saved.
+              </p>
+            )}
+          </div>
           <label className="block space-y-1.5">
             <span className="text-sm font-medium">
               Ukuran{' '}
@@ -963,6 +994,49 @@ export default function ProjectShopDrawingPanel({
               onChange={(e) => setDimensionDraft(e.target.value)}
             />
           </label>
+          <div className="space-y-1.5">
+            <span className="text-sm font-medium">Made by</span>
+            <div
+              role="radiogroup"
+              aria-label="Made by"
+              className="grid grid-cols-3 gap-1.5"
+            >
+              {MAKE_TYPE_OPTIONS.map((opt) => {
+                const selected = makeTypeDraft === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={nameBusy || opt.disabled}
+                    onClick={() => setMakeTypeDraft(opt.value)}
+                    className={cn(
+                      'rounded-md border px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                      selected
+                        ? 'border-(--ink) bg-(--surface) font-medium'
+                        : 'border-(--line) hover:bg-(--surface)',
+                    )}
+                  >
+                    <span className="block">{opt.label}</span>
+                    <span className={cn('block text-xs', hintClassName)}>
+                      {opt.hint}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            {makeTypeDraft === 'outsource' ? (
+              <p className={cn('text-xs', hintClassName)}>
+                BOQ needs only the make qty. Add the vendor fee in the RAB as a
+                labour line on this item.
+              </p>
+            ) : makeTypeDraft === 'subcon' ? (
+              <p className={cn('text-xs', hintClassName)}>
+                Add the vendor fee in the RAB as a labour line on this item.
+              </p>
+            ) : null}
+          </div>
           <label className="block space-y-1.5">
             <span className="text-sm font-medium">
               Mockup approve date{' '}
@@ -1386,6 +1460,8 @@ export default function ProjectShopDrawingPanel({
             </div>
           </div>
 
+          {uploading ? <UploadProgress percent={uploadPercent} /> : null}
+
           <AlertDialogFooter>
             <AlertDialogCancel disabled={uploading}>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -1395,7 +1471,14 @@ export default function ProjectShopDrawingPanel({
                 void confirmUpload()
               }}
             >
-              {uploading ? 'Uploading…' : 'Upload'}
+              {uploading ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                  Uploading…
+                </>
+              ) : (
+                'Upload'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

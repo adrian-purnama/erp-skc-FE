@@ -22,6 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '#/components/ui/alert-dialog'
+import UploadProgress from '#/components/forms/shared/UploadProgress'
 import { Button } from '#/components/ui/button'
 import { Checkbox } from '#/components/ui/checkbox'
 import {
@@ -33,7 +34,7 @@ import {
 } from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
 import ProjectLooseFilesPanel from '#/components/forms/ProjectLooseFilesPanel'
-import { apiDownload, apiFetch, apiUpload } from '#/lib/api'
+import { apiDownload, apiFetch, apiUploadWithProgress } from '#/lib/api'
 import {
   PROJECT_DOCUMENT_KIND_LABELS,
   PROJECT_DOCUMENT_KINDS,
@@ -88,10 +89,7 @@ function auditDeletedLine(doc: {
   return `Deleted at ${formatWhen(doc.deletedAt)} by ${doc.deletedByName || 'Unknown'}`
 }
 
-export default function ProjectDocumentsPanel({
-  projectId,
-  canManage,
-}: Props) {
+export default function ProjectDocumentsPanel({ projectId, canManage }: Props) {
   const [loading, setLoading] = useState(true)
   const [groups, setGroups] = useState<ProjectDocumentsByKind[]>([])
   const [historyKind, setHistoryKind] = useState<ProjectDocumentKind | null>(
@@ -101,14 +99,11 @@ export default function ProjectDocumentsPanel({
   const [busyKind, setBusyKind] = useState<ProjectDocumentKind | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [usingId, setUsingId] = useState<string | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<ProjectDocument | null>(
-    null,
-  )
-  const [uploadKind, setUploadKind] = useState<ProjectDocumentKind | null>(
-    null,
-  )
+  const [deleteTarget, setDeleteTarget] = useState<ProjectDocument | null>(null)
+  const [uploadKind, setUploadKind] = useState<ProjectDocumentKind | null>(null)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [uploadFilename, setUploadFilename] = useState('')
+  const [uploadPercent, setUploadPercent] = useState(0)
   const [forceDifferent, setForceDifferent] = useState(false)
   const [showHashInfo, setShowHashInfo] = useState(false)
   const [renameTarget, setRenameTarget] = useState<ProjectDocument | null>(null)
@@ -172,13 +167,15 @@ export default function ProjectDocumentsPanel({
             lastModified: pendingFile.lastModified,
           })
     setBusyKind(kind)
+    setUploadPercent(0)
     try {
       const form = new FormData()
       form.append('file', fileToUpload)
       const qs = force ? '?force=true' : ''
-      const response = await apiUpload<ProjectDocument>(
+      const response = await apiUploadWithProgress<ProjectDocument>(
         `/project/${projectId}/documents/${kind}${qs}`,
         form,
+        { onProgress: setUploadPercent },
       )
       if (!response.success || !response.data) {
         toast.error(response.message || 'Upload failed')
@@ -384,9 +381,7 @@ export default function ProjectDocumentsPanel({
                 <VersionRow
                   doc={current}
                   emphasize
-                  busy={
-                    deletingId === current.id || renamingId === current.id
-                  }
+                  busy={deletingId === current.id || renamingId === current.id}
                   canManage={canManage}
                   onDownload={() => void onDownload(current)}
                   onRename={() => openRename(current)}
@@ -416,10 +411,7 @@ export default function ProjectDocumentsPanel({
           )
         })}
 
-        <ProjectLooseFilesPanel
-          projectId={projectId}
-          canManage={canManage}
-        />
+        <ProjectLooseFilesPanel projectId={projectId} canManage={canManage} />
       </div>
 
       <Dialog
@@ -471,14 +463,14 @@ export default function ProjectDocumentsPanel({
                           )}
                         >
                           v{doc.version}
-                          {doc.isCurrent && !doc.isDeleted
-                            ? ' · current'
-                            : ''}
+                          {doc.isCurrent && !doc.isDeleted ? ' · current' : ''}
                           {doc.isDeleted ? ' · deleted' : ''}
                           {' · '}
                           {doc.originalFilename}
                         </span>
-                        <span className={cn('block text-[11px]', hintClassName)}>
+                        <span
+                          className={cn('block text-[11px]', hintClassName)}
+                        >
                           {formatBytes(doc.sizeBytes)}
                           {doc.sameAsVersion != null
                             ? ` · same as v${doc.sameAsVersion}`
@@ -536,9 +528,7 @@ export default function ProjectDocumentsPanel({
                               Rename
                             </Button>
                           ) : null}
-                          {canManage &&
-                          !doc.isDeleted &&
-                          !doc.isCurrent ? (
+                          {canManage && !doc.isDeleted && !doc.isCurrent ? (
                             <Button
                               type="button"
                               variant="ghost"
@@ -774,6 +764,8 @@ export default function ProjectDocumentsPanel({
             </div>
           </div>
 
+          {uploading ? <UploadProgress percent={uploadPercent} /> : null}
+
           <AlertDialogFooter>
             <AlertDialogCancel disabled={uploading}>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -788,7 +780,14 @@ export default function ProjectDocumentsPanel({
                 void confirmUpload()
               }}
             >
-              {uploading ? 'Uploading…' : 'Upload'}
+              {uploading ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                  Uploading…
+                </>
+              ) : (
+                'Upload'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -819,10 +818,7 @@ function VersionRow({
 
   return (
     <div
-      className={cn(
-        'space-y-1 rounded-sm px-1 py-1',
-        muted && 'opacity-55',
-      )}
+      className={cn('space-y-1 rounded-sm px-1 py-1', muted && 'opacity-55')}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -835,7 +831,9 @@ function VersionRow({
           >
             v{doc.version}
             {doc.isCurrent && !doc.isDeleted ? ' · current' : ''}
-            {doc.sameAsVersion != null ? ` · same as v${doc.sameAsVersion}` : ''}
+            {doc.sameAsVersion != null
+              ? ` · same as v${doc.sameAsVersion}`
+              : ''}
             {' · '}
             {doc.originalFilename}
           </p>

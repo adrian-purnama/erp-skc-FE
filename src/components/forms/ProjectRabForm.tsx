@@ -10,7 +10,9 @@ import {
 } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
@@ -30,6 +32,7 @@ import {
 } from '#/components/forms/costingStatus'
 import ProjectCostingStatusStrip from '#/components/forms/ProjectCostingStatusStrip'
 import ProjectRabChangeHistory from '#/components/forms/ProjectRabChangeHistory'
+import ProjectRabCharges from '#/components/forms/ProjectRabCharges'
 import { RabSdMaterialChanges } from '#/components/forms/RabSdMaterialChanges'
 import { ListSearchInput } from '#/components/forms/shared/ListTable'
 import TenderProjectPicker from '#/components/forms/TenderProjectPicker'
@@ -77,16 +80,18 @@ import type {
   ProjectRabElaboration,
   ProjectRabElaborationDoc,
   ProjectRabLabourItem,
+  ProjectShopDrawingItem,
   ProjectRabLine,
   ProjectRabLineChangeKind,
   ProjectShopDrawingBoqMaterial,
 } from '#/lib/project'
 import {
-  buttonClassName,
   buttonOutlineClassName,
   cardClassName,
   hintClassName,
+  metaTextClassName,
   pageTitleClassName,
+  sectionTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -101,22 +106,27 @@ type Props = {
 
 const formatWhen = formatCostingWhen
 
-/** Labour rows stay plain in the list; change markers live under Added after lock. */
-const NO_LINE_KINDS = new Map<string, ProjectRabLineChangeKind>()
+/**
+ * Saved decimal amount → whole-rupiah digits, rounded half up (not cut off):
+ * a total typed as 100.000 over 3 units is stored as 99999.99999999.
+ */
+function roundedRupiahDigits(amount: string | null | undefined): string {
+  if (amount === null || amount === undefined || amount.trim() === '') return ''
+  const n = Number(amount)
+  if (!Number.isFinite(n)) return ''
+  return String(Math.round(Math.abs(n)))
+}
 
 /** Display saved amount as Rp-formatted (or —). */
 function formatRupiahAmount(amount: string | null | undefined): string {
-  if (amount === null || amount === undefined || amount.trim() === '') {
-    return '—'
-  }
-  const digits = rupiahDigits(amount.split('.')[0] ?? amount)
+  const digits = roundedRupiahDigits(amount)
   if (!digits) return '—'
-  return `Rp ${formatRupiahDigits(digits)}`
+  const negative = Number(amount) < 0 && digits !== '0'
+  return `${negative ? '-' : ''}Rp ${formatRupiahDigits(digits)}`
 }
 
 function plainFromSaved(amount: string | null | undefined): string {
-  if (!amount) return ''
-  return rupiahDigits(amount.split('.')[0] ?? amount)
+  return roundedRupiahDigits(amount)
 }
 
 function flatLines(rab: ProjectRab | null): ProjectRabLine[] {
@@ -152,9 +162,17 @@ function estimateAmount(
     return null
   }
   const qty = Number(totalQty)
-  const price = Number(rupiahDigits(unitPrice.split('.')[0] ?? unitPrice))
+  // Saved prices may carry decimals (set from a line total); drafts are digits.
+  const price = Number(unitPrice.replace(/[^\d.]/g, ''))
   if (!Number.isFinite(qty) || !Number.isFinite(price)) return null
   return String(Math.round(qty * price))
+}
+
+/** This drawing's share of the purchased qty (need scaled by RAB rounding). */
+function boughtQty(needQty: string, est: ProjectRabLine | undefined): string {
+  const need = Number(needQty)
+  if (!est || !Number.isFinite(need)) return needQty
+  return formatContributionQty(purchaseShare(est, need))
 }
 
 /** BOQ-derived material buckets on Estimate / Elaboration filters. */
@@ -186,6 +204,48 @@ const SECTION_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
     label: SECTION_LABELS[section],
   })),
 ]
+
+/** How price inputs are typed: per unit, or the whole line total. */
+type PriceMode = 'unit' | 'total'
+
+/** Pricing tab lists materials only; labour lives on each shop drawing. */
+const MATERIAL_SECTION_FILTER_OPTIONS = SECTION_FILTER_OPTIONS.filter(
+  (o) => o.value !== 'labour',
+)
+
+/** Sum of rupiah amounts; null when none is priced. */
+function sumAmounts(amounts: Array<string | null | undefined>): string | null {
+  let sum = 0
+  let any = false
+  for (const amount of amounts) {
+    if (amount == null || amount === '') continue
+    // Exact amounts, rounded once at the end (like the server's grand total).
+    const n = Number(amount)
+    if (!Number.isFinite(n)) continue
+    sum += n
+    any = true
+  }
+  return any ? String(Math.round(sum)) : null
+}
+
+function labourRows(
+  lines: ProjectRabLine[],
+  priceDrafts: Record<string, string>,
+): EstimateSectionRow[] {
+  const ordered = [...lines].sort(
+    (a, b) => (a.sequence ?? 9999) - (b.sequence ?? 9999),
+  )
+  return ordered.map((line) => {
+    const price = unitPriceForLine(line, priceDrafts)
+    return {
+      line,
+      contributionQty: line.totalQty,
+      contributionTotal:
+        price === '' ? null : estimateAmount(line.totalQty, price),
+      alsoIn: [],
+    }
+  })
+}
 
 type EstimateSectionRow = {
   line: ProjectRabLine
@@ -219,40 +279,37 @@ function formatContributionQty(qty: number): string {
   return String(Number(qty.toPrecision(12)))
 }
 
-function unitPriceDigitsForLine(
+/** Draft digits, else the saved unit price (full precision); '' if none. */
+function unitPriceForLine(
   line: ProjectRabLine,
   priceDrafts: Record<string, string>,
 ): string {
   if (priceDrafts[line.key] !== undefined) {
     return rupiahDigits(priceDrafts[line.key]!)
   }
-  return plainFromSaved(line.unitPrice)
+  return line.unitPrice?.trim() ?? ''
 }
 
-function sumContributionTotals(
-  rows: EstimateSectionRow[],
-): string | null {
-  let sum = 0
-  let any = false
-  for (const row of rows) {
-    if (row.contributionTotal == null || row.contributionTotal === '') continue
-    const n = Number(
-      rupiahDigits(
-        String(row.contributionTotal).split('.')[0] ?? row.contributionTotal,
-      ),
-    )
-    if (!Number.isFinite(n)) continue
-    sum += n
-    any = true
-  }
-  return any ? String(Math.round(sum)) : null
+/**
+ * Section share of the purchase qty: the BOQ need scaled by the line's
+ * rounding (totalQty / exactQty), so section rows add up to what is bought.
+ */
+function purchaseShare(line: ProjectRabLine, needQty: number): number {
+  const exact = Number(line.exactQty)
+  const total = Number(line.totalQty)
+  if (!line.exactQty || !Number.isFinite(exact) || exact <= 0) return needQty
+  if (!Number.isFinite(total)) return needQty
+  return (needQty * total) / exact
 }
 
-/** Group RAB lines by BOQ section using elaboration contribution qtys. */
+function sumContributionTotals(rows: EstimateSectionRow[]): string | null {
+  return sumAmounts(rows.map((row) => row.contributionTotal))
+}
+
+/** Group material RAB lines by BOQ section using elaboration contribution qtys. */
 function buildEstimateSections(
   elaboration: ProjectRabElaboration | null,
   materialLines: ProjectRabLine[],
-  labourLines: ProjectRabLine[],
   priceDrafts: Record<string, string>,
 ): EstimateSectionGroup[] {
   const lineByKey = new Map(materialLines.map((l) => [l.key, l]))
@@ -306,49 +363,21 @@ function buildEstimateSections(
     for (const [key, qty] of bucket) {
       const line = lineByKey.get(key)
       if (!line) continue
-      const contributionQty = formatContributionQty(qty)
-      const priceDigits = unitPriceDigitsForLine(line, priceDrafts)
+      const contributionQty = formatContributionQty(purchaseShare(line, qty))
+      const price = unitPriceForLine(line, priceDrafts)
       const contributionTotal =
-        priceDigits === ''
-          ? null
-          : estimateAmount(contributionQty, priceDigits)
+        price === '' ? null : estimateAmount(contributionQty, price)
       const alsoIn = [...(sectionsSeenByKey.get(key) ?? [])]
         .filter((s) => s !== section)
-        .sort(
-          (a, b) =>
-            SECTION_ORDER.indexOf(a) - SECTION_ORDER.indexOf(b),
-        )
+        .sort((a, b) => SECTION_ORDER.indexOf(a) - SECTION_ORDER.indexOf(b))
       rows.push({ line, contributionQty, contributionTotal, alsoIn })
     }
-    rows.sort((a, b) =>
-      a.line.materialName.localeCompare(b.line.materialName),
-    )
+    rows.sort((a, b) => a.line.materialName.localeCompare(b.line.materialName))
     return rows
   }
 
-  return SECTION_ORDER.map((section) => {
-    if (section === 'labour') {
-      const rows: EstimateSectionRow[] = labourLines.map((line) => {
-        const priceDigits = unitPriceDigitsForLine(line, priceDrafts)
-        const contributionTotal =
-          line.lineTotal ??
-          (priceDigits === ''
-            ? null
-            : estimateAmount(line.totalQty, priceDigits))
-        return {
-          line,
-          contributionQty: line.totalQty,
-          contributionTotal,
-          alsoIn: [],
-        }
-      })
-      return {
-        section,
-        label: SECTION_LABELS[section],
-        rows,
-        subtotal: sumContributionTotals(rows),
-      }
-    }
+  return SECTION_ORDER.flatMap((section) => {
+    if (section === 'labour') return []
     const rows = rowsForBoqSection(section)
     return {
       section,
@@ -412,58 +441,6 @@ type ChangeProvenance = {
   newTotalQty: string | null
   oldUnitPrice: string | null
   newUnitPrice: string | null
-}
-
-function buildChangeProvenanceByKey(
-  lines: ProjectRabLine[],
-  lineKindByKey: Map<string, ProjectRabLineChangeKind>,
-  changeDraft: ProjectRabChangeDraftRef | null,
-  lineDiff: ProjectRab['changeDiff'],
-): Map<string, ChangeProvenance> {
-  const diffByKey = new Map(
-    (lineDiff?.lineDiff ?? []).map((d) => [d.key, d] as const),
-  )
-  const map = new Map<string, ChangeProvenance>()
-
-  for (const [key, kind] of lineKindByKey) {
-    const line = lines.find((l) => l.key === key)
-    const diff = diffByKey.get(key)
-    const fromOpenChange = Boolean(changeDraft)
-    map.set(key, {
-      kind,
-      whenIso: fromOpenChange ? changeDraft!.openedAt : (line?.addedAt ?? null),
-      byName: fromOpenChange
-        ? changeDraft!.openedBy.name
-        : (line?.addedBy?.name ?? null),
-      because: fromOpenChange
-        ? changeDraft!.reason.trim()
-        : (line?.addReason?.trim() ?? ''),
-      fromOpenChange,
-      oldTotalQty: diff?.oldTotalQty ?? null,
-      newTotalQty: diff?.newTotalQty ?? null,
-      oldUnitPrice: diff?.oldUnitPrice ?? null,
-      newUnitPrice: diff?.newUnitPrice ?? null,
-    })
-  }
-
-  // Committed appends not in the open-diff map still carry stamps.
-  for (const line of lines) {
-    if (map.has(line.key)) continue
-    if (line.origin !== 'append' && !line.addReason?.trim()) continue
-    map.set(line.key, {
-      kind: 'added',
-      whenIso: line.addedAt,
-      byName: line.addedBy?.name ?? null,
-      because: line.addReason?.trim() ?? '',
-      fromOpenChange: false,
-      oldTotalQty: null,
-      newTotalQty: line.totalQty,
-      oldUnitPrice: null,
-      newUnitPrice: line.unitPrice,
-    })
-  }
-
-  return map
 }
 
 function boqMaterialScopeKey(fileId: string, rabKey: string): string {
@@ -551,6 +528,10 @@ export default function ProjectRabForm({
   const canManage = can('project.manage')
 
   const [tab, setTab] = useState('estimate')
+  // History tab was removed; keep users on a real tab if state lingered.
+  useEffect(() => {
+    if (tab === 'history') setTab('estimate')
+  }, [tab])
   const [rab, setRab] = useState<ProjectRab | null>(null)
   const [elaboration, setElaboration] = useState<ProjectRabElaboration | null>(
     null,
@@ -562,6 +543,15 @@ export default function ProjectRabForm({
   const [changeReason, setChangeReason] = useState('')
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({})
   const [labourItems, setLabourItems] = useState<ProjectRabLabourItem[]>([])
+  /** makeType by shop drawing item id (process UI is inhouse-only). */
+  const [makeTypeByDrawingId, setMakeTypeByDrawingId] = useState<
+    Map<string, ProjectShopDrawingItem['makeType']>
+  >(() => new Map())
+  /** Shop drawing the Add labour dialog is open for. */
+  const [labourDrawing, setLabourDrawing] = useState<{
+    id: string
+    name: string
+  } | null>(null)
   const [labourItemId, setLabourItemId] = useState('')
   const [labourUomId, setLabourUomId] = useState('')
   const [labourQty, setLabourQty] = useState('1')
@@ -603,7 +593,7 @@ export default function ProjectRabForm({
   const loadAll = useCallback(async (pid: string) => {
     setLoading(true)
     try {
-      const [rabRes, elabRes, labourRes, materialsRes, categoriesRes] =
+      const [rabRes, elabRes, labourRes, materialsRes, categoriesRes, sdRes] =
         await Promise.all([
           apiFetch<ProjectRab | null>(`/project/${pid}/rab`),
           apiFetch<ProjectRabElaboration>(`/project/${pid}/rab/elaboration`),
@@ -612,6 +602,9 @@ export default function ProjectRabForm({
             `/project/${pid}/shop-drawing/boq/materials`,
           ),
           apiFetch<ItemCategoryOut[]>('/item-categories'),
+          apiFetch<ProjectShopDrawingItem[]>(
+            `/project/${pid}/shop-drawing/items`,
+          ),
         ])
       if (!rabRes.success) {
         toast.error(rabRes.message || 'Failed to load RAB')
@@ -639,6 +632,13 @@ export default function ProjectRabForm({
       } else {
         setCategories(categoriesRes.data)
       }
+      if (!sdRes.success || !sdRes.data) {
+        setMakeTypeByDrawingId(new Map())
+      } else {
+        setMakeTypeByDrawingId(
+          new Map(sdRes.data.map((i) => [i.id, i.makeType])),
+        )
+      }
     } catch {
       toast.error('Unable to reach the server')
       setRab(null)
@@ -646,6 +646,7 @@ export default function ProjectRabForm({
       setLabourItems([])
       setMaterials([])
       setCategories([])
+      setMakeTypeByDrawingId(new Map())
     } finally {
       setLoading(false)
     }
@@ -656,6 +657,7 @@ export default function ProjectRabForm({
     setElaboration(null)
     setPriceDrafts({})
     setLabourItems([])
+    setLabourDrawing(null)
     setLabourItemId('')
     setLabourUomId('')
     setLabourQty('1')
@@ -712,6 +714,11 @@ export default function ProjectRabForm({
         addedBy: null,
         addReason: null,
         priceEditable: false,
+        priceByTotal: false,
+        shopDrawingItemId: null,
+        shopDrawingItemName: null,
+        sequence: null,
+        weightPercent: null,
       }))
   }, [rab?.changeDiff])
   const materialLines = useMemo(() => {
@@ -732,7 +739,6 @@ export default function ProjectRabForm({
     const groups = buildEstimateSections(
       elaboration,
       materialLines,
-      labourLines,
       priceDrafts,
     )
     const q = estimateQuery.trim()
@@ -756,22 +762,52 @@ export default function ProjectRabForm({
   }, [
     elaboration,
     materialLines,
-    labourLines,
     priceDrafts,
     estimateQuery,
     estimateSectionFilter,
   ])
-  const changeDraft = rab?.changeDraft ?? null
-  const changeProvenanceByKey = useMemo(
-    () =>
-      buildChangeProvenanceByKey(
-        lines,
-        lineKindByKey,
-        changeDraft,
-        rab?.changeDiff ?? null,
+  const totals = useMemo(() => {
+    return {
+      material: sumAmounts(
+        lines.filter((l) => l.origin !== 'labour').map((l) => l.lineTotal),
       ),
-    [lines, lineKindByKey, changeDraft, rab?.changeDiff],
-  )
+      labour: sumAmounts(
+        lines.filter((l) => l.origin === 'labour').map((l) => l.lineTotal),
+      ),
+      unpriced: lines.filter((l) => !l.unitPrice?.trim()).length,
+    }
+  }, [lines])
+  /** Labour per shop drawing item; the first card of each item shows it. */
+  const labourByDrawing = useMemo(() => {
+    const map = new Map<string, ProjectRabLine[]>()
+    for (const line of labourLines) {
+      const id = line.shopDrawingItemId ?? ''
+      const list = map.get(id) ?? []
+      list.push(line)
+      map.set(id, list)
+    }
+    return map
+  }, [labourLines])
+  const labourCardFileIds = useMemo(() => {
+    const seen = new Set<string>()
+    const fileIds = new Set<string>()
+    for (const doc of elaboration?.documents ?? []) {
+      if (seen.has(doc.shopDrawingItemId)) continue
+      seen.add(doc.shopDrawingItemId)
+      fileIds.add(doc.shopDrawingFileId)
+    }
+    return fileIds
+  }, [elaboration])
+  /** Project-wide labour, or labour on a drawing with no BOQ card. */
+  const unlinkedLabour = useMemo(() => {
+    const drawn = new Set(
+      (elaboration?.documents ?? []).map((d) => d.shopDrawingItemId),
+    )
+    return labourLines.filter(
+      (l) => !l.shopDrawingItemId || !drawn.has(l.shopDrawingItemId),
+    )
+  }, [labourLines, elaboration])
+  const changeDraft = rab?.changeDraft ?? null
   const elaborationProvenanceByFile = useMemo(
     () =>
       buildElaborationProvenanceByFile(rab?.changeDiff ?? null, changeDraft),
@@ -1071,8 +1107,71 @@ export default function ProjectRabForm({
     }
   }
 
+  function openAddLabour(drawing: { id: string; name: string }) {
+    setLabourItemId('')
+    setLabourUomId('')
+    setLabourQty('1')
+    setLabourPriceDigits('')
+    setLabourDrawing(drawing)
+  }
+
+  /** Save whether a line's price is typed per unit or as the line total. */
+  async function setLineMode(lineKey: string, byTotal: boolean) {
+    if (!projectId) return
+    try {
+      const res = await apiFetch<ProjectRab>(
+        `/project/${projectId}/rab/lines/${encodeURIComponent(lineKey)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ priceByTotal: byTotal }),
+        },
+      )
+      if (!res.success || !res.data) {
+        toast.error(res.message || 'Failed to save price mode')
+        return
+      }
+      setRab(res.data)
+    } catch {
+      toast.error('Unable to reach the server')
+    }
+  }
+
+  async function saveLineTotal(
+    lineKey: string,
+    digits: string,
+  ): Promise<boolean> {
+    if (!projectId || digits === '') return false
+    setBusy(true)
+    try {
+      const res = await apiFetch<ProjectRab>(
+        `/project/${projectId}/rab/lines/${encodeURIComponent(lineKey)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ lineTotal: digits }),
+        },
+      )
+      if (!res.success || !res.data) {
+        toast.error(res.message || 'Failed to update price')
+        return false
+      }
+      setRab(res.data)
+      setPriceDrafts((prev) => {
+        const next = { ...prev }
+        delete next[lineKey]
+        return next
+      })
+      toast.success('Line total saved')
+      return true
+    } catch {
+      toast.error('Unable to reach the server')
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function addLabourLine() {
-    if (!projectId || !canManage) return
+    if (!projectId || !canManage || !labourDrawing) return
     if (!labourItemId || !labourUomId) {
       toast.error('Select a labour item and UOM')
       return
@@ -1090,6 +1189,7 @@ export default function ProjectRabForm({
         {
           method: 'POST',
           body: JSON.stringify({
+            shopDrawingItemId: labourDrawing.id,
             itemId: labourItemId,
             itemUomId: labourUomId,
             totalQty: qty,
@@ -1102,11 +1202,8 @@ export default function ProjectRabForm({
         return
       }
       setRab(res.data)
-      setLabourItemId('')
-      setLabourUomId('')
-      setLabourQty('1')
-      setLabourPriceDigits('')
-      toast.success('Labour line added')
+      setLabourDrawing(null)
+      toast.success('Labour added')
     } catch {
       toast.error('Unable to reach the server')
     } finally {
@@ -1133,6 +1230,32 @@ export default function ProjectRabForm({
         return next
       })
       toast.success('Labour line removed')
+    } catch {
+      toast.error('Unable to reach the server')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveLabourProcess(
+    shopDrawingItemId: string,
+    ordered: Array<{ key: string; weightPercent: number }>,
+  ) {
+    if (!projectId || !canManage) return
+    setBusy(true)
+    try {
+      const res = await apiFetch<ProjectRab>(
+        `/project/${projectId}/rab/labour-process`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ shopDrawingItemId, lines: ordered }),
+        },
+      )
+      if (!res.success || !res.data) {
+        toast.error(res.message || 'Failed to save labour process')
+        return
+      }
+      setRab(res.data)
     } catch {
       toast.error('Unable to reach the server')
     } finally {
@@ -1226,6 +1349,12 @@ export default function ProjectRabForm({
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                ) : null}
+                {isLocked && projectId ? (
+                  <ProjectRabChangeHistory
+                    projectId={projectId}
+                    refreshKey={`${rab?.currentRevision ?? 0}-${changeDraft?.id ?? ''}-${rab?.grandTotal ?? ''}`}
+                  />
                 ) : null}
                 {canManage && hasLines && !isLocked ? (
                   <Button
@@ -1358,13 +1487,47 @@ export default function ProjectRabForm({
             </div>
           ) : null}
 
+          {hasLines ? (
+            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-sm border border-(--line) bg-(--line) sm:grid-cols-3 lg:grid-cols-5">
+              <RabStat
+                label="Materials"
+                value={formatRupiahAmount(totals.material)}
+              />
+              <RabStat
+                label="Labour"
+                value={formatRupiahAmount(totals.labour)}
+              />
+              <RabStat
+                label="Additional"
+                value={formatRupiahAmount(rab?.chargesTotal)}
+              />
+              <RabStat
+                label="Grand total"
+                value={formatRupiahAmount(rab?.grandTotal)}
+                emphasis
+                hint={
+                  changeDraft && rab?.baselineGrandTotal != null
+                    ? `${formatDelta(rab.baselineGrandTotal, rab.grandTotal)} vs ${formatRupiahAmount(rab.baselineGrandTotal)}`
+                    : undefined
+                }
+              />
+              <RabStat
+                label="Unpriced lines"
+                value={String(totals.unpriced)}
+                tone={totals.unpriced > 0 ? 'warn' : 'ok'}
+                hint={
+                  totals.unpriced > 0
+                    ? 'Price all lines to lock'
+                    : 'All lines priced'
+                }
+              />
+            </dl>
+          ) : null}
+
           <Tabs value={tab} onValueChange={setTab} className="gap-0">
             <TabsList variant="line">
-              <TabsTrigger value="estimate">Estimate</TabsTrigger>
-              <TabsTrigger value="elaboration">Elaboration</TabsTrigger>
-              {isLocked ? (
-                <TabsTrigger value="history">Change history</TabsTrigger>
-              ) : null}
+              <TabsTrigger value="estimate">Pricing</TabsTrigger>
+              <TabsTrigger value="elaboration">By shop drawing</TabsTrigger>
             </TabsList>
 
             <TabsContent value="estimate" className="mt-4 space-y-6">
@@ -1373,13 +1536,13 @@ export default function ProjectRabForm({
                   value={estimateQuery}
                   onChange={setEstimateQuery}
                   placeholder="Find material…"
-                  aria-label="Find material in estimate"
+                  aria-label="Find material in pricing"
                   className="max-w-sm flex-1"
                 />
                 <Combobox
                   value={estimateSectionFilter}
                   onValueChange={setEstimateSectionFilter}
-                  options={SECTION_FILTER_OPTIONS}
+                  options={MATERIAL_SECTION_FILTER_OPTIONS}
                   placeholder="All sections"
                   searchPlaceholder="Search section…"
                   emptyText="No section found."
@@ -1388,62 +1551,34 @@ export default function ProjectRabForm({
                 />
               </div>
 
-              {materialLines.length === 0 && labourLines.length === 0 ? (
+              {materialLines.length === 0 ? (
                 <p className={cn('text-sm', hintClassName)}>
                   {reviewChangesOnly
-                    ? 'No lines changed in this draft.'
+                    ? 'No materials changed in this draft.'
                     : 'No materials yet. Fill Shop Drawing BOQ first.'}
                 </p>
+              ) : estimateSections.every((group) => group.rows.length === 0) ? (
+                <p className={cn('text-sm', hintClassName)}>
+                  {estimateQuery.trim()
+                    ? `No materials match “${estimateQuery.trim()}”.`
+                    : 'No materials in this section.'}
+                </p>
               ) : (
-                <>
-                {estimateSections.every(
-                  (group) =>
-                    group.rows.length === 0 &&
-                    !(group.section === 'labour' && canManage && canEdit),
-                ) ? (
-                  <p className={cn('text-sm', hintClassName)}>
-                    {estimateQuery.trim()
-                      ? `No materials match “${estimateQuery.trim()}”.`
-                      : estimateSectionFilter !== 'all'
-                        ? 'No materials in this section.'
-                        : reviewChangesOnly
-                          ? 'No lines changed in this draft.'
-                          : 'No materials yet. Fill Shop Drawing BOQ first.'}
-                  </p>
-                ) : null}
-                {estimateSections.map((group) => {
-                  const showLabourForm =
-                    group.section === 'labour' && canManage && canEdit
+                estimateSections.map((group) => {
+                  if (group.rows.length === 0) return null
                   const isCollapsed = collapsedEstimateSections.has(
                     group.section,
                   )
-                  const hideEmpty =
-                    group.rows.length === 0 &&
-                    !showLabourForm &&
-                    (estimateQuery.trim() !== '' ||
-                      estimateSectionFilter !== 'all')
-                  if (hideEmpty) return null
-                  if (
-                    group.rows.length === 0 &&
-                    !showLabourForm &&
-                    estimateSectionFilter === 'all' &&
-                    !estimateQuery.trim() &&
-                    group.section !== 'labour'
-                  ) {
-                    return null
-                  }
                   return (
-                    <section
-                      key={group.section}
-                      className="space-y-2 border-t border-(--line) pt-4 first:border-t-0 first:pt-0"
-                    >
+                    <section key={group.section} className="space-y-2">
                       <button
                         type="button"
-                        className="flex w-full items-center gap-2 text-left"
+                        className="flex w-full items-center gap-2 border-b border-(--line) pb-2 text-left"
                         onClick={() =>
                           setCollapsedEstimateSections((prev) => {
                             const next = new Set(prev)
-                            if (next.has(group.section)) next.delete(group.section)
+                            if (next.has(group.section))
+                              next.delete(group.section)
                             else next.add(group.section)
                             return next
                           })
@@ -1461,7 +1596,12 @@ export default function ProjectRabForm({
                             aria-hidden
                           />
                         )}
-                        <h2 className="min-w-0 flex-1 text-sm font-medium">
+                        <h2
+                          className={cn(
+                            sectionTitleClassName,
+                            'min-w-0 flex-1',
+                          )}
+                        >
                           {group.label}
                           <span
                             className={cn(
@@ -1473,142 +1613,36 @@ export default function ProjectRabForm({
                           </span>
                         </h2>
                         {group.subtotal != null ? (
-                          <span className="text-sm tabular-nums text-(--muted)">
+                          <span className="text-sm font-medium tabular-nums">
                             {formatRupiahAmount(group.subtotal)}
                           </span>
                         ) : null}
                       </button>
 
                       {!isCollapsed ? (
-                        <div className="space-y-3">
-                          {showLabourForm ? (
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_5rem_8rem_auto] sm:items-end">
-                              <div className="space-y-1">
-                                <p className={cn('text-xs', hintClassName)}>
-                                  Item
-                                </p>
-                                <Combobox
-                                  value={labourItemId}
-                                  onValueChange={setLabourItemId}
-                                  options={labourItems.map((item) => ({
-                                    value: item.id,
-                                    label: `${item.itemId} — ${item.name}`,
-                                  }))}
-                                  placeholder="Select labour…"
-                                  searchPlaceholder="Search labour…"
-                                  emptyText="No labour items."
-                                  className="w-full"
-                                  disabled={busy || labourItems.length === 0}
-                                  aria-label="Labour item"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <p className={cn('text-xs', hintClassName)}>
-                                  UOM
-                                </p>
-                                <Combobox
-                                  value={labourUomId}
-                                  onValueChange={setLabourUomId}
-                                  options={(selectedLabour?.uoms ?? []).map(
-                                    (u) => ({
-                                      value: u.id,
-                                      label: `${u.symbol} — ${u.name}`,
-                                    }),
-                                  )}
-                                  placeholder="UOM…"
-                                  searchPlaceholder="Search UOM…"
-                                  emptyText="No UOMs."
-                                  className="w-full"
-                                  disabled={busy || !selectedLabour}
-                                  aria-label="Labour UOM"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <p className={cn('text-xs', hintClassName)}>
-                                  Qty
-                                </p>
-                                <Input
-                                  value={labourQty}
-                                  onChange={(e) => setLabourQty(e.target.value)}
-                                  disabled={busy}
-                                  inputMode="decimal"
-                                  className="h-9 tabular-nums"
-                                  aria-label="Labour quantity"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <p className={cn('text-xs', hintClassName)}>
-                                  Unit price
-                                </p>
-                                <RupiahInput
-                                  value={labourPriceDigits}
-                                  onValueChange={setLabourPriceDigits}
-                                  disabled={busy}
-                                  aria-label="Labour unit price"
-                                />
-                              </div>
-                              <Button
-                                type="button"
-                                className={cn(buttonClassName, 'h-9')}
-                                disabled={
-                                  busy || !labourItemId || !labourUomId
-                                }
-                                onClick={() => void addLabourLine()}
-                              >
-                                <Plus className="size-3.5" aria-hidden />
-                                Add
-                              </Button>
-                            </div>
-                          ) : null}
-
-                          {group.rows.length === 0 ? (
-                            <p className={cn('text-sm', hintClassName)}>
-                              {group.section === 'labour'
-                                ? reviewChangesOnly
-                                  ? 'No labour lines changed in this draft.'
-                                  : canManage && canEdit
-                                    ? 'No labour lines yet. Add a labour item above.'
-                                    : 'No labour lines.'
-                                : estimateQuery.trim()
-                                  ? `No materials match “${estimateQuery.trim()}”.`
-                                  : 'No materials in this section.'}
-                            </p>
-                          ) : (
-                            <RabLineList
-                              rows={group.rows}
-                              section={group.section}
-                              lineKindByKey={
-                                group.section === 'labour'
-                                  ? NO_LINE_KINDS
-                                  : lineKindByKey
-                              }
-                              priceDrafts={priceDrafts}
-                              setPriceDrafts={setPriceDrafts}
-                              canManage={canManage}
-                              busy={busy}
-                              query={estimateQuery}
-                              onSavePrice={saveUnitPrice}
-                              onFillTarif={fillTarif}
-                              onRemove={
-                                group.section === 'labour' &&
-                                canManage &&
-                                canEdit
-                                  ? removeLabourLine
-                                  : undefined
-                              }
-                            />
-                          )}
-                        </div>
+                        <RabLineList
+                          rows={group.rows}
+                          section={group.section}
+                          lineKindByKey={lineKindByKey}
+                          priceDrafts={priceDrafts}
+                          setPriceDrafts={setPriceDrafts}
+                          canManage={canManage}
+                          busy={busy}
+                          query={estimateQuery}
+                          onSavePrice={saveUnitPrice}
+                          onSaveTotal={saveLineTotal}
+                          onSetMode={setLineMode}
+                          onFillTarif={fillTarif}
+                        />
                       ) : null}
                     </section>
                   )
-                })}
-                </>
+                })
               )}
 
               {addedAfterLockGroups.length > 0 ? (
                 <section className="space-y-4 border-t border-(--line) pt-4">
-                  <h2 className="text-sm font-medium">Changes after lock</h2>
+                  <h2 className={sectionTitleClassName}>Changes after lock</h2>
                   {addedAfterLockGroups.map((group) => (
                     <div
                       key={group.key}
@@ -1647,27 +1681,32 @@ export default function ProjectRabForm({
                                     className={cn('text-[11px]', hintClassName)}
                                   >
                                     labour
+                                    {line.shopDrawingItemName
+                                      ? ` · ${line.shopDrawingItemName}`
+                                      : ''}
                                   </span>
-                              ) : null}
-                            </p>
-                            <p
-                              className={cn(
-                                'font-mono text-[11px]',
-                                hintClassName,
-                              )}
-                            >
-                              {line.materialCode
-                                ? `${line.materialCode} · `
-                                : ''}
-                              {line.totalQty} {line.uomSymbol}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
+                                ) : null}
+                              </p>
+                              <p
+                                className={cn(
+                                  'font-mono text-[11px]',
+                                  hintClassName,
+                                )}
+                              >
+                                {line.materialCode
+                                  ? `${line.materialCode} · `
+                                  : ''}
+                                {line.totalQty} {line.uomSymbol}
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
                       ) : null}
                       {group.materials.length > 0 ? (
                         <div className="space-y-1 px-3 pb-2">
-                          <p className={cn('text-xs font-medium', hintClassName)}>
+                          <p
+                            className={cn('text-xs font-medium', hintClassName)}
+                          >
                             Shop drawing materials
                           </p>
                           <RabSdMaterialChanges materials={group.materials} />
@@ -1678,89 +1717,57 @@ export default function ProjectRabForm({
                 </section>
               ) : null}
 
-              {hasLines ? (
-                <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 border-t border-(--line) pt-3 text-sm">
-                  {changeDraft && rab?.baselineGrandTotal != null ? (
-                    <>
-                      <span className="text-(--muted)">
-                        Baseline{' '}
-                        <span className="tabular-nums text-(--ink)">
-                          {formatRupiahAmount(rab.baselineGrandTotal)}
-                        </span>
-                      </span>
-                      <span className="text-(--muted)">
-                        Delta{' '}
-                        <span className="tabular-nums text-(--ink)">
-                          {formatDelta(rab.baselineGrandTotal, rab.grandTotal)}
-                        </span>
-                      </span>
-                    </>
-                  ) : null}
-                  <span className="text-(--muted)">Grand total</span>
-                  <span className="font-medium tabular-nums">
-                    {formatRupiahAmount(rab?.grandTotal)}
-                  </span>
-                </div>
+              {rab && projectId && hasLines ? (
+                <ProjectRabCharges
+                  projectId={projectId}
+                  rab={rab}
+                  editable={canManage && (rab.status === 'draft' || Boolean(changeDraft))}
+                  onSaved={setRab}
+                />
               ) : null}
             </TabsContent>
 
-            <TabsContent value="elaboration" className="mt-4 space-y-5">
+            <TabsContent value="elaboration" className="mt-4 space-y-4">
               {!elaboration?.documents.length && labourLines.length === 0 ? (
                 <p className={cn('text-sm', hintClassName)}>
-                  No BOQ documents or labour lines to elaborate.
+                  No shop drawing BOQs yet.
                 </p>
               ) : (
                 <>
-                  <p className={hintClassName}>
-                    Materials by shop drawing, with qty and RAB estimate. Labour
-                    is listed below.
-                    {reviewChangesOnly
-                      ? ' Showing only materials changed in this draft.'
-                      : ''}
-                  </p>
-                  <div className="flex min-w-0 flex-wrap items-end gap-3">
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <p className={cn('text-xs', hintClassName)}>
-                        Find material
-                      </p>
-                      <ListSearchInput
-                        value={elaborationQuery}
-                        onChange={setElaborationQuery}
-                        placeholder="Find material…"
-                        aria-label="Find material in elaboration"
-                        className="max-w-sm w-full"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <p className={cn('text-xs', hintClassName)}>Section</p>
-                      <Combobox
-                        value={elaborationSectionFilter}
-                        onValueChange={setElaborationSectionFilter}
-                        options={SECTION_FILTER_OPTIONS}
-                        placeholder="All sections"
-                        searchPlaceholder="Search section…"
-                        emptyText="No section found."
-                        aria-label="Section filter"
-                        className="w-[11rem] shrink-0"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <p className={cn('text-xs', hintClassName)}>Category</p>
-                      <Combobox
-                        value={elaborationCategoryFilter}
-                        onValueChange={setElaborationCategoryFilter}
-                        options={categoryFilterOptions}
-                        placeholder="All categories"
-                        searchPlaceholder="Search category…"
-                        emptyText="No category found."
-                        aria-label="Category filter"
-                        className="w-[10rem] shrink-0"
-                      />
-                    </div>
+                  <div className="flex min-w-0 flex-wrap items-center gap-3">
+                    <ListSearchInput
+                      value={elaborationQuery}
+                      onChange={setElaborationQuery}
+                      placeholder="Find drawing, material or labour…"
+                      aria-label="Find in shop drawings"
+                      className="max-w-sm flex-1"
+                    />
+                    <Combobox
+                      value={elaborationSectionFilter}
+                      onValueChange={setElaborationSectionFilter}
+                      options={SECTION_FILTER_OPTIONS}
+                      placeholder="All sections"
+                      searchPlaceholder="Search section…"
+                      emptyText="No section found."
+                      aria-label="Section filter"
+                      className="w-[11rem] shrink-0"
+                    />
+                    <Combobox
+                      value={elaborationCategoryFilter}
+                      onValueChange={setElaborationCategoryFilter}
+                      options={categoryFilterOptions}
+                      placeholder="All categories"
+                      searchPlaceholder="Search category…"
+                      emptyText="No category found."
+                      aria-label="Category filter"
+                      className="w-[10rem] shrink-0"
+                    />
                   </div>
-                  {(elaborationSectionFilter === 'all' ||
-                    elaborationSectionFilter !== 'labour') &&
-                    (elaboration?.documents ?? []).map((doc) => (
+                  {(elaboration?.documents ?? []).map((doc) => {
+                    const ownsLabour = labourCardFileIds.has(
+                      doc.shopDrawingFileId,
+                    )
+                    return (
                       <RabElaborationDoc
                         key={`${doc.shopDrawingFileId}-${doc.fileVersion}-${doc.originalFilename}`}
                         doc={doc}
@@ -1779,17 +1786,74 @@ export default function ProjectRabForm({
                         sectionFilter={elaborationSectionFilter}
                         categoryFilter={elaborationCategoryFilter}
                         categoryIdsByMaterialId={categoryIdsByMaterialId}
+                        labour={
+                          ownsLabour
+                            ? {
+                                lines:
+                                  labourByDrawing.get(doc.shopDrawingItemId) ??
+                                  [],
+                                list: {
+                                  lineKindByKey,
+                                  priceDrafts,
+                                  setPriceDrafts,
+                                  canManage,
+                                  busy,
+                                  onSavePrice: saveUnitPrice,
+                                  onSaveTotal: saveLineTotal,
+                                  onSetMode: setLineMode,
+                                  onFillTarif: fillTarif,
+                                  onRemove:
+                                    canManage && canEdit
+                                      ? removeLabourLine
+                                      : undefined,
+                                },
+                                onAdd:
+                                  canManage && canEdit && labourItems.length > 0
+                                    ? () =>
+                                        openAddLabour({
+                                          id: doc.shopDrawingItemId,
+                                          name: doc.shopDrawingItemName,
+                                        })
+                                    : undefined,
+                                process:
+                                  makeTypeByDrawingId.get(
+                                    doc.shopDrawingItemId,
+                                  ) === 'inhouse'
+                                    ? {
+                                        canEdit: canManage && canEdit,
+                                        onSave: (ordered) =>
+                                          saveLabourProcess(
+                                            doc.shopDrawingItemId,
+                                            ordered,
+                                          ),
+                                      }
+                                    : undefined,
+                              }
+                            : null
+                        }
                       />
-                    ))}
-                  {labourLines.length > 0 &&
+                    )
+                  })}
+                  {unlinkedLabour.length > 0 &&
+                  elaborationCategoryFilter === 'all' &&
                   (elaborationSectionFilter === 'all' ||
                     elaborationSectionFilter === 'labour') ? (
-                    <RabElaborationLabour
-                      lines={labourLines}
-                      lineKindByKey={lineKindByKey}
-                      changeProvenanceByKey={changeProvenanceByKey}
+                    <RabUnlinkedLabour
+                      lines={unlinkedLabour}
                       query={elaborationQuery}
-                      categoryFilter={elaborationCategoryFilter}
+                      list={{
+                        lineKindByKey,
+                        priceDrafts,
+                        setPriceDrafts,
+                        canManage,
+                        busy,
+                        onSavePrice: saveUnitPrice,
+                        onSaveTotal: saveLineTotal,
+                        onSetMode: setLineMode,
+                        onFillTarif: fillTarif,
+                        onRemove:
+                          canManage && canEdit ? removeLabourLine : undefined,
+                      }}
                     />
                   ) : null}
                   {elaborationQuery.trim() ||
@@ -1808,26 +1872,9 @@ export default function ProjectRabForm({
                       categoryIdsByMaterialId={categoryIdsByMaterialId}
                     />
                   ) : null}
-                  {hasLines ? (
-                    <div className="flex justify-end gap-2 border-t border-(--line) pt-3 text-sm">
-                      <span className="text-(--muted)">Grand total</span>
-                      <span className="font-medium tabular-nums">
-                        {formatRupiahAmount(rab?.grandTotal)}
-                      </span>
-                    </div>
-                  ) : null}
                 </>
               )}
             </TabsContent>
-
-            {isLocked && projectId ? (
-              <TabsContent value="history" className="mt-4">
-                <ProjectRabChangeHistory
-                  projectId={projectId}
-                  refreshKey={`${rab?.currentRevision ?? 0}-${changeDraft?.id ?? ''}-${rab?.grandTotal ?? ''}`}
-                />
-              </TabsContent>
-            ) : null}
           </Tabs>
         </div>
       )}
@@ -1892,7 +1939,363 @@ export default function ProjectRabForm({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={labourDrawing !== null}
+        onOpenChange={(open) => {
+          if (!open) setLabourDrawing(null)
+        }}
+      >
+        <DialogContent className="overflow-hidden sm:max-w-md">
+          <DialogHeader className="min-w-0">
+            <DialogTitle>Add labour</DialogTitle>
+            <DialogDescription className="truncate">
+              {labourDrawing?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-w-0 space-y-3">
+            <div className="min-w-0 space-y-1">
+              <p className={cn('text-xs', hintClassName)}>Labour item</p>
+              <Combobox
+                value={labourItemId}
+                onValueChange={setLabourItemId}
+                options={labourItems.map((item) => ({
+                  value: item.id,
+                  label: `${item.itemId} — ${item.name}`,
+                }))}
+                placeholder="Select labour…"
+                searchPlaceholder="Search labour…"
+                emptyText="No labour items."
+                className="w-full"
+                disabled={busy}
+                aria-label="Labour item"
+              />
+            </div>
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_5.5rem] gap-3">
+              <div className="min-w-0 space-y-1">
+                <p className={cn('text-xs', hintClassName)}>UOM</p>
+                <Combobox
+                  value={labourUomId}
+                  onValueChange={setLabourUomId}
+                  options={(selectedLabour?.uoms ?? []).map((u) => ({
+                    value: u.id,
+                    label: `${u.symbol} — ${u.name}`,
+                  }))}
+                  placeholder="UOM…"
+                  searchPlaceholder="Search UOM…"
+                  emptyText="No UOMs."
+                  className="w-full"
+                  disabled={busy || !selectedLabour}
+                  aria-label="Labour UOM"
+                />
+              </div>
+              <label className="min-w-0 space-y-1">
+                <span className={cn('block text-xs', hintClassName)}>Qty</span>
+                <Input
+                  value={labourQty}
+                  onChange={(e) => setLabourQty(e.target.value)}
+                  disabled={busy}
+                  inputMode="decimal"
+                  className="min-w-0 tabular-nums"
+                />
+              </label>
+            </div>
+            <label className="block min-w-0 space-y-1">
+              <span className={cn('block text-xs', hintClassName)}>
+                Unit price
+              </span>
+              <RupiahInput
+                value={labourPriceDigits}
+                onValueChange={setLabourPriceDigits}
+                disabled={busy}
+                wrapperClassName="min-w-0 w-full"
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setLabourDrawing(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || !labourItemId || !labourUomId}
+              onClick={() => void addLabourLine()}
+            >
+              <Plus className="size-3.5" aria-hidden />
+              Add labour
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  )
+}
+
+function RabStat({
+  label,
+  value,
+  hint,
+  emphasis = false,
+  tone,
+}: {
+  label: string
+  value: string
+  hint?: string
+  emphasis?: boolean
+  tone?: 'ok' | 'warn'
+}) {
+  return (
+    <div className="min-w-0 bg-(--surface) px-3 py-2.5">
+      <dt className={metaTextClassName}>{label}</dt>
+      <dd
+        className={cn(
+          'mt-1 truncate tabular-nums',
+          emphasis ? 'text-base font-semibold' : 'text-sm font-medium',
+          tone === 'warn' && 'text-amber-700',
+          tone === 'ok' && 'text-emerald-700',
+        )}
+      >
+        {value}
+      </dd>
+      {hint ? (
+        <dd className={cn('mt-0.5 truncate text-[11px]', hintClassName)}>
+          {hint}
+        </dd>
+      ) : null}
+    </div>
+  )
+}
+
+/** Shared props for editable labour rows (price, tarif, remove). */
+type LabourListProps = {
+  lineKindByKey: Map<string, ProjectRabLineChangeKind>
+  priceDrafts: Record<string, string>
+  setPriceDrafts: Dispatch<SetStateAction<Record<string, string>>>
+  canManage: boolean
+  busy: boolean
+  onSavePrice: (lineKey: string) => Promise<void>
+  onSaveTotal: (lineKey: string, digits: string) => Promise<boolean>
+  onSetMode: (lineKey: string, byTotal: boolean) => Promise<void>
+  onFillTarif: (lineKey: string) => Promise<void>
+  onRemove?: (lineKey: string) => Promise<void>
+}
+
+type DrawingLabour = {
+  lines: ProjectRabLine[]
+  list: LabourListProps
+  onAdd?: () => void
+  /** Inhouse drawings: process order + weight % for SPK stages. */
+  process?: {
+    canEdit: boolean
+    onSave: (
+      ordered: Array<{ key: string; weightPercent: number }>,
+    ) => Promise<void>
+  }
+}
+
+function RabDrawingLabour({
+  lines,
+  list,
+  onAdd,
+  query,
+  process,
+}: DrawingLabour & { query: string }) {
+  const rows = labourRows(lines, list.priceDrafts)
+  const ordered = rows.map((r) => r.line)
+  const weightSum = ordered.reduce((s, l) => s + (l.weightPercent ?? 0), 0)
+  const allWeighted = ordered.every(
+    (l) => l.weightPercent != null && l.weightPercent >= 1,
+  )
+
+  async function move(index: number, dir: -1 | 1) {
+    if (!process?.canEdit) return
+    const next = [...ordered]
+    const j = index + dir
+    if (j < 0 || j >= next.length) return
+    const tmp = next[index]!
+    next[index] = next[j]!
+    next[j] = tmp
+    await process.onSave(
+      next.map((l) => ({
+        key: l.key,
+        weightPercent: l.weightPercent ?? 1,
+      })),
+    )
+  }
+
+  async function setWeight(key: string, raw: string) {
+    if (!process?.canEdit) return
+    const n = Number(raw.trim())
+    if (!Number.isInteger(n) || n < 1 || n > 100) {
+      toast.error('Weight must be an integer from 1 to 100')
+      return
+    }
+    // Unset siblings get 1 so a first weight can save; user then tunes to 100%.
+    await process.onSave(
+      ordered.map((l) => ({
+        key: l.key,
+        weightPercent: l.key === key ? n : (l.weightPercent ?? 1),
+      })),
+    )
+  }
+
+  return (
+    <div className="space-y-1 border-t border-(--line) px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className={metaTextClassName}>
+          Labour
+          {lines.length > 0 ? (
+            <span className="ml-1.5 tabular-nums">{lines.length}</span>
+          ) : null}
+        </p>
+        {onAdd ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            disabled={list.busy}
+            onClick={onAdd}
+          >
+            <Plus className="size-3.5" aria-hidden />
+            Add labour
+          </Button>
+        ) : null}
+      </div>
+      {process && ordered.length > 0 ? (
+        <div className="mb-2 space-y-1.5 rounded-md border border-(--line) bg-(--surface) px-2 py-2">
+          <p className={cn('text-xs', hintClassName)}>
+            Process stages for inhouse SPK. Weights must total 100% before
+            release
+            {allWeighted ? (
+              <span
+                className={cn(
+                  'ml-1 tabular-nums',
+                  weightSum === 100 ? 'text-emerald-700' : 'text-amber-700',
+                )}
+              >
+                (now {weightSum}%)
+              </span>
+            ) : null}
+            .
+          </p>
+          <ul className="space-y-1">
+            {ordered.map((line, i) => (
+              <li
+                key={line.key}
+                className="flex flex-wrap items-center gap-2 text-xs"
+              >
+                <span className="w-5 tabular-nums text-(--muted)">{i + 1}.</span>
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {line.materialName}
+                </span>
+                {process.canEdit ? (
+                  <>
+                    <div className="flex items-center gap-0.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="size-7 p-0"
+                        disabled={list.busy || i === 0}
+                        aria-label="Move up"
+                        onClick={() => void move(i, -1)}
+                      >
+                        <ArrowUp className="size-3.5" aria-hidden />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="size-7 p-0"
+                        disabled={list.busy || i === ordered.length - 1}
+                        aria-label="Move down"
+                        onClick={() => void move(i, 1)}
+                      >
+                        <ArrowDown className="size-3.5" aria-hidden />
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        step={1}
+                        className="h-7 w-16 text-xs tabular-nums"
+                        defaultValue={line.weightPercent ?? ''}
+                        key={`${line.key}-${line.weightPercent ?? 'x'}`}
+                        disabled={list.busy}
+                        aria-label={`Weight for ${line.materialName}`}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim()
+                          if (
+                            v === '' ||
+                            Number(v) === (line.weightPercent ?? NaN)
+                          ) {
+                            return
+                          }
+                          void setWeight(line.key, v)
+                        }}
+                      />
+                      <span className="text-(--muted)">%</span>
+                    </div>
+                  </>
+                ) : (
+                  <span className="tabular-nums text-(--muted)">
+                    {line.weightPercent != null
+                      ? `${line.weightPercent}%`
+                      : '—'}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {rows.length === 0 ? (
+        <p className={cn('text-xs', hintClassName)}>No labour yet.</p>
+      ) : (
+        <RabLineList rows={rows} section="labour" query={query} {...list} />
+      )}
+    </div>
+  )
+}
+
+function RabUnlinkedLabour({
+  lines,
+  query,
+  list,
+}: {
+  lines: ProjectRabLine[]
+  query: string
+  list: LabourListProps
+}) {
+  const q = query.trim()
+  const visible = lines.filter((line) => labourRowMatches(line, q))
+  if (visible.length === 0) return null
+  const total = sumAmounts(
+    labourRows(visible, list.priceDrafts).map((r) => r.contributionTotal),
+  )
+  return (
+    <section className={cn(cardClassName, 'overflow-hidden p-0')}>
+      <header className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Other labour</p>
+          <p className={cn('text-xs', hintClassName)}>
+            Not linked to a shop drawing with a BOQ.
+          </p>
+        </div>
+        <p className="text-sm font-medium tabular-nums">
+          {formatRupiahAmount(total)}
+        </p>
+      </header>
+      <RabDrawingLabour lines={visible} list={list} query={q} />
+    </section>
   )
 }
 
@@ -1916,127 +2319,13 @@ function materialMatchesCategory(
   return ids.includes(categoryFilter)
 }
 
-function RabElaborationLabour({
-  lines,
-  lineKindByKey,
-  changeProvenanceByKey,
-  query,
-  categoryFilter,
-}: {
-  lines: ProjectRabLine[]
-  lineKindByKey: Map<string, ProjectRabLineChangeKind>
-  changeProvenanceByKey: Map<string, ChangeProvenance>
-  query: string
-  categoryFilter: string
-}) {
-  if (categoryFilter !== 'all') return null
-  const q = query.trim()
-  const visible = lines.filter((line) => labourRowMatches(line, q))
-  if (visible.length === 0) {
-    return q ? (
-      <p className={cn('text-sm', hintClassName)}>
-        No labour lines match “{q}”.
-      </p>
-    ) : null
-  }
-
-  let sum = 0
-  let any = false
-  for (const line of visible) {
-    const amount =
-      line.lineTotal ?? estimateAmount(line.totalQty, line.unitPrice)
-    if (amount !== null && amount !== '') {
-      const n = Number(rupiahDigits(String(amount).split('.')[0] ?? amount))
-      if (Number.isFinite(n)) {
-        sum += n
-        any = true
-      }
-    }
-  }
-
-  return (
-    <section className={cn(cardClassName, 'overflow-hidden p-0')}>
-      <header className="space-y-1 border-b border-(--line) px-4 py-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-sm font-medium">Labour</p>
-          <p className={cn('text-xs', hintClassName)}>Added on RAB Estimate</p>
-        </div>
-      </header>
-      <ul className="divide-y divide-(--line)">
-        {visible.map((line) => {
-          const amount =
-            line.lineTotal ?? estimateAmount(line.totalQty, line.unitPrice)
-          const kind = lineKindByKey.get(line.key)
-          const provenance = changeProvenanceByKey.get(line.key)
-          const matched = q.length > 0 && labourRowMatches(line, q)
-          return (
-            <li
-              key={line.key}
-              className={cn(
-                'px-3 py-2.5',
-                kind === 'added' && 'bg-emerald-50/80',
-                kind === 'changed' && 'bg-amber-50/80',
-                kind === 'removed' && 'bg-red-50/60',
-                matched && !kind && 'bg-[#fff6d6]',
-              )}
-            >
-              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2 sm:gap-3">
-                <div className="min-w-0">
-                  <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
-                    <span>{highlightText(line.materialName, q)}</span>
-                    {kind ? (
-                      <span
-                        className={cn(
-                          'inline-flex shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
-                          changeKindBadgeClass(kind),
-                        )}
-                      >
-                        {changeKindLabel(kind)}
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className={cn('font-mono text-[11px]', hintClassName)}>
-                    {line.materialCode
-                      ? highlightText(line.materialCode, q)
-                      : '—'}
-                    <span className="mx-1.5 text-(--line)">·</span>
-                    <span className="tabular-nums">
-                      {line.totalQty} {highlightText(line.uomSymbol, q)}
-                    </span>
-                  </p>
-                  {provenance ? (
-                    <ChangeProvenanceNote provenance={provenance} />
-                  ) : null}
-                </div>
-                <p className="text-sm tabular-nums text-(--muted)">
-                  {formatRupiahAmount(line.unitPrice)}
-                </p>
-                <p className="text-sm font-medium tabular-nums">
-                  {formatRupiahAmount(amount)}
-                </p>
-              </div>
-            </li>
-          )
-        })}
-      </ul>
-      {any ? (
-        <div className="flex items-center justify-end gap-2 border-t border-(--line) bg-(--surface) px-3 py-2.5 text-sm">
-          <span className="text-xs text-(--muted)">Labour estimate</span>
-          <span className="font-medium tabular-nums">
-            {formatRupiahAmount(String(sum))}
-          </span>
-        </div>
-      ) : null}
-    </section>
-  )
-}
-
 function formatDelta(
   baseline: string | null | undefined,
   next: string | null | undefined,
 ): string {
-  const b = Number(rupiahDigits((baseline ?? '').split('.')[0] ?? ''))
-  const n = Number(rupiahDigits((next ?? '').split('.')[0] ?? ''))
+  if (!baseline || !next) return '—'
+  const b = Math.round(Number(baseline))
+  const n = Math.round(Number(next))
   if (!Number.isFinite(b) || !Number.isFinite(n)) return '—'
   const d = n - b
   const sign = d > 0 ? '+' : ''
@@ -2083,10 +2372,7 @@ function countVisibleElaborationRows(
   let count = 0
   for (const block of doc.blocks) {
     const section = sectionFromBlockTitle(block.title)
-    if (
-      opts.sectionFilter !== 'all' &&
-      opts.sectionFilter !== section
-    ) {
+    if (opts.sectionFilter !== 'all' && opts.sectionFilter !== section) {
       continue
     }
     for (const line of block.lines) {
@@ -2188,6 +2474,7 @@ function RabElaborationDoc({
   sectionFilter,
   categoryFilter,
   categoryIdsByMaterialId,
+  labour,
 }: {
   doc: ProjectRabElaborationDoc
   estimateLines: ProjectRabLine[]
@@ -2199,7 +2486,10 @@ function RabElaborationDoc({
   sectionFilter: string
   categoryFilter: string
   categoryIdsByMaterialId: Map<string, string[]>
+  /** This card carries the drawing's labour (first card per drawing item). */
+  labour: DrawingLabour | null
 }) {
+  const [materialsOpen, setMaterialsOpen] = useState(false)
   const q = query.trim()
   const docNameHit =
     q.length > 0 &&
@@ -2241,28 +2531,50 @@ function RabElaborationDoc({
     return true
   })
 
-  if (rows.length === 0 && allRows.length > 0) {
+  const filtering =
+    q.length > 0 ||
+    sectionFilter !== 'all' ||
+    categoryFilter !== 'all' ||
+    reviewChangesOnly
+  const materialRows = sectionFilter === 'labour' ? [] : rows
+  const showLabour =
+    labour !== null &&
+    categoryFilter === 'all' &&
+    (sectionFilter === 'all' || sectionFilter === 'labour')
+  const labourVisible = showLabour
+    ? labour.lines.filter((line) => docNameHit || labourRowMatches(line, q))
+    : []
+  if (filtering && materialRows.length === 0 && labourVisible.length === 0) {
     return null
   }
 
-  let docEstimateSum = 0
-  let docEstimateAny = false
-  for (const { line } of rows) {
-    const est = findEstimateLine(
-      estimateLines,
-      line.materialCode,
-      line.uomSymbol,
-    )
-    const amount = estimateAmount(line.totalQty, est?.unitPrice ?? null)
-    if (amount !== null) {
-      docEstimateSum += Number(amount)
-      docEstimateAny = true
-    }
-  }
+  const materialTotal = sumAmounts(
+    allRows.map(({ line }) => {
+      const est = findEstimateLine(
+        estimateLines,
+        line.materialCode,
+        line.uomSymbol,
+      )
+      return estimateAmount(
+        boughtQty(line.totalQty, est),
+        est?.unitPrice ?? null,
+      )
+    }),
+  )
+  const labourTotal = labour
+    ? sumAmounts(
+        labourRows(labour.lines, labour.list.priceDrafts).map(
+          (r) => r.contributionTotal,
+        ),
+      )
+    : null
+  const drawingTotal = sumAmounts([materialTotal, labourTotal])
+  const materialsExpanded =
+    materialsOpen || (filtering && materialRows.length > 0)
 
   return (
     <section className={cn(cardClassName, 'overflow-hidden p-0')}>
-      <header className="space-y-1 border-b border-(--line) px-4 py-3">
+      <header className="space-y-1 px-4 py-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <p className="inline-flex flex-wrap items-center gap-2 text-sm font-medium">
             {highlightText(doc.shopDrawingItemName, q)}
@@ -2277,14 +2589,13 @@ function RabElaborationDoc({
               </span>
             ) : null}
           </p>
-          <p className="text-xs tabular-nums text-(--muted)">
-            Make qty{' '}
-            <span className="font-medium text-(--ink)">{doc.makeQty}</span>{' '}
-            units
+          <p className="text-base font-semibold tabular-nums">
+            {formatRupiahAmount(drawingTotal)}
           </p>
         </div>
-        <p className={cn('text-xs', hintClassName)}>
-          File v{doc.fileVersion} · {highlightText(doc.originalFilename, q)}
+        <p className={cn('text-xs tabular-nums', hintClassName)}>
+          {doc.makeQty} units · File v{doc.fileVersion} ·{' '}
+          {highlightText(doc.originalFilename, q)}
         </p>
         {addedInChange && changeDraft ? (
           <div className={cn('pt-1 text-[11px]', hintClassName)}>
@@ -2301,20 +2612,50 @@ function RabElaborationDoc({
         ) : null}
       </header>
 
-      {rows.length === 0 ? (
-        <p className={cn('px-4 py-6 text-sm', hintClassName)}>Empty BOQ.</p>
+      {sectionFilter === 'labour' ? null : (
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 border-t border-(--line) px-3 py-2 text-left hover:bg-(--surface)"
+          onClick={() => setMaterialsOpen((open) => !open)}
+          aria-expanded={materialsExpanded}
+        >
+          {materialsExpanded ? (
+            <ChevronDown
+              className="size-4 shrink-0 text-(--muted)"
+              aria-hidden
+            />
+          ) : (
+            <ChevronRight
+              className="size-4 shrink-0 text-(--muted)"
+              aria-hidden
+            />
+          )}
+          <span className={cn(metaTextClassName, 'flex-1')}>
+            Materials
+            <span className="ml-1.5 tabular-nums">
+              {filtering ? `${materialRows.length} / ` : ''}
+              {allRows.length}
+            </span>
+          </span>
+          <span className="text-sm tabular-nums text-(--muted)">
+            {formatRupiahAmount(materialTotal)}
+          </span>
+        </button>
+      )}
+
+      {!materialsExpanded ||
+      sectionFilter === 'labour' ? null : materialRows.length === 0 ? (
+        <p className={cn('px-4 pb-3 text-sm', hintClassName)}>Empty BOQ.</p>
       ) : (
-        <ul className="divide-y divide-(--line)">
-          {rows.map(({ key, scopeKey, source, line }) => {
+        <ul className="divide-y divide-(--line) border-t border-(--line)">
+          {materialRows.map(({ key, scopeKey, source, line }) => {
             const est = findEstimateLine(
               estimateLines,
               line.materialCode,
               line.uomSymbol,
             )
-            const amount = estimateAmount(
-              line.totalQty,
-              est?.unitPrice ?? null,
-            )
+            const bought = boughtQty(line.totalQty, est)
+            const amount = estimateAmount(bought, est?.unitPrice ?? null)
             const provenance = elaborationProvenanceByFile.get(scopeKey)
             const kind = provenance?.kind
             const matched =
@@ -2359,6 +2700,21 @@ function RabElaborationDoc({
                         {line.qtyPerUnit} × {line.makeQty}
                       </span>
                     </p>
+                    {bought !== line.totalQty ? (
+                      <p
+                        className={cn(
+                          'text-[11px] tabular-nums',
+                          hintClassName,
+                        )}
+                        title={
+                          est
+                            ? `RAB buys ${est.totalQty} ${est.uomSymbol} for a need of ${est.exactQty ?? est.totalQty}; this drawing carries its share.`
+                            : undefined
+                        }
+                      >
+                        Buy {bought} {line.uomSymbol} · need {line.totalQty}
+                      </p>
+                    ) : null}
                     <p className={cn('text-[11px]', hintClassName)}>
                       {highlightText(source, q)}
                     </p>
@@ -2378,15 +2734,13 @@ function RabElaborationDoc({
           })}
         </ul>
       )}
-      {docEstimateAny ? (
-        <div className="flex items-center justify-end gap-2 border-t border-(--line) bg-(--surface) px-3 py-2.5 text-sm">
-          <span className="text-xs text-(--muted)">
-            Document estimate (priced lines)
-          </span>
-          <span className="font-medium tabular-nums">
-            {formatRupiahAmount(String(docEstimateSum))}
-          </span>
-        </div>
+      {showLabour && labour ? (
+        <RabDrawingLabour
+          lines={filtering ? labourVisible : labour.lines}
+          list={labour.list}
+          onAdd={labour.onAdd}
+          query={q}
+        />
       ) : null}
     </section>
   )
@@ -2402,6 +2756,8 @@ function RabLineList({
   busy,
   query,
   onSavePrice,
+  onSaveTotal,
+  onSetMode,
   onFillTarif,
   onRemove,
 }: {
@@ -2414,184 +2770,300 @@ function RabLineList({
   busy: boolean
   query: string
   onSavePrice: (lineKey: string) => Promise<void>
+  onSaveTotal: (lineKey: string, digits: string) => Promise<boolean>
+  onSetMode: (lineKey: string, byTotal: boolean) => Promise<void>
   onFillTarif: (lineKey: string) => Promise<void>
   onRemove?: (lineKey: string) => Promise<void>
 }) {
   const q = query.trim()
+  const [totalDrafts, setTotalDrafts] = useState<Record<string, string>>({})
+  /** Mode picked on a row this session; else the line's saved mode. */
+  const [modeByKey, setModeByKey] = useState<Record<string, PriceMode>>({})
+  const setRowMode = (key: string, mode: PriceMode) => {
+    setModeByKey((prev) => ({ ...prev, [key]: mode }))
+    void onSetMode(key, mode === 'total')
+    setTotalDrafts((prev) => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
   return (
-    <ul className="space-y-0">
-      {rows.map((row) => {
-        const { line, contributionQty, contributionTotal, alsoIn } = row
-        const rowKey = `${section}:${line.key}`
-        const savedDigits = plainFromSaved(line.unitPrice)
-        const draftDigits =
-          priceDrafts[line.key] !== undefined
-            ? rupiahDigits(priceDrafts[line.key]!)
-            : savedDigits
-        const dirty =
-          priceDrafts[line.key] !== undefined && draftDigits !== savedDigits
-        const editable = canManage && line.priceEditable
-        const hasPrice = draftDigits !== ''
-        const showTarif = editable && line.hasTarif && !hasPrice
-        const kind = lineKindByKey.get(line.key)
-        const matched = q.length > 0 && estimateRowMatches(row, q)
-        const amount =
-          contributionTotal ??
-          (hasPrice ? estimateAmount(contributionQty, draftDigits) : null)
-        return (
-          <li
-            key={rowKey}
-            className={cn(
-              'border-b border-(--line) py-2.5 last:border-b-0',
-              kind === 'added' && 'bg-emerald-50/80',
-              kind === 'changed' && 'bg-amber-50/80',
-              kind === 'removed' && 'bg-red-50/60',
-              matched && !kind && 'bg-[#fff6d6]',
-            )}
-          >
-            <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-[minmax(0,1fr)_10.5rem_minmax(7rem,auto)_auto] sm:items-center sm:gap-x-3">
-              <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
-                  <span
-                    className={cn(
-                      kind === 'removed' && 'line-through opacity-80',
-                    )}
-                  >
-                    {highlightText(line.materialName, q)}
-                  </span>
-                  {kind ? (
+    <>
+      <ul className="space-y-0">
+        {rows.map((row) => {
+          const { line, contributionQty, contributionTotal, alsoIn } = row
+          const rowKey = `${section}:${line.key}`
+          const savedDigits = plainFromSaved(line.unitPrice)
+          const draftDigits =
+            priceDrafts[line.key] !== undefined
+              ? rupiahDigits(priceDrafts[line.key]!)
+              : savedDigits
+          const dirty =
+            priceDrafts[line.key] !== undefined && draftDigits !== savedDigits
+          const editable = canManage && line.priceEditable
+          const hasPrice = draftDigits !== ''
+          const showTarif = editable && line.hasTarif && !hasPrice
+          const kind = lineKindByKey.get(line.key)
+          const matched = q.length > 0 && estimateRowMatches(row, q)
+          const amount =
+            contributionTotal ??
+            (hasPrice ? estimateAmount(contributionQty, draftDigits) : null)
+          const byTotal =
+            (modeByKey[line.key] ?? (line.priceByTotal ? 'total' : 'unit')) ===
+            'total'
+          const savedTotalDigits = plainFromSaved(line.lineTotal)
+          const totalDigits = totalDrafts[line.key] ?? savedTotalDigits
+          const totalDirty =
+            totalDrafts[line.key] !== undefined &&
+            totalDigits !== savedTotalDigits &&
+            totalDigits !== ''
+          const qtyNum = Number(line.totalQty)
+          const unitFromTotal =
+            totalDigits !== '' && qtyNum > 0
+              ? String(Math.round(Number(totalDigits) / qtyNum))
+              : ''
+          return (
+            <li
+              key={rowKey}
+              className={cn(
+                'border-b border-(--line) py-2.5 last:border-b-0',
+                kind === 'added' && 'bg-emerald-50/80',
+                kind === 'changed' && 'bg-amber-50/80',
+                kind === 'removed' && 'bg-red-50/60',
+                matched && !kind && 'bg-[#fff6d6]',
+              )}
+            >
+              <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-[minmax(0,1fr)_19rem_minmax(7rem,auto)_auto] sm:items-center sm:gap-x-3">
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
                     <span
                       className={cn(
-                        'inline-flex shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
-                        changeKindBadgeClass(kind),
+                        kind === 'removed' && 'line-through opacity-80',
                       )}
                     >
-                      {changeKindLabel(kind)}
+                      {highlightText(line.materialName, q)}
+                    </span>
+                    {kind ? (
+                      <span
+                        className={cn(
+                          'inline-flex shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+                          changeKindBadgeClass(kind),
+                        )}
+                      >
+                        {changeKindLabel(kind)}
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className={cn('font-mono text-[11px]', hintClassName)}>
+                    {line.materialCode
+                      ? highlightText(line.materialCode, q)
+                      : '—'}
+                    <span className="mx-1.5 text-(--line)">·</span>
+                    <span className="tabular-nums">
+                      {contributionQty} {highlightText(line.uomSymbol, q)}
+                    </span>
+                  </p>
+                  {line.exactQty !== null && line.exactQty !== line.totalQty ? (
+                    <p
+                      className={cn(
+                        'text-[11px]',
+                        Number(line.wasteQty) < 0
+                          ? 'text-amber-600'
+                          : hintClassName,
+                      )}
+                      title={
+                        line.rounding
+                          ? `BOQ need ${line.exactQty}, bought ${line.totalQty}: rounded ${line.rounding.mode === 'nearest' ? 'to nearest' : line.rounding.mode} to steps of ${line.rounding.step} ${line.uomSymbol}${line.rounding.source === 'unit' ? ' (unit default)' : ''}`
+                          : undefined
+                      }
+                    >
+                      RAB total {line.totalQty} · need {line.exactQty}
+                      {Number(line.wasteQty) < 0
+                        ? ` · short ${line.wasteQty?.replace('-', '')}`
+                        : ` · waste ${line.wasteQty}`}
+                    </p>
+                  ) : contributionQty !== line.totalQty ? (
+                    <p className={cn('text-[11px]', hintClassName)}>
+                      RAB total {line.totalQty} {line.uomSymbol}
+                    </p>
+                  ) : null}
+                  {alsoIn.length > 0 ? (
+                    <p className={cn('text-[11px]', hintClassName)}>
+                      Also in {alsoIn.map((s) => SECTION_LABELS[s]).join(', ')}
+                    </p>
+                  ) : null}
+                  {line.origin === 'append' && line.addedBy && line.addedAt ? (
+                    <p className={cn('text-[11px]', hintClassName)}>
+                      Added {line.addedBy.name} {formatWhen(line.addedAt)}
+                      {line.addReason?.trim()
+                        ? ` · ${line.addReason.trim()}`
+                        : ''}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {editable ? (
+                    <>
+                      <div
+                        role="radiogroup"
+                        aria-label={`Price entry for ${line.materialName}`}
+                        className="flex h-8 shrink-0 items-center rounded-md border border-(--line) p-0.5 text-xs"
+                      >
+                        {(['unit', 'total'] as const).map((mode) => {
+                          const active = (mode === 'total') === byTotal
+                          return (
+                            <button
+                              key={mode}
+                              type="button"
+                              role="radio"
+                              aria-checked={active}
+                              disabled={busy}
+                              onClick={() => setRowMode(line.key, mode)}
+                              className={cn(
+                                'h-full rounded-[5px] px-2 transition-colors',
+                                active
+                                  ? 'bg-(--ink) text-(--surface)'
+                                  : 'text-(--muted) hover:text-(--ink)',
+                              )}
+                            >
+                              {mode === 'unit'
+                                ? `/ ${line.uomSymbol}`
+                                : 'Total'}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {byTotal ? (
+                        <>
+                          <RupiahInput
+                            value={totalDigits}
+                            onValueChange={(digits) =>
+                              setTotalDrafts((prev) => ({
+                                ...prev,
+                                [line.key]: digits,
+                              }))
+                            }
+                            disabled={busy}
+                            wrapperClassName="min-w-0 flex-1"
+                            className="h-8"
+                            aria-label={`Line total ${line.materialName}`}
+                          />
+                          {totalDirty ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 shrink-0 px-2"
+                              disabled={busy}
+                              onClick={() => {
+                                void onSaveTotal(line.key, totalDigits).then(
+                                  (saved) =>
+                                    saved &&
+                                    setTotalDrafts((prev) => {
+                                      const next = { ...prev }
+                                      delete next[line.key]
+                                      return next
+                                    }),
+                                )
+                              }}
+                            >
+                              Save
+                            </Button>
+                          ) : null}
+                        </>
+                      ) : (
+                        <RupiahInput
+                          value={draftDigits}
+                          onValueChange={(digits) =>
+                            setPriceDrafts((prev) => ({
+                              ...prev,
+                              [line.key]: digits,
+                            }))
+                          }
+                          disabled={busy}
+                          wrapperClassName="min-w-0 flex-1"
+                          className="h-8"
+                          aria-label={`Unit price ${line.materialName}`}
+                        />
+                      )}
+                      {!byTotal && dirty ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 shrink-0 px-2"
+                          disabled={busy}
+                          onClick={() => void onSavePrice(line.key)}
+                        >
+                          Save
+                        </Button>
+                      ) : null}
+                      {showTarif ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 shrink-0 px-2 text-xs"
+                          disabled={busy}
+                          onClick={() => void onFillTarif(line.key)}
+                        >
+                          Tarif
+                        </Button>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className="text-sm tabular-nums">
+                      {formatRupiahAmount(line.unitPrice)}
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-sm font-medium tabular-nums sm:text-right">
+                  {formatRupiahAmount(amount)}
+                  {byTotal && totalDirty && unitFromTotal ? (
+                    <span
+                      className={cn(
+                        'mt-0.5 block text-[11px] font-normal',
+                        hintClassName,
+                      )}
+                    >
+                      ≈ Rp {formatRupiahDigits(unitFromTotal)} /{' '}
+                      {line.uomSymbol}
+                    </span>
+                  ) : hasPrice ? (
+                    <span
+                      className={cn(
+                        'mt-0.5 block text-[11px] font-normal',
+                        hintClassName,
+                      )}
+                    >
+                      {contributionQty} × {formatRupiahDigits(draftDigits)}
                     </span>
                   ) : null}
                 </p>
-                <p className={cn('font-mono text-[11px]', hintClassName)}>
-                  {line.materialCode
-                    ? highlightText(line.materialCode, q)
-                    : '—'}
-                  <span className="mx-1.5 text-(--line)">·</span>
-                  <span className="tabular-nums">
-                    {contributionQty} {highlightText(line.uomSymbol, q)}
-                  </span>
-                </p>
-                {line.exactQty !== null && line.exactQty !== line.totalQty ? (
-                  <p
-                    className={cn(
-                      'text-[11px]',
-                      Number(line.wasteQty) < 0
-                        ? 'text-amber-600'
-                        : hintClassName,
-                    )}
-                    title={`BOQ need ${line.exactQty}, bought ${line.totalQty} (${line.rounding?.decimals ?? '—'} dp, ${line.rounding?.mode ?? '—'})`}
-                  >
-                    RAB total {line.totalQty} · need {line.exactQty}
-                    {Number(line.wasteQty) < 0
-                      ? ` · short ${line.wasteQty?.replace('-', '')}`
-                      : ` · waste ${line.wasteQty}`}
-                  </p>
-                ) : contributionQty !== line.totalQty ? (
-                  <p className={cn('text-[11px]', hintClassName)}>
-                    RAB total {line.totalQty} {line.uomSymbol}
-                  </p>
-                ) : null}
-                {alsoIn.length > 0 ? (
-                  <p className={cn('text-[11px]', hintClassName)}>
-                    Also in {alsoIn.map((s) => SECTION_LABELS[s]).join(', ')}
-                  </p>
-                ) : null}
-                {line.origin === 'append' && line.addedBy && line.addedAt ? (
-                  <p className={cn('text-[11px]', hintClassName)}>
-                    Added {line.addedBy.name} {formatWhen(line.addedAt)}
-                    {line.addReason?.trim()
-                      ? ` · ${line.addReason.trim()}`
-                      : ''}
-                  </p>
-                ) : null}
-              </div>
 
-              <div className="flex items-center gap-1.5">
-                {editable ? (
-                  <>
-                    <RupiahInput
-                      value={draftDigits}
-                      onValueChange={(digits) =>
-                        setPriceDrafts((prev) => ({
-                          ...prev,
-                          [line.key]: digits,
-                        }))
-                      }
-                      disabled={busy}
-                      wrapperClassName="min-w-0 flex-1"
-                      className="h-8"
-                      aria-label={`Unit price ${line.materialName}`}
-                    />
-                    {dirty ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 shrink-0 px-2"
-                        disabled={busy}
-                        onClick={() => void onSavePrice(line.key)}
-                      >
-                        Save
-                      </Button>
-                    ) : null}
-                    {showTarif ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 shrink-0 px-2 text-xs"
-                        disabled={busy}
-                        onClick={() => void onFillTarif(line.key)}
-                      >
-                        Tarif
-                      </Button>
-                    ) : null}
-                  </>
+                {onRemove ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-red-700"
+                    disabled={busy}
+                    aria-label={`Remove ${line.materialName}`}
+                    onClick={() => void onRemove(line.key)}
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                  </Button>
                 ) : (
-                  <span className="text-sm tabular-nums">
-                    {formatRupiahAmount(line.unitPrice)}
-                  </span>
+                  <span className="hidden sm:block" />
                 )}
               </div>
-
-              <p className="text-sm font-medium tabular-nums sm:text-right">
-                {formatRupiahAmount(amount)}
-                {hasPrice ? (
-                  <span
-                    className={cn('mt-0.5 block text-[11px] font-normal', hintClassName)}
-                  >
-                    {contributionQty} × {formatRupiahDigits(draftDigits)}
-                  </span>
-                ) : null}
-              </p>
-
-              {onRemove ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-red-700"
-                  disabled={busy}
-                  aria-label={`Remove ${line.materialName}`}
-                  onClick={() => void onRemove(line.key)}
-                >
-                  <Trash2 className="size-3.5" aria-hidden />
-                </Button>
-              ) : (
-                <span className="hidden sm:block" />
-              )}
-            </div>
-          </li>
-        )
-      })}
-    </ul>
+            </li>
+          )
+        })}
+      </ul>
+    </>
   )
 }

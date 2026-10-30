@@ -6,13 +6,15 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { API_BASE_URL, type ApiResponseDto } from '#/lib/api'
+import { API_BASE_URL, toAbsoluteMediaUrl, type ApiResponseDto } from '#/lib/api'
 
 const TOKEN_KEY = 'sapai_token'
 
 export interface AuthUser {
   email: string
   fullName: string
+  /** Absolute media URL, or null when unset. */
+  profilePicture: string | null
   roles: string[]
   permissions: string[]
 }
@@ -90,6 +92,7 @@ async function fetchValidatedUser(): Promise<AuthUser | null> {
     return {
       email: body.data.email,
       fullName: body.data.fullName ?? '',
+      profilePicture: toAbsoluteMediaUrl(body.data.profilePicture ?? null),
       roles: body.data.roles ?? [],
       permissions: body.data.permissions ?? [],
     }

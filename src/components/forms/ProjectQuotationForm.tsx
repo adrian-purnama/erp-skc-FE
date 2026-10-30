@@ -180,6 +180,8 @@ export default function ProjectQuotationForm({
 }: Props) {
   const { can, user, refreshAuth } = useAuth()
   const canManage = can('quotation.manage')
+  const canIssue = can('quotation.issue')
+  const canMarkWon = can('quotation.won')
 
   const [overview, setOverview] = useState<QuotationOverview | null>(null)
   const [overviewError, setOverviewError] = useState<string | null>(null)
@@ -680,16 +682,16 @@ export default function ProjectQuotationForm({
                     'Resynced from RAB',
                   )
                 }
-                onIssue={() => requestIssue('issue')}
+                onIssue={canIssue ? () => requestIssue('issue') : undefined}
                 onReissue={
-                  canManage && !hasWon
+                  canIssue && !hasWon
                     ? () => requestIssue('reissue')
                     : undefined
                 }
                 onMarkWon={
-                  canManage && !hasWon ? () => setWonOpen(true) : undefined
+                  canMarkWon && !hasWon ? () => setWonOpen(true) : undefined
                 }
-                onUndoWon={canManage ? () => setUndoWonOpen(true) : undefined}
+                onUndoWon={canMarkWon ? () => setUndoWonOpen(true) : undefined}
                 onDiscard={() => setDiscardOpen(true)}
                 onExport={(format) => void exportFile(format)}
               />
@@ -937,7 +939,8 @@ type DetailProps = {
     patch: QuotationLinePatch,
   ) => Promise<Quotation | null>
   onResync: () => void
-  onIssue: () => void
+  /** Set when the user may issue the draft. */
+  onIssue?: () => void
   /** Set when the user may bring a superseded revision back. */
   onReissue?: () => void
   /** Set when the user may mark the issued revision as won. */
@@ -1102,17 +1105,19 @@ function QuotationDetail({
                 <Trash2 className="size-3.5" aria-hidden />
                 Discard
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                className="h-8 gap-1.5"
-                disabled={busy || issueBlocked !== null}
-                title={issueBlocked ?? undefined}
-                onClick={onIssue}
-              >
-                <Send className="size-3.5" aria-hidden />
-                Issue
-              </Button>
+              {onIssue ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 gap-1.5"
+                  disabled={busy || issueBlocked !== null}
+                  title={issueBlocked ?? undefined}
+                  onClick={onIssue}
+                >
+                  <Send className="size-3.5" aria-hidden />
+                  Issue
+                </Button>
+              ) : null}
             </>
           ) : null}
         </div>

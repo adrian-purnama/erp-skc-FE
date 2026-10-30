@@ -25,7 +25,7 @@ import {
 import type {PipelineInsight, PipelineStage, PipelineTone} from '#/lib/projectPipeline';
 import { formatRupiah  } from '#/lib/quotation'
 import type {QuotationOverview} from '#/lib/quotation';
-import { hintClassName, metaTextClassName } from '#/lib/ui-classes'
+import { hintClassName } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
 type Props = {
@@ -44,7 +44,7 @@ const TONE_BADGE: Record<PipelineTone, string> = {
   locked: 'bg-slate-100 text-slate-800 ring-slate-300',
 }
 
-const TONE_BAR: Record<PipelineTone, string> = {
+export const TONE_BAR: Record<PipelineTone, string> = {
   idle: 'bg-(--line)',
   progress: 'bg-sky-500',
   ok: 'bg-emerald-500',
@@ -60,7 +60,7 @@ function ToneIcon({ tone }: { tone: PipelineTone }) {
   return <CircleDashed className={cls} aria-hidden />
 }
 
-function Badge({
+export function Badge({
   tone,
   children,
 }: {

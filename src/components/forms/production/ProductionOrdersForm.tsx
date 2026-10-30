@@ -15,15 +15,33 @@ import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
 import {
   PRODUCTION_ORDER_STATUS_LABELS,
   PRODUCTION_ORDER_STATUSES,
+  PRODUCTION_ORDER_TYPE_LABELS,
 } from '#/lib/production'
 import type { ProductionOrderSummary } from '#/lib/production'
 import { hintClassName, pageTitleClassName } from '#/lib/ui-classes'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
+import {
+  CalendarClock,
+  CircleDot,
+  Factory,
+  FileText,
+  FolderKanban,
+  ListChecks,
+  Package,
+  UserRound,
+} from 'lucide-react'
 
 const ALL = 'all'
+/** Default view: everything except cancelled SPKs, like an open-orders list. */
+const OPEN = 'open'
 
 /** Every SPK across projects: the production floor's daily list. */
-export default function ProductionOrdersForm() {
+export default function ProductionOrdersForm({
+  initialOrderId = null,
+}: {
+  /** SPK to open on load (a `?spk=` link). */
+  initialOrderId?: string | null
+} = {}) {
   const { can } = useAuth()
   const viewAll = can('production.viewAll')
   const [loading, setLoading] = useState(true)
@@ -31,16 +49,16 @@ export default function ProductionOrdersForm() {
   const [orders, setOrders] = useState<ProductionOrderSummary[]>([])
   const [query, setQuery] = useState('')
   const debounced = useDebouncedValue(query, 250)
-  const [status, setStatus] = useState<string>(ALL)
+  const [status, setStatus] = useState<string>(OPEN)
   const [page, setPage] = useState(1)
-  const [openOrderId, setOpenOrderId] = useState<string | null>(null)
+  const [openOrderId, setOpenOrderId] = useState<string | null>(initialOrderId)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const params = new URLSearchParams()
-      if (status !== ALL) params.set('status', status)
+      if (status !== ALL && status !== OPEN) params.set('status', status)
       if (debounced.trim()) params.set('q', debounced.trim())
       const qs = params.toString()
       const response = await apiFetch<ProductionOrderSummary[]>(
@@ -50,7 +68,11 @@ export default function ProductionOrdersForm() {
         setError(response.message || 'Failed to load SPK')
         return
       }
-      setOrders(response.data)
+      setOrders(
+        status === OPEN
+          ? response.data.filter((o) => o.status !== 'cancelled')
+          : response.data,
+      )
     } catch {
       setError('Unable to reach the server')
     } finally {
@@ -76,11 +98,13 @@ export default function ProductionOrdersForm() {
     () => [
       {
         header: 'SPK',
+        icon: FileText,
         cellClassName: 'w-40 font-medium whitespace-nowrap tabular-nums',
         cell: (o) => o.number,
       },
       {
         header: 'Project',
+        icon: FolderKanban,
         cell: (o) => (
           <div className="min-w-0">
             <Link
@@ -95,24 +119,37 @@ export default function ProductionOrdersForm() {
           </div>
         ),
       },
-      { header: 'Item', cell: (o) => o.itemLabel },
+      { header: 'Item', icon: Package, cell: (o) => o.itemLabel },
       {
-        header: 'Done / qty',
-        cellClassName: 'w-24 text-right tabular-nums',
-        cell: (o) => `${o.doneQty} / ${o.qty}`,
+        header: 'Type',
+        icon: Factory,
+        cellClassName: 'w-28',
+        cell: (o) => PRODUCTION_ORDER_TYPE_LABELS[o.type],
+      },
+      {
+        header: 'Progress',
+        icon: ListChecks,
+        cellClassName: 'w-28 text-right tabular-nums',
+        cell: (o) =>
+          o.type === 'inhouse' && o.progressPercent != null
+            ? `${o.progressPercent}% · ${o.doneQty}/${o.qty}`
+            : `${o.doneQty} / ${o.qty}`,
       },
       {
         header: 'Planned finish',
+        icon: CalendarClock,
         cellClassName: 'w-28 text-xs tabular-nums',
         cell: (o) => o.plannedFinish ?? '—',
       },
       {
         header: 'PIC',
+        icon: UserRound,
         cellClassName: 'w-32',
         cell: (o) => o.pic || <span className={hintClassName}>—</span>,
       },
       {
         header: 'Status',
+        icon: CircleDot,
         cellClassName: 'w-28',
         cell: (o) => (
           <ProductionStatusChip
@@ -160,8 +197,9 @@ export default function ProductionOrdersForm() {
               />
               <Combobox
                 value={status}
-                onValueChange={(v) => setStatus(v || ALL)}
+                onValueChange={(v) => setStatus(v || OPEN)}
                 options={[
+                  { value: OPEN, label: 'All except cancelled' },
                   { value: ALL, label: 'All statuses' },
                   ...PRODUCTION_ORDER_STATUSES.filter(
                     (s) => viewAll || s !== 'draft',
@@ -178,7 +216,7 @@ export default function ProductionOrdersForm() {
           loading={loading}
           loadingLabel="Loading SPK…"
           empty={
-            debounced.trim() || status !== ALL
+            debounced.trim() || (status !== ALL && status !== OPEN)
               ? 'No SPK match the current filter.'
               : viewAll
                 ? 'No SPK yet.'

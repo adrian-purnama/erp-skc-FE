@@ -17,6 +17,7 @@ import {
   LineFlagBadge,
   PurchaseOrderStatusChip,
   PurchaseRequestStatusChip,
+  RabLink,
   RequestOrderStatusChip,
   lineFlags,
 } from '#/components/forms/purchasing/PurchaseRequestBadges'
@@ -30,8 +31,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '#/components/ui/alert-dialog'
+import PurchaseFlowHeader from '#/components/forms/shared/PurchaseFlowHeader'
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '#/components/ui/sheet'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import { jakartaDateKey } from '#/lib/jakartaDate'
@@ -42,6 +51,7 @@ import type {
   PurchaseRequestPlan,
   PurchaseRequestPlanRow,
   PurchasingMaterial,
+  PurchasingRabOption,
   PurchasingSpk,
   PurchasingProjectContext,
 } from '#/lib/purchasing'
@@ -62,9 +72,14 @@ type Props = {
   requestId?: string
   /** New SPP opened from an SPK. */
   productionOrderId?: string
+  /** New SPP opened from a Purchasing RAB. */
+  purchaseRabId?: string
 }
 
-/** One requested item: an SPK material or anything else from Item Master. */
+/** What a new SPP is made for. */
+type Basis = 'spk' | 'rab'
+
+/** One requested item: an SPK / RAB material or anything else from Item Master. */
 type ItemRow = {
   rowKey: string
   materialItemId: string
@@ -116,6 +131,7 @@ async function getData<T>(path: string): Promise<T | null> {
 export default function PurchaseRequestEditor({
   requestId,
   productionOrderId: initialOrderId,
+  purchaseRabId: initialRabId,
 }: Props) {
   const { can } = useAuth()
   const navigate = useNavigate()
@@ -127,9 +143,12 @@ export default function PurchaseRequestEditor({
   const [request, setRequest] = useState<PurchaseRequest | null>(null)
 
   const [spks, setSpks] = useState<PurchasingSpk[] | null>(null)
-  const [projectId, setProjectId] = useState('')
+  const [rabs, setRabs] = useState<PurchasingRabOption[] | null>(null)
+  const [basis, setBasis] = useState<Basis>(initialRabId ? 'rab' : 'spk')
+  /** Older SPPs made for a project without SPK: its RAB keys. */
   const [context, setContext] = useState<PurchasingProjectContext | null>(null)
   const [orderId, setOrderId] = useState('')
+  const [rabId, setRabId] = useState('')
   const [plan, setPlan] = useState<PurchaseRequestPlan | null>(null)
   const [materials, setMaterials] = useState<PurchasingMaterial[] | null>(null)
 
@@ -137,6 +156,7 @@ export default function PurchaseRequestEditor({
   const [neededDate, setNeededDate] = useState('')
   const [notes, setNotes] = useState('')
   const [showErrors, setShowErrors] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const [confirm, setConfirm] = useState<
     'delete' | 'cancel' | 'decline' | 'received' | null
   >(null)
@@ -147,10 +167,11 @@ export default function PurchaseRequestEditor({
     canRequest && (isNew || (request?.status === 'draft' && request.canChange))
 
   const loadPlan = useCallback(
-    async (spkId: string, exceptRequestId?: string) => {
+    async (kind: Basis, id: string, exceptRequestId?: string) => {
       const qs = exceptRequestId ? `?exceptRequestId=${exceptRequestId}` : ''
+      const path = kind === 'rab' ? 'rab-plan' : 'plan'
       return getData<PurchaseRequestPlan>(
-        `/purchasing/requests/plan/${spkId}${qs}`,
+        `/purchasing/requests/${path}/${id}${qs}`,
       )
     },
     [],
@@ -184,16 +205,21 @@ export default function PurchaseRequestEditor({
           return
         }
         setRequest(doc)
-        setProjectId(doc.projectId)
+        setBasis(doc.purchaseRabId ? 'rab' : 'spk')
         setOrderId(doc.productionOrderId ?? '')
+        setRabId(doc.purchaseRabId ?? '')
         setNeededDate(doc.neededDate)
         setNotes(doc.notes)
         if (canRequest && doc.status === 'draft' && doc.canChange) {
           const [p] = await Promise.all([
             doc.productionOrderId
-              ? loadPlan(doc.productionOrderId, doc.id)
+              ? loadPlan('spk', doc.productionOrderId, doc.id)
+              : doc.purchaseRabId
+                ? loadPlan('rab', doc.purchaseRabId, doc.id)
+                : Promise.resolve(null),
+            !doc.productionOrderId && !doc.purchaseRabId && doc.projectId
+              ? loadContext(doc.projectId)
               : Promise.resolve(null),
-            loadContext(doc.projectId),
           ])
           if (cancelled) return
           setPlan(p)
@@ -208,26 +234,36 @@ export default function PurchaseRequestEditor({
             ),
           )
         }
-      } else if (initialOrderId) {
-        const p = await loadPlan(initialOrderId)
+      } else if (initialOrderId || initialRabId) {
+        const p = initialOrderId
+          ? await loadPlan('spk', initialOrderId)
+          : await loadPlan('rab', initialRabId!)
         if (cancelled) return
         if (p) {
           setPlan(p)
-          setProjectId(p.projectId)
-          setOrderId(p.productionOrderId)
+          setOrderId(p.productionOrderId ?? '')
+          setRabId(p.purchaseRabId ?? '')
           defaultNeededDate(p)
-          await loadContext(p.projectId)
         }
       } else {
-        const list = await getData<PurchasingSpk[]>('/purchasing/spks/mine')
-        if (!cancelled) setSpks(list ?? [])
+        const [spkList, rabList] = await Promise.all([
+          getData<PurchasingSpk[]>('/purchasing/spks/mine'),
+          getData<PurchasingRabOption[]>('/purchasing/rabs/requestable'),
+        ])
+        if (cancelled) return
+        setSpks(spkList ?? [])
+        setRabs(rabList ?? [])
+        // No SPK assigned to you: most likely a request from a RAB.
+        if ((spkList ?? []).length === 0 && (rabList ?? []).length > 0) {
+          setBasis('rab')
+        }
       }
       if (!cancelled) setLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [requestId, initialOrderId])
+  }, [requestId, initialOrderId, initialRabId])
 
   // Item Master materials, once the form is editable.
   useEffect(() => {
@@ -238,20 +274,31 @@ export default function PurchaseRequestEditor({
     })()
   }, [editable, materials])
 
-  /** New SPP: the SPK decides the project. */
-  async function pickOrder(next: string) {
-    const spk = spks?.find((o) => o.id === next)
-    setOrderId(next)
-    setProjectId(spk?.projectId ?? '')
+  /** New SPP: the SPK or RAB decides the project. */
+  async function pickBasis(kind: Basis, next: string) {
+    if (kind === 'spk') setOrderId(next)
+    else setRabId(next)
     setPlan(null)
-    setContext(null)
-    if (!spk) return
-    const [p] = await Promise.all([loadPlan(next), loadContext(spk.projectId)])
+    if (!next) return
+    const p = await loadPlan(kind, next)
     setPlan(p)
     defaultNeededDate(p)
   }
 
-  const rabKeys = useMemo(() => new Set(context?.rabKeys ?? []), [context])
+  function switchBasis(kind: Basis) {
+    if (kind === basis) return
+    setBasis(kind)
+    setOrderId('')
+    setRabId('')
+    setPlan(null)
+  }
+
+  /** SPK or RAB, for labels. */
+  const what = (plan?.basis ?? basis) === 'rab' ? 'RAB' : 'SPK'
+  const rabKeys = useMemo(
+    () => new Set(plan?.rabKeys ?? context?.rabKeys ?? []),
+    [plan, context],
+  )
   const planByKey = useMemo(
     () => new Map((plan?.rows ?? []).map((r) => [materialKey(r), r])),
     [plan],
@@ -264,19 +311,19 @@ export default function PurchaseRequestEditor({
     () => new Map((materials ?? []).map((m) => [m.id, m])),
     [materials],
   )
-  // SPK materials first so the common pick is at the top.
+  // SPK / RAB materials first so the common pick is at the top.
   const materialOptions = useMemo(() => {
     const spkIds = new Set((plan?.rows ?? []).map((r) => r.materialItemId))
     const all = materials ?? []
     return [
       ...all
         .filter((m) => spkIds.has(m.id))
-        .map((m) => ({ value: m.id, label: `${m.itemId} · ${m.name} (SPK)` })),
+        .map((m) => ({ value: m.id, label: `${m.itemId} · ${m.name} (${what})` })),
       ...all
         .filter((m) => !spkIds.has(m.id))
         .map((m) => ({ value: m.id, label: `${m.itemId} · ${m.name}` })),
     ]
-  }, [materials, plan])
+  }, [materials, plan, what])
 
   function addFromSpk(r: PurchaseRequestPlanRow) {
     const left = Number(r.remainingQty)
@@ -321,7 +368,9 @@ export default function PurchaseRequestEditor({
     else if (qty === null) issue = 'Enter a qty above 0'
     else if (seen.has(key)) issue = 'Listed twice'
     else if (needsReason && !row.note.trim()) {
-      issue = over ? 'More than the SPK needs: add a reason' : 'Add a reason'
+      issue = over
+        ? `More than the ${what === 'RAB' ? 'RAB budgets' : 'SPK needs'}: add a reason`
+        : 'Add a reason'
     }
     if (key) seen.add(key)
     info.set(row.rowKey, { planRow, over, needsReason, issue })
@@ -336,7 +385,7 @@ export default function PurchaseRequestEditor({
   }
   const issueCount = [...info.values()].filter((i) => i.issue).length
   const formErrors: string[] = []
-  if (!projectId) formErrors.push(isNew ? 'Choose an SPK' : 'Choose a project')
+  if (isNew && !plan) formErrors.push(basis === 'rab' ? 'Choose a RAB' : 'Choose an SPK')
   if (!neededDate) formErrors.push('Set the date needed')
   if (rows.length === 0) formErrors.push('Add at least one item')
   const canSave = issueCount === 0 && formErrors.length === 0
@@ -380,8 +429,8 @@ export default function PurchaseRequestEditor({
             method: 'POST',
             body: JSON.stringify({
               ...body,
-              projectId,
-              productionOrderId: orderId || null,
+              productionOrderId: basis === 'spk' ? orderId || null : null,
+              purchaseRabId: basis === 'rab' ? rabId || null : null,
             }),
           })
         : await send<PurchaseRequest>(`/purchasing/requests/${requestId}`, {
@@ -496,18 +545,126 @@ export default function PurchaseRequestEditor({
     )
   }
 
-  const spkLabel = plan
-    ? `${plan.productionOrderNumber} · ${plan.itemLabel}`
+  const basisLabel = plan
+    ? `${plan.productionOrderNumber ?? plan.purchaseRabNumber} · ${plan.itemLabel}`
     : request?.productionOrderNumber
       ? `${request.productionOrderNumber} · ${request.itemLabel ?? ''}`
+      : request?.purchaseRabNumber
+        ? `${request.purchaseRabNumber} · ${request.purchaseRabTitle ?? ''}`
+        : null
+  // Every SPP is checked against a RAB: the SPK's project RAB or a Purchasing RAB.
+  const rabRef = request
+    ? {
+        purchaseRabId: request.purchaseRabId,
+        projectId: request.projectId,
+        number: request.purchaseRabNumber,
+      }
+    : plan
+      ? {
+          purchaseRabId: plan.purchaseRabId,
+          projectId: plan.projectId,
+          number: plan.purchaseRabNumber,
+        }
       : null
-  const projectLabel = context
-    ? `${context.projectNumber} · ${context.name}`
-    : request
+  const rabLinkLabel = rabRef?.purchaseRabId
+    ? (rabRef.number ?? 'Purchasing RAB')
+    : rabRef?.projectId
+      ? 'Project RAB'
+      : null
+  const projectLabel = request
+    ? request.projectId
       ? `${request.projectNumber} · ${request.projectName}`
+      : 'No project'
+    : plan?.projectNumber
+      ? `${plan.projectNumber} · ${plan.projectName}`
       : plan
-        ? `${plan.projectNumber} · ${plan.projectName}`
+        ? 'No project'
         : ''
+
+  // Picking the SPK / RAB of a new request stays on the page; the rest opens in a sheet.
+  const detailsInline = isNew && !initialOrderId && !initialRabId
+  const detailsNeedAttention = !detailsInline && editable && showErrors && !neededDate
+  const detailFields = (
+    <>
+      <div className="space-y-1">
+        <span className="text-sm font-medium">{what}</span>
+        {isNew && !initialOrderId && !initialRabId ? (
+          basis === 'spk' ? (
+            <Combobox
+              value={orderId}
+              onValueChange={(v) => void pickBasis('spk', v)}
+              options={(spks ?? []).map((o) => ({
+                value: o.id,
+                label: `${o.number} · ${o.itemLabel}`,
+              }))}
+              placeholder="Choose your SPK"
+              emptyText="No open SPK is assigned to you."
+              aria-label="SPK"
+              disabled={busy}
+              className={cn(showErrors && !orderId && 'border-red-500')}
+            />
+          ) : (
+            <Combobox
+              value={rabId}
+              onValueChange={(v) => void pickBasis('rab', v)}
+              options={(rabs ?? []).map((r) => ({
+                value: r.id,
+                label: `${r.number} · ${r.title}`,
+              }))}
+              placeholder="Choose a RAB"
+              emptyText="No locked RAB yet."
+              aria-label="RAB"
+              disabled={busy}
+              className={cn(showErrors && !rabId && 'border-red-500')}
+            />
+          )
+        ) : (
+          <p className="text-sm">
+            {basisLabel ?? <span className={hintClassName}>No SPK or RAB</span>}
+          </p>
+        )}
+      </div>
+      <div className="space-y-1">
+        <span className="text-sm font-medium">Project</span>
+        <p className={cn('text-sm', !projectLabel && hintClassName)}>
+          {projectLabel || '—'}
+        </p>
+      </div>
+      <div className="space-y-1">
+        <span className="text-sm font-medium">RAB</span>
+        <p className="text-sm">
+          {rabRef && rabLinkLabel ? (
+            <RabLink
+              purchaseRabId={rabRef.purchaseRabId}
+              projectId={rabRef.projectId}
+              label={rabLinkLabel}
+            />
+          ) : (
+            <span className={hintClassName}>—</span>
+          )}
+        </p>
+      </div>
+      <label className="block space-y-1">
+        <span className="text-sm font-medium">Needed by</span>
+        {editable ? (
+          <input
+            type="date"
+            value={neededDate}
+            min={isNew ? jakartaDateKey(new Date()) : undefined}
+            disabled={busy}
+            onChange={(e) => setNeededDate(e.target.value)}
+            className={cn(
+              inputClassName,
+              'w-full',
+              showErrors && !neededDate && 'border-red-500',
+            )}
+          />
+        ) : (
+          <p className="text-sm tabular-nums">{neededDate}</p>
+        )}
+      </label>
+    </>
+  )
 
   return (
     <div className="space-y-8 pb-24">
@@ -527,21 +684,28 @@ export default function PurchaseRequestEditor({
               <RequestOrderStatusChip status={request.orderStatus} />
             )
           ) : null}
+          {!detailsInline ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-auto h-8"
+              onClick={() => setDetailsOpen(true)}
+            >
+              Details
+            </Button>
+          ) : null}
         </div>
-        <p className={hintClassName}>
-          {editable
-            ? 'Pick what you need now. You can send another request later.'
-            : request?.status === 'submitted'
-              ? `Sent to purchasing ${formatWhen(request.submittedAt)} by ${request.submittedBy?.name ?? request.requestedBy?.name ?? 'Unknown'}.`
-              : null}
-        </p>
-        {request?.receivedAt ? (
-          <p className="text-sm text-emerald-700 dark:text-emerald-300">
-            Received by {request.receivedBy?.name ?? 'Unknown'} on {formatWhen(request.receivedAt)}.
-          </p>
-        ) : request?.canConfirmReceived ? (
-          <p className="text-sm text-emerald-700 dark:text-emerald-300">
-            Everything has arrived. Press “I have received” once you have the goods.
+        {request && request.status !== 'draft' ? (
+          <PurchaseFlowHeader
+            key={`${request.id}:${request.status}:${request.orderStatus}`}
+            kind="request"
+            id={request.id}
+          />
+        ) : null}
+        {editable ? (
+          <p className={hintClassName}>
+            Pick what you need now. You can send another request later.
           </p>
         ) : null}
         {request?.status === 'declined' ? (
@@ -559,62 +723,93 @@ export default function PurchaseRequestEditor({
       </div>
 
       {/* Request for */}
-      <section className={cn('grid gap-4', isNew ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
-        {isNew ? null : (
-          <div className="space-y-1">
-            <span className="text-sm font-medium">Project</span>
-            <p className="text-sm">{projectLabel}</p>
-          </div>
-        )}
-        <div className="space-y-1">
-          <span className="text-sm font-medium">SPK</span>
-          {isNew && !initialOrderId ? (
-            <Combobox
-              value={orderId}
-              onValueChange={(v) => void pickOrder(v)}
-              options={(spks ?? []).map((o) => ({
-                value: o.id,
-                label: `${o.number} · ${o.itemLabel}`,
-              }))}
-              placeholder="Choose your SPK"
-              emptyText="No open SPK is assigned to you."
-              aria-label="SPK"
+      {isNew && !initialOrderId && !initialRabId ? (
+        <div
+          role="radiogroup"
+          aria-label="Request for"
+          className="inline-flex rounded-md border border-(--line) p-0.5"
+        >
+          {(
+            [
+              ['spk', 'For an SPK'],
+              ['rab', 'From a RAB'],
+            ] as const
+          ).map(([kind, label]) => (
+            <button
+              key={kind}
+              type="button"
+              role="radio"
+              aria-checked={basis === kind}
               disabled={busy}
-              className={cn(showErrors && !orderId && 'border-red-500')}
-            />
-          ) : (
-            <p className="text-sm">
-              {spkLabel ?? <span className={hintClassName}>No SPK</span>}
-            </p>
-          )}
-        </div>
-        <label className="block space-y-1">
-          <span className="text-sm font-medium">Needed by</span>
-          {editable ? (
-            <input
-              type="date"
-              value={neededDate}
-              min={isNew ? jakartaDateKey(new Date()) : undefined}
-              disabled={busy}
-              onChange={(e) => setNeededDate(e.target.value)}
+              onClick={() => switchBasis(kind)}
               className={cn(
-                inputClassName,
-                'w-full',
-                showErrors && !neededDate && 'border-red-500',
+                'rounded px-3 py-1 text-sm transition-colors',
+                basis === kind
+                  ? 'bg-(--ink) text-(--surface)'
+                  : 'text-(--muted) hover:text-(--ink)',
               )}
-            />
-          ) : (
-            <p className="text-sm tabular-nums">{neededDate}</p>
-          )}
-        </label>
-      </section>
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {detailsInline ? (
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {detailFields}
+        </section>
+      ) : (
+        <Sheet
+          open={detailsOpen || detailsNeedAttention}
+          onOpenChange={(open) => {
+            if (!open && detailsNeedAttention) return
+            setDetailsOpen(open)
+          }}
+        >
+          <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
+            <SheetHeader>
+              <SheetTitle>Request details</SheetTitle>
+              <SheetDescription>
+                {what}, project, RAB, needed date and status history.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="grid gap-4 px-4 pb-4 sm:grid-cols-2">{detailFields}</div>
+            {request && !editable ? (
+              <div className="space-y-2 border-t border-(--line) px-4 py-4 text-sm">
+                {request.status === 'submitted' ||
+                request.status === 'cancelled' ||
+                request.receivedAt ? (
+                  <p className={hintClassName}>
+                    Sent to purchasing {formatWhen(request.submittedAt)} by{' '}
+                    {request.submittedBy?.name ??
+                      request.requestedBy?.name ??
+                      'Unknown'}
+                    .
+                  </p>
+                ) : null}
+                {request.receivedAt ? (
+                  <p className="text-emerald-700 dark:text-emerald-300">
+                    Received by {request.receivedBy?.name ?? 'Unknown'} on{' '}
+                    {formatWhen(request.receivedAt)}.
+                  </p>
+                ) : request.canConfirmReceived ? (
+                  <p className="text-emerald-700 dark:text-emerald-300">
+                    Everything has arrived. Press “I have received” once you have
+                    the goods.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      )}
 
       {editable ? (
         <>
           {plan && plan.rows.length > 0 ? (
             <section className="space-y-2">
               <div>
-                <h2 className={sectionTitleClassName}>From this SPK</h2>
+                <h2 className={sectionTitleClassName}>From this {what}</h2>
                 <p className={cn('text-sm', hintClassName)}>
                   Tap a material to add it. The number is what is still not
                   requested.
@@ -668,7 +863,7 @@ export default function PurchaseRequestEditor({
               <h2 className={sectionTitleClassName}>Items</h2>
               <p className={cn('text-sm', hintClassName)}>
                 {plan
-                  ? 'Items outside the SPK, or more than it needs, need a reason.'
+                  ? `Items outside the ${what}, or more than it ${what === 'RAB' ? 'budgets' : 'needs'}, need a reason.`
                   : 'Any item from Item Master. Each needs a reason.'}
               </p>
             </div>
@@ -681,7 +876,7 @@ export default function PurchaseRequestEditor({
                 )}
               >
                 {plan && plan.rows.length > 0
-                  ? 'No items yet. Pick from the SPK above, or add any item.'
+                  ? `No items yet. Pick from the ${what} above, or add any item.`
                   : 'No items yet.'}
               </div>
             ) : (
@@ -731,7 +926,11 @@ export default function PurchaseRequestEditor({
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 {planRow ? (
                                   <span className={cn('text-xs tabular-nums', hintClassName)}>
-                                    SPK needs {planRow.plannedQty} {planRow.uomSymbol}
+                                    {what === 'RAB' ? 'RAB budgets' : 'SPK needs'}{' '}
+                                    {planRow.plannedQty} {planRow.uomSymbol}
+                                    {planRow.unitPrice
+                                      ? ` @ ${formatRupiah(planRow.unitPrice)}`
+                                      : ''}
                                     {Number(planRow.requestedQty) > 0
                                       ? ` · asked before ${planRow.requestedQty}`
                                       : ''}
@@ -826,7 +1025,7 @@ export default function PurchaseRequestEditor({
               type="button"
               variant="outline"
               size="sm"
-              disabled={busy || !projectId}
+              disabled={busy || (isNew && !plan)}
               onClick={() => setRows((list) => [...list, newRow()])}
             >
               <Plus className="size-3.5" aria-hidden />
@@ -1063,6 +1262,19 @@ export default function PurchaseRequestEditor({
               >
                 <Plus className="size-3.5" aria-hidden />
                 Request more for this SPK
+              </Link>
+            ) : null}
+            {request.purchaseRabId && canRequest ? (
+              <Link
+                to="/dashboard/purchasing/requests/new"
+                search={{ purchaseRabId: request.purchaseRabId }}
+                className={cn(
+                  buttonOutlineClassName,
+                  'inline-flex h-8 items-center gap-1.5 no-underline',
+                )}
+              >
+                <Plus className="size-3.5" aria-hidden />
+                Request more from this RAB
               </Link>
             ) : null}
             {request.canConfirmReceived ? (

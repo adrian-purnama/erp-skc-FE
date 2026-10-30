@@ -2,43 +2,42 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type FormEvent,
 } from 'react'
 import toast from 'react-hot-toast'
 import {
   Ban,
+  CalendarRange,
   CircleCheck,
   LoaderCircle,
-  MoreHorizontal,
   Pencil,
-  Plus,
+  ToggleRight,
 } from 'lucide-react'
 import ConfirmDisableDialog from '#/components/forms/shared/ConfirmDisableDialog'
 import ListTable, {
-  ListSearchInput,
   type ListTableColumn,
 } from '#/components/forms/shared/ListTable'
 import StatusPill from '#/components/forms/shared/StatusPill'
 import { Button } from '#/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '#/components/ui/sheet'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
 import {
+  buttonClassName,
+  buttonOutlineClassName,
   hintClassName,
+  inputClassName,
   pageTitleClassName,
-  sectionTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -52,16 +51,16 @@ type FieldErrors = {
   termOfPayment?: string
 }
 
+type Drawer = null | { mode: 'create' } | { mode: 'edit'; id: string }
+
 export default function TermOfPaymentForm() {
   const { can } = useAuth()
   const canManage = can('termOfPayment.manage')
-  const formRef = useRef<HTMLFormElement>(null)
-  const termRef = useRef<HTMLInputElement>(null)
 
   const [items, setItems] = useState<TermOfPaymentItem[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [drawer, setDrawer] = useState<Drawer>(null)
   const [termOfPayment, setTermOfPayment] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({})
   const [query, setQuery] = useState('')
@@ -71,12 +70,7 @@ export default function TermOfPaymentForm() {
     useState<TermOfPaymentItem | null>(null)
   const [toggling, setToggling] = useState(false)
 
-  const editingItem = useMemo(
-    () => (editingId ? items.find((item) => item.id === editingId) : null),
-    [editingId, items],
-  )
-
-  async function loadList() {
+  const loadList = useCallback(async () => {
     setLoading(true)
     try {
       const response = await apiFetch<TermOfPaymentItem[]>('/term-of-payment')
@@ -90,14 +84,26 @@ export default function TermOfPaymentForm() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     void loadList()
-  }, [])
+  }, [loadList])
 
-  function resetForm() {
-    setEditingId(null)
+  function openCreate() {
+    setTermOfPayment('')
+    setErrors({})
+    setDrawer({ mode: 'create' })
+  }
+
+  function openEdit(item: TermOfPaymentItem) {
+    setTermOfPayment(item.termOfPayment)
+    setErrors({})
+    setDrawer({ mode: 'edit', id: item.id })
+  }
+
+  function closeDrawer() {
+    setDrawer(null)
     setTermOfPayment('')
     setErrors({})
   }
@@ -110,25 +116,16 @@ export default function TermOfPaymentForm() {
     return next
   }
 
-  const startEdit = useCallback((item: TermOfPaymentItem) => {
-    setEditingId(item.id)
-    setTermOfPayment(item.termOfPayment)
-    setErrors({})
-    requestAnimationFrame(() => {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      termRef.current?.focus()
-    })
-  }, [])
-
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!canManage) return
+    if (!canManage || !drawer) return
 
     const nextErrors = validate()
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 
     const body = { termOfPayment: termOfPayment.trim() }
+    const editingId = drawer.mode === 'edit' ? drawer.id : null
 
     setSaving(true)
     try {
@@ -152,7 +149,7 @@ export default function TermOfPaymentForm() {
       }
 
       toast.success(editingId ? 'Term updated' : 'Term created')
-      resetForm()
+      closeDrawer()
       await loadList()
     } catch {
       toast.error('Unable to reach the server')
@@ -197,16 +194,18 @@ export default function TermOfPaymentForm() {
   const filtered = useMemo(() => {
     const q = debounced.trim().toLowerCase()
     if (!q) return items
-    return items.filter((item) =>
-      item.termOfPayment.toLowerCase().includes(q),
-    )
+    return items.filter((item) => item.termOfPayment.toLowerCase().includes(q))
   }, [items, debounced])
 
   useEffect(() => {
     setPage(1)
   }, [debounced])
 
-  const { pageItems, totalPages, page: safePage } = useMemo(
+  const {
+    pageItems,
+    totalPages,
+    page: safePage,
+  } = useMemo(
     () => paginate(filtered, page, DEFAULT_PAGE_SIZE),
     [filtered, page],
   )
@@ -219,66 +218,68 @@ export default function TermOfPaymentForm() {
     () => [
       {
         header: 'Term of payment',
+        icon: CalendarRange,
+        widthClassName: 'min-w-[14rem]',
         cell: (item) => item.termOfPayment,
       },
       {
         header: 'Status',
+        icon: ToggleRight,
+        widthClassName: 'w-28',
         cell: (item) => <StatusPill active={item.isActive} />,
       },
       {
-        header: '',
-        cellClassName: 'text-right',
+        header: 'Actions',
+        align: 'right',
+        widthClassName: 'w-56 whitespace-nowrap',
+        cellClassName: 'py-1.5',
         cell: (item) => (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="size-8 p-0">
-                <span className="sr-only">Open menu</span>
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              {canManage ? (
-                <>
-                  <DropdownMenuItem onClick={() => startEdit(item)}>
-                    <Pencil className="size-4" aria-hidden />
-                    Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      if (item.isActive) {
-                        setPendingDisable(item)
-                        return
-                      }
-                      void setActive(item, true)
-                    }}
-                  >
-                    {item.isActive ? (
-                      <Ban className="size-4" aria-hidden />
-                    ) : (
-                      <CircleCheck className="size-4" aria-hidden />
-                    )}
-                    {item.isActive ? 'Disable' : 'Enable'}
-                  </DropdownMenuItem>
-                </>
-              ) : (
-                <DropdownMenuItem disabled>View only</DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center justify-end gap-1.5">
+            {canManage ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openEdit(item)}
+                >
+                  <Pencil />
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={toggling}
+                  className={
+                    item.isActive
+                      ? 'border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700'
+                      : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700'
+                  }
+                  onClick={() => {
+                    if (item.isActive) {
+                      setPendingDisable(item)
+                      return
+                    }
+                    void setActive(item, true)
+                  }}
+                >
+                  {item.isActive ? <Ban /> : <CircleCheck />}
+                  {item.isActive ? 'Disable' : 'Enable'}
+                </Button>
+              </>
+            ) : null}
+          </div>
         ),
       },
     ],
-    [canManage, setActive, startEdit],
+    [canManage, setActive, toggling],
   )
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className={pageTitleClassName}>
-          Terms of Payment
-        </h1>
+        <h1 className={pageTitleClassName}>Terms of Payment</h1>
         <p className={`mt-2 ${hintClassName}`}>
           {canManage
             ? 'Create or edit payment terms. Name must be unique.'
@@ -286,83 +287,36 @@ export default function TermOfPaymentForm() {
         </p>
       </div>
 
-      {canManage ? (
-        <form
-          ref={formRef}
-          onSubmit={onSubmit}
-          className="space-y-5 rounded-md border border-(--line) bg-white px-4 py-5"
-          noValidate
-        >
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h2 className={sectionTitleClassName}>
-                {editingId ? 'Edit term' : 'New term'}
-              </h2>
-              <p className={`mt-1 ${hintClassName}`}>
-                {editingId && editingItem
-                  ? `Editing ${editingItem.termOfPayment}`
-                  : 'e.g. Net 30, COD, 50% DP'}
-              </p>
-            </div>
-            {editingId ? (
-              <StatusPill active={editingItem?.isActive !== false} />
-            ) : null}
-          </div>
-
-          <label className="block max-w-md space-y-1.5">
-            <span className="text-sm font-medium">Term of payment</span>
-            <Input
-              ref={termRef}
-              className={cn(
-                'border-(--line)',
-                errors.termOfPayment && 'border-red-500',
-              )}
-              value={termOfPayment}
-              onChange={(e) => setTermOfPayment(e.target.value)}
-              placeholder="e.g. Net 30"
-              autoComplete="off"
-            />
-            {errors.termOfPayment ? (
-              <span className="text-xs text-red-600">
-                {errors.termOfPayment}
-              </span>
-            ) : null}
-          </label>
-
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={saving}>
-              {saving ? (
-                <LoaderCircle className="size-4 animate-spin" aria-hidden />
-              ) : editingId ? null : (
-                <Plus className="size-4" aria-hidden />
-              )}
-              {saving
-                ? 'Saving…'
-                : editingId
-                  ? 'Save changes'
-                  : 'Add term'}
-            </Button>
-            {editingId ? (
-              <Button type="button" variant="outline" onClick={resetForm}>
-                Cancel
-              </Button>
-            ) : null}
-          </div>
-        </form>
-      ) : null}
-
       <ListTable
-        filters={
-          <ListSearchInput
-            value={query}
-            onChange={setQuery}
-            placeholder="Filter terms…"
-            aria-label="Filter terms of payment"
-          />
+        toolbarStart={
+          loading ? null : (
+            <span className={hintClassName}>
+              {filtered.length} {filtered.length === 1 ? 'term' : 'terms'}
+            </span>
+          )
         }
+        search={{
+          value: query,
+          onChange: setQuery,
+          placeholder: 'Search…',
+          'aria-label': 'Search terms of payment',
+        }}
+        addAction={
+          canManage
+            ? {
+                label: 'Add',
+                onClick: openCreate,
+              }
+            : undefined
+        }
+        isRowMuted={(item) => !item.isActive}
         loading={loading}
         loadingLabel="Loading terms…"
-        empty="No terms match the current filter."
+        empty={
+          debounced.trim()
+            ? 'No terms match the current filter.'
+            : 'No terms yet.'
+        }
         columns={columns}
         rows={pageItems}
         rowKey={(item) => item.id}
@@ -391,6 +345,79 @@ export default function TermOfPaymentForm() {
           if (pendingDisable) void setActive(pendingDisable, false)
         }}
       />
+
+      <Sheet
+        open={drawer !== null}
+        onOpenChange={(open) => {
+          if (!open) closeDrawer()
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full overflow-y-auto sm:max-w-2xl"
+        >
+          <SheetHeader>
+            <SheetTitle>
+              {drawer?.mode === 'edit' ? 'Edit term' : 'New term'}
+            </SheetTitle>
+            <SheetDescription>
+              {drawer?.mode === 'edit'
+                ? 'Update this payment term without leaving the list.'
+                : 'e.g. Net 30, COD, 50% DP'}
+            </SheetDescription>
+          </SheetHeader>
+          {drawer ? (
+            <form
+              onSubmit={onSubmit}
+              className="space-y-6 px-4 pb-4"
+              noValidate
+            >
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium">Term of payment</span>
+                <Input
+                  className={cn(
+                    inputClassName,
+                    errors.termOfPayment && 'border-red-500',
+                  )}
+                  value={termOfPayment}
+                  onChange={(e) => setTermOfPayment(e.target.value)}
+                  placeholder="e.g. Net 30"
+                  autoComplete="off"
+                  autoFocus
+                />
+                {errors.termOfPayment ? (
+                  <span className="text-xs text-red-600">
+                    {errors.termOfPayment}
+                  </span>
+                ) : null}
+              </label>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className={cn(
+                    buttonClassName,
+                    'inline-flex items-center gap-2',
+                  )}
+                >
+                  {saving ? (
+                    <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                  ) : null}
+                  {drawer.mode === 'edit' ? 'Save' : 'Create'}
+                </button>
+                <button
+                  type="button"
+                  className={buttonOutlineClassName}
+                  onClick={closeDrawer}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

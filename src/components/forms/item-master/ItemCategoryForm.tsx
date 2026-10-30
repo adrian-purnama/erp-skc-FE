@@ -2,20 +2,12 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type FormEvent,
 } from 'react'
 import toast from 'react-hot-toast'
-import {
-  LoaderCircle,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Trash2,
-} from 'lucide-react'
+import { LoaderCircle, Pencil, Tag, Trash2 } from 'lucide-react'
 import ListTable, {
-  ListSearchInput,
   type ListTableColumn,
 } from '#/components/forms/shared/ListTable'
 import {
@@ -29,15 +21,14 @@ import {
   AlertDialogTitle,
 } from '#/components/ui/alert-dialog'
 import { Button } from '#/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '#/components/ui/sheet'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import type { ItemCategoryOut } from '#/lib/itemMaster'
@@ -47,6 +38,7 @@ import {
   buttonClassName,
   buttonOutlineClassName,
   hintClassName,
+  inputClassName,
   sectionTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
@@ -55,16 +47,16 @@ type FieldErrors = {
   name?: string
 }
 
+type Drawer = null | { mode: 'create' } | { mode: 'edit'; id: string }
+
 export function ItemCategoryForm() {
   const { can } = useAuth()
   const canManage = can('itemMaster.manage')
-  const formRef = useRef<HTMLFormElement>(null)
-  const nameRef = useRef<HTMLInputElement>(null)
 
   const [items, setItems] = useState<ItemCategoryOut[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [drawer, setDrawer] = useState<Drawer>(null)
   const [name, setName] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({})
   const [query, setQuery] = useState('')
@@ -75,7 +67,7 @@ export function ItemCategoryForm() {
   )
   const [deleting, setDeleting] = useState(false)
 
-  async function loadList() {
+  const loadList = useCallback(async () => {
     setLoading(true)
     try {
       const response = await apiFetch<ItemCategoryOut[]>('/item-categories')
@@ -89,16 +81,28 @@ export function ItemCategoryForm() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     void loadList()
-  }, [])
+  }, [loadList])
 
-  function resetForm() {
-    setEditingId(null)
+  function closeDrawer() {
+    setDrawer(null)
     setName('')
     setErrors({})
+  }
+
+  function openCreate() {
+    setName('')
+    setErrors({})
+    setDrawer({ mode: 'create' })
+  }
+
+  function openEdit(item: ItemCategoryOut) {
+    setName(item.name)
+    setErrors({})
+    setDrawer({ mode: 'edit', id: item.id })
   }
 
   function validate(): FieldErrors {
@@ -107,25 +111,16 @@ export function ItemCategoryForm() {
     return next
   }
 
-  const startEdit = useCallback((item: ItemCategoryOut) => {
-    setEditingId(item.id)
-    setName(item.name)
-    setErrors({})
-    requestAnimationFrame(() => {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      nameRef.current?.focus()
-    })
-  }, [])
-
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!canManage) return
+    if (!canManage || !drawer) return
 
     const nextErrors = validate()
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 
     const body = { name: name.trim() }
+    const editingId = drawer.mode === 'edit' ? drawer.id : null
     setSaving(true)
     try {
       const response = editingId
@@ -148,7 +143,7 @@ export function ItemCategoryForm() {
       }
 
       toast.success(editingId ? 'Category updated' : 'Category created')
-      resetForm()
+      closeDrawer()
       await loadList()
     } catch {
       toast.error('Unable to reach the server')
@@ -170,7 +165,9 @@ export function ItemCategoryForm() {
         return
       }
       toast.success('Category deleted')
-      if (editingId === pendingDelete.id) resetForm()
+      if (drawer?.mode === 'edit' && drawer.id === pendingDelete.id) {
+        closeDrawer()
+      }
       setPendingDelete(null)
       await loadList()
     } catch {
@@ -207,6 +204,8 @@ export function ItemCategoryForm() {
     () => [
       {
         header: 'Name',
+        icon: Tag,
+        widthClassName: 'min-w-[14rem]',
         cellClassName: 'min-w-0 font-medium',
         cell: (item) => (
           <span className="block truncate" title={item.name}>
@@ -215,37 +214,37 @@ export function ItemCategoryForm() {
         ),
       },
       {
-        header: '',
-        cellClassName: 'w-[1%] whitespace-nowrap text-right',
+        header: 'Actions',
+        align: 'right',
+        widthClassName: 'w-48 whitespace-nowrap',
+        cellClassName: 'py-1.5',
         cell: (item) =>
           canManage ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="size-8 shrink-0 p-0">
-                  <span className="sr-only">Open menu</span>
-                  <MoreHorizontal className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => startEdit(item)}>
-                  <Pencil className="size-4" aria-hidden />
-                  Rename
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-red-700 focus:text-red-700"
-                  onClick={() => setPendingDelete(item)}
-                >
-                  <Trash2 className="size-4" aria-hidden />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex items-center justify-end gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => openEdit(item)}
+              >
+                <Pencil />
+                Edit
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={() => setPendingDelete(item)}
+              >
+                <Trash2 />
+                Delete
+              </Button>
+            </div>
           ) : null,
       },
     ],
-    [canManage, startEdit],
+    [canManage],
   )
 
   return (
@@ -257,66 +256,28 @@ export function ItemCategoryForm() {
         </p>
       </div>
 
-      {canManage ? (
-        <form
-          ref={formRef}
-          onSubmit={onSubmit}
-          className="flex flex-wrap items-end gap-3"
-          noValidate
-        >
-          <label className="min-w-[12rem] flex-1 space-y-1.5">
-            <span className="text-sm font-medium">
-              {editingId ? 'Rename category' : 'New category'}
-            </span>
-            <Input
-              ref={nameRef}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Category name"
-              autoComplete="off"
-              aria-invalid={Boolean(errors.name)}
-            />
-            {errors.name ? (
-              <p className="text-xs text-red-700">{errors.name}</p>
-            ) : null}
-          </label>
-          <div className="flex gap-2">
-            {editingId ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={buttonOutlineClassName}
-                disabled={saving}
-                onClick={resetForm}
-              >
-                Cancel
-              </Button>
-            ) : null}
-            <Button
-              type="submit"
-              className={buttonClassName}
-              disabled={saving}
-            >
-              {saving ? (
-                <LoaderCircle className="size-4 animate-spin" aria-hidden />
-              ) : editingId ? null : (
-                <Plus className="size-4" aria-hidden />
-              )}
-              {editingId ? 'Save' : 'Add'}
-            </Button>
-          </div>
-        </form>
-      ) : null}
-
       <ListTable
-        filters={
-          <ListSearchInput
-            value={query}
-            onChange={setQuery}
-            placeholder="Filter categories…"
-            aria-label="Filter categories"
-            className="min-w-0 max-w-none flex-1"
-          />
+        toolbarStart={
+          loading ? null : (
+            <span className={hintClassName}>
+              {filtered.length}{' '}
+              {filtered.length === 1 ? 'category' : 'categories'}
+            </span>
+          )
+        }
+        search={{
+          value: query,
+          onChange: setQuery,
+          placeholder: 'Search…',
+          'aria-label': 'Search categories',
+        }}
+        addAction={
+          canManage
+            ? {
+                label: 'Add',
+                onClick: openCreate,
+              }
+            : undefined
         }
         loading={loading}
         loadingLabel="Loading categories…"
@@ -328,7 +289,7 @@ export function ItemCategoryForm() {
         columns={columns}
         rows={pageItems}
         rowKey={(item) => item.id}
-        minWidthClassName="min-w-[320px]"
+        minWidthClassName="min-w-[420px]"
         pagination={{
           page: safePage,
           totalPages,
@@ -371,6 +332,75 @@ export function ItemCategoryForm() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Sheet
+        open={drawer !== null}
+        onOpenChange={(open) => {
+          if (!open) closeDrawer()
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full overflow-y-auto sm:max-w-2xl"
+        >
+          <SheetHeader>
+            <SheetTitle>
+              {drawer?.mode === 'edit' ? 'Edit category' : 'New category'}
+            </SheetTitle>
+            <SheetDescription>
+              Categories classify items in the item master.
+            </SheetDescription>
+          </SheetHeader>
+          {drawer ? (
+            <form
+              onSubmit={onSubmit}
+              className="space-y-6 px-4 pb-4"
+              noValidate
+            >
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium">Name</span>
+                <Input
+                  className={cn(
+                    inputClassName,
+                    errors.name && 'border-red-500',
+                  )}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Category name"
+                  autoComplete="off"
+                  autoFocus
+                  aria-invalid={Boolean(errors.name)}
+                />
+                {errors.name ? (
+                  <p className="text-xs text-red-700">{errors.name}</p>
+                ) : null}
+              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className={cn(
+                    buttonClassName,
+                    'inline-flex items-center gap-2',
+                  )}
+                >
+                  {saving ? (
+                    <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                  ) : null}
+                  {drawer.mode === 'edit' ? 'Save' : 'Create'}
+                </button>
+                <button
+                  type="button"
+                  className={buttonOutlineClassName}
+                  onClick={closeDrawer}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

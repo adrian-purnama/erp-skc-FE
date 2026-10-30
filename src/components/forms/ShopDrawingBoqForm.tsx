@@ -31,6 +31,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '#/components/ui/alert-dialog'
+import UploadProgress from '#/components/forms/shared/UploadProgress'
 import { Button } from '#/components/ui/button'
 import { Checkbox } from '#/components/ui/checkbox'
 import { Combobox } from '#/components/ui/combobox'
@@ -45,7 +46,7 @@ import {
 import { Input } from '#/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { useAuth } from '#/context/authContext'
-import { apiFetch, apiUpload } from '#/lib/api'
+import { apiFetch, apiUploadWithProgress } from '#/lib/api'
 import type { ItemCategoryOut } from '#/lib/itemMaster'
 import type {
   ProjectRab,
@@ -109,7 +110,9 @@ const MOUNTING_TYPES: {
   { value: 'other', label: 'Other' },
 ]
 
-function apiLineToDraft(line: ProjectShopDrawingBoqLine & { spec?: string }): DraftLine {
+function apiLineToDraft(
+  line: ProjectShopDrawingBoqLine & { spec?: string },
+): DraftLine {
   return {
     key: newLineKey(),
     materialItemId: line.materialItemId,
@@ -204,7 +207,9 @@ export default function ShopDrawingBoqForm({
 
   const [summary, setSummary] = useState<ProjectShopDrawingBoqItemSummary[]>([])
   const [overview, setOverview] = useState<ProjectShopDrawingBoq[]>([])
-  const [materials, setMaterials] = useState<ProjectShopDrawingBoqMaterial[]>([])
+  const [materials, setMaterials] = useState<ProjectShopDrawingBoqMaterial[]>(
+    [],
+  )
   const [categories, setCategories] = useState<ItemCategoryOut[]>([])
   const [loadingSummary, setLoadingSummary] = useState(false)
   const [loadingBoq, setLoadingBoq] = useState(false)
@@ -238,6 +243,7 @@ export default function ShopDrawingBoqForm({
   const [forceDifferent, setForceDifferent] = useState(false)
   const [showHashInfo, setShowHashInfo] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadPercent, setUploadPercent] = useState(0)
   const onSelectionChangeRef = useRef(onSelectionChange)
   onSelectionChangeRef.current = onSelectionChange
 
@@ -255,7 +261,6 @@ export default function ShopDrawingBoqForm({
     setMountingLines(empty.mountingLines)
     setOtherLines(empty.otherLines)
   }
-
 
   const flatBases = useMemo(() => {
     const list: { partKey: string; base: DraftBase }[] = []
@@ -512,9 +517,7 @@ export default function ShopDrawingBoqForm({
                 : [emptyBase()],
           })),
         )
-        setAssemblyLines(
-          (data.main?.assembly?.lines ?? []).map(apiLineToDraft),
-        )
+        setAssemblyLines((data.main?.assembly?.lines ?? []).map(apiLineToDraft))
         setLightingLines((data.lighting?.lines ?? []).map(apiLineToDraft))
         setMountingType(data.mounting?.type ?? 'mounted')
         setMountingLines((data.mounting?.lines ?? []).map(apiLineToDraft))
@@ -644,13 +647,15 @@ export default function ShopDrawingBoqForm({
   async function confirmUpload() {
     if (!canManage || !projectId || !itemId || !pendingFile) return
     setUploading(true)
+    setUploadPercent(0)
     try {
       const form = new FormData()
       form.append('file', pendingFile)
       const qs = forceDifferent ? '?force=true' : ''
-      const response = await apiUpload<ProjectShopDrawingFile>(
+      const response = await apiUploadWithProgress<ProjectShopDrawingFile>(
         `/project/${projectId}/shop-drawing/items/${itemId}/files${qs}`,
         form,
+        { onProgress: setUploadPercent },
       )
       if (!response.success || !response.data) {
         toast.error(response.message || 'Upload failed')
@@ -731,9 +736,7 @@ export default function ShopDrawingBoqForm({
                   })),
               })),
               assembly: {
-                lines: assemblyLines
-                  .filter(isLineComplete)
-                  .map(draftLineToApi),
+                lines: assemblyLines.filter(isLineComplete).map(draftLineToApi),
               },
             },
             lighting: {
@@ -977,9 +980,7 @@ export default function ShopDrawingBoqForm({
     <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <h1 className={pageTitleClassName}>
-            Shop Drawing BOQ
-          </h1>
+          <h1 className={pageTitleClassName}>Shop Drawing BOQ</h1>
         </div>
         {projectId ? (
           <Link
@@ -1074,16 +1075,15 @@ export default function ShopDrawingBoqForm({
                     hintClassName,
                   )}
                 >
-                  <LoaderCircle
-                    className="size-3 animate-spin"
-                    aria-hidden
-                  />
+                  <LoaderCircle className="size-3 animate-spin" aria-hidden />
                   Loading…
                 </span>
               ) : boqId ? (
                 <span className="text-xs text-(--muted)">Saved BOQ</span>
               ) : itemId && fileId ? (
-                <span className="text-xs text-(--muted)">Draft · not saved</span>
+                <span className="text-xs text-(--muted)">
+                  Draft · not saved
+                </span>
               ) : null}
             </div>
 
@@ -1174,9 +1174,9 @@ export default function ShopDrawingBoqForm({
             </div>
             {contentFrozen ? (
               <p className={cn('text-xs', hintClassName)}>
-                Frozen while RAB is locked. Use Open RAB above to start a change,
-                then return here to edit. New shop drawing uploads are still
-                allowed (empty BOQ).
+                Frozen while RAB is locked. Use Open RAB above to start a
+                change, then return here to edit. New shop drawing uploads are
+                still allowed (empty BOQ).
               </p>
             ) : rab?.changeDraft ? (
               <p className={cn('text-xs', hintClassName)}>
@@ -1299,9 +1299,7 @@ export default function ShopDrawingBoqForm({
                           })}
                         </ul>
                       )}
-                      {canManage &&
-                      activeBaseEntry &&
-                      !contentFrozen ? (
+                      {canManage && activeBaseEntry && !contentFrozen ? (
                         <Button
                           type="button"
                           variant="ghost"
@@ -1750,6 +1748,8 @@ export default function ShopDrawingBoqForm({
             </div>
           </div>
 
+          {uploading ? <UploadProgress percent={uploadPercent} /> : null}
+
           <AlertDialogFooter>
             <AlertDialogCancel disabled={uploading}>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -1759,7 +1759,14 @@ export default function ShopDrawingBoqForm({
                 void confirmUpload()
               }}
             >
-              {uploading ? 'Uploading…' : 'Upload'}
+              {uploading ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                  Uploading…
+                </>
+              ) : (
+                'Upload'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

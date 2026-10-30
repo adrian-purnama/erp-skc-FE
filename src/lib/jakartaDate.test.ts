@@ -34,6 +34,11 @@ describe('groupPostLockAdds', () => {
         addedBy: { id: 'u1', name: 'Alice' },
         addReason: 'extra bracket',
         priceEditable: true,
+        priceByTotal: false,
+        shopDrawingItemId: null,
+        shopDrawingItemName: null,
+        sequence: null,
+        weightPercent: null,
       },
       {
         key: 'b:u',
@@ -56,6 +61,11 @@ describe('groupPostLockAdds', () => {
         addedBy: { id: 'u1', name: 'Alice' },
         addReason: 'extra bracket',
         priceEditable: true,
+        priceByTotal: false,
+        shopDrawingItemId: null,
+        shopDrawingItemName: null,
+        sequence: null,
+        weightPercent: null,
       },
     ]
     const groups = groupPostLockAdds(lines)

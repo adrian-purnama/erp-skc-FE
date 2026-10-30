@@ -9,6 +9,7 @@ import {
   Plus,
   Send,
   Trash2,
+  Undo2,
 } from 'lucide-react'
 import {
   AlertDialog,
@@ -24,6 +25,9 @@ import ProductionNotesField, {
   ProductionNotesList,
 } from '#/components/forms/production/ProductionNotesField'
 import ProductionPicPicker from '#/components/forms/production/ProductionPicPicker'
+import VendorHandovers from '#/components/forms/production/VendorHandovers'
+import SpkFlowHeader from '#/components/forms/production/SpkFlowHeader'
+import SubconDispatches from '#/components/forms/production/SubconDispatches'
 import SpkMaterialRequests from '#/components/forms/purchasing/SpkMaterialRequests'
 import { Button } from '#/components/ui/button'
 import {
@@ -47,6 +51,7 @@ import type {
   ProductionOrderFileRef,
   ProductionReport,
 } from '#/lib/production'
+import { ListChip } from '#/components/forms/shared/ListTable'
 import {
   dialogInputClassName,
   hintClassName,
@@ -65,6 +70,7 @@ type Props = {
 
 type Confirm =
   | { kind: 'release' }
+  | { kind: 'revert' }
   | { kind: 'delete' }
   | { kind: 'complete' }
   | { kind: 'cancel' }
@@ -158,10 +164,17 @@ export default function ProductionOrderDialog({
   const [reportQty, setReportQty] = useState('')
   const [reportDate, setReportDate] = useState('')
   const [reportNotes, setReportNotes] = useState('')
+  const [reportStageSequence, setReportStageSequence] = useState<number | null>(
+    null,
+  )
 
   const apply = useCallback((next: ProductionOrder) => {
     setOrder(next)
-    setDraft(next.status === 'draft' ? draftFrom(next) : null)
+    setDraft(
+      next.status === 'draft' || isActiveOrder(next.status)
+        ? draftFrom(next)
+        : null,
+    )
   }, [])
 
   useEffect(() => {
@@ -196,7 +209,7 @@ export default function ProductionOrderDialog({
   async function call(
     path: string,
     init: RequestInit,
-    success: string,
+    success: string | null,
   ): Promise<boolean> {
     setBusy(true)
     try {
@@ -205,7 +218,7 @@ export default function ProductionOrderDialog({
         toast.error(response.message || 'Request failed')
         return false
       }
-      toast.success(success)
+      if (success) toast.success(success)
       if (response.data) apply(response.data)
       onChanged?.()
       return true
@@ -217,9 +230,9 @@ export default function ProductionOrderDialog({
     }
   }
 
-  async function saveDraft() {
-    if (!order || !draft) return
-    await call(
+  function saveDraft(success: string | null): Promise<boolean> {
+    if (!order || !draft) return Promise.resolve(false)
+    return call(
       `/production/orders/${order.id}`,
       {
         method: 'PATCH',
@@ -231,7 +244,7 @@ export default function ProductionOrderDialog({
           notes: draft.notes,
         }),
       },
-      'SPK saved',
+      success,
     )
   }
 
@@ -240,7 +253,12 @@ export default function ProductionOrderDialog({
     const base = `/production/orders/${order.id}`
     let ok = false
     if (confirm.kind === 'release') {
-      ok = await call(`${base}/release`, { method: 'POST' }, 'SPK released')
+      // Release what is on screen, not the last saved draft.
+      ok =
+        (await saveDraft(null)) &&
+        (await call(`${base}/release`, { method: 'POST' }, 'SPK released'))
+    } else if (confirm.kind === 'revert') {
+      ok = await call(`${base}/revert`, { method: 'POST' }, 'SPK back to draft')
     } else if (confirm.kind === 'delete') {
       ok = await call(base, { method: 'DELETE' }, 'SPK deleted')
       if (ok) onOpenChange(false)
@@ -271,6 +289,11 @@ export default function ProductionOrderDialog({
 
   async function addReport() {
     if (!order) return
+    const stages = order.labourStages ?? []
+    if (stages.length > 0 && reportStageSequence == null) {
+      toast.error('Pick which labour stage this report finishes')
+      return
+    }
     const ok = await call(
       `/production/orders/${order.id}/reports`,
       {
@@ -279,6 +302,9 @@ export default function ProductionOrderDialog({
           qtyDone: reportQty,
           reportDate,
           notes: reportNotes,
+          ...(reportStageSequence != null
+            ? { stageSequence: reportStageSequence }
+            : {}),
         }),
       },
       'Production report added',
@@ -288,7 +314,26 @@ export default function ProductionOrderDialog({
 
   function openReport() {
     if (!order) return
-    const left = Number(order.qty) - Number(order.doneQty)
+    const stages = [...(order.labourStages ?? [])].sort(
+      (a, b) => a.sequence - b.sequence,
+    )
+    const orderQty = Number(order.qty)
+    let pick: number | null = null
+    let left = orderQty - Number(order.doneQty)
+    if (stages.length > 0) {
+      for (let i = 0; i < stages.length; i++) {
+        const s = stages[i]!
+        const at = Number(s.qtyDone)
+        const cap = i === 0 ? orderQty : Number(stages[i - 1]!.qtyDone)
+        const room = cap - at
+        if (room > 0) {
+          pick = s.sequence
+          left = room
+          break
+        }
+      }
+    }
+    setReportStageSequence(pick)
     setReportQty(left > 0 ? String(left) : '')
     setReportDate(jakartaDateKey(new Date()))
     setReportNotes('')
@@ -324,8 +369,44 @@ export default function ProductionOrderDialog({
   }
 
   const active = order ? isActiveOrder(order.status) : false
+  const isDraft = order?.status === 'draft'
+  const outsource = order?.type === 'outsource'
+  // Subcon and outsource: a vendor does the work, engaged through its fee PO.
+  const vendorWork = order ? order.type !== 'inhouse' : false
   const doneNum = order ? Number(order.doneQty) : 0
+  const labourStages = order?.labourStages ?? []
+  const staged = !vendorWork && labourStages.length > 0
+  const progressPercent = order
+    ? staged
+      ? order.progressPercent
+      : Math.min(100, Math.round((doneNum / Number(order.qty)) * 100) || 0)
+    : 0
+  const stagesSorted = [...labourStages].sort(
+    (a, b) => a.sequence - b.sequence,
+  )
+  const stageHasRoom =
+    staged &&
+    stagesSorted.some((s, i) => {
+      const cap =
+        i === 0 ? Number(order!.qty) : Number(stagesSorted[i - 1]!.qtyDone)
+      return Number(s.qtyDone) < cap
+    })
+  const releaseMissing = draft
+    ? [
+        !draft.picUserId && 'PIC',
+        !draft.plannedStart && 'planned start',
+        !draft.plannedFinish && 'planned finish',
+      ].filter((v): v is string => Boolean(v))
+    : []
   const short = order ? doneNum < Number(order.qty) : false
+  // Vendor output comes from handovers; only reports entered by hand are listed apart.
+  const shownReports = order
+    ? vendorWork
+      ? order.reports.filter((r) => !r.handoverId)
+      : order.reports
+    : []
+  const stageName = (seq: number | null) =>
+    labourStages.find((s) => s.sequence === seq)?.name ?? null
   const confirmNeedsText =
     confirm?.kind === 'cancel' ||
     confirm?.kind === 'void' ||
@@ -353,9 +434,15 @@ export default function ProductionOrderDialog({
                     status={order.status}
                     label={PRODUCTION_ORDER_STATUS_LABELS[order.status]}
                   />
-                  <span className={cn('text-xs', hintClassName)}>
-                    {PRODUCTION_ORDER_TYPE_LABELS[order.type]}
-                  </span>
+                  {vendorWork ? (
+                    <ListChip dot tone="info">
+                      {PRODUCTION_ORDER_TYPE_LABELS[order.type]}
+                    </ListChip>
+                  ) : (
+                    <span className={cn('text-xs', hintClassName)}>
+                      {PRODUCTION_ORDER_TYPE_LABELS[order.type]}
+                    </span>
+                  )}
                 </div>
                 <DialogDescription>
                   {order.projectNumber} · {order.projectName} ·{' '}
@@ -365,16 +452,15 @@ export default function ProductionOrderDialog({
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div>
-                  <p className={cn('text-xs', hintClassName)}>Done / qty</p>
-                  <p className="text-lg font-semibold tabular-nums">
-                    {order.doneQty} / {order.qty}
+                  <p className={cn('text-xs', hintClassName)}>
+                    {staged ? 'Progress / finished' : 'Done / qty'}
                   </p>
-                  <ProgressBar
-                    percent={Math.min(
-                      100,
-                      Math.round((doneNum / Number(order.qty)) * 100) || 0,
-                    )}
-                  />
+                  <p className="text-lg font-semibold tabular-nums">
+                    {staged
+                      ? `${order.progressPercent}% · ${order.doneQty} / ${order.qty}`
+                      : `${order.doneQty} / ${order.qty}`}
+                  </p>
+                  <ProgressBar percent={progressPercent} />
                 </div>
                 <div>
                   <p className={cn('text-xs', hintClassName)}>Planned</p>
@@ -394,6 +480,8 @@ export default function ProductionOrderDialog({
                 </div>
               </div>
 
+              <SpkFlowHeader order={order} />
+
               {order.status === 'cancelled' ? (
                 <p className="text-sm text-red-700 dark:text-red-300">
                   Cancelled {formatWhen(order.cancelledAt)}:{' '}
@@ -408,7 +496,9 @@ export default function ProductionOrderDialog({
 
               {draft && canManage ? (
                 <section className="space-y-3">
-                  <h3 className={sectionTitleClassName}>Draft details</h3>
+                  <h3 className={sectionTitleClassName}>
+                    {isDraft ? 'Draft details' : 'SPK details'}
+                  </h3>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="block space-y-1">
                       <span className="text-sm font-medium">
@@ -417,7 +507,7 @@ export default function ProductionOrderDialog({
                       <input
                         inputMode="decimal"
                         value={draft.qty}
-                        disabled={busy}
+                        disabled={busy || (!isDraft && doneNum > 0)}
                         onChange={(e) =>
                           setDraft({ ...draft, qty: e.target.value })
                         }
@@ -467,6 +557,17 @@ export default function ProductionOrderDialog({
                     disabled={busy}
                     onChange={(notes) => setDraft({ ...draft, notes })}
                   />
+                  {isDraft && releaseMissing.length > 0 ? (
+                    <p className={cn('text-xs', hintClassName)}>
+                      Set the {releaseMissing.join(', ')} before releasing.
+                    </p>
+                  ) : null}
+                  {!isDraft ? (
+                    <p className={cn('text-xs', hintClassName)}>
+                      PIC, dates and notes can change any time. Qty can change
+                      only before output is reported or material is requested.
+                    </p>
+                  ) : null}
                 </section>
               ) : (
                 <ProductionNotesList notes={order.notes} />
@@ -489,7 +590,7 @@ export default function ProductionOrderDialog({
                       type="button"
                       size="sm"
                       className="h-8 gap-1.5"
-                      disabled={busy}
+                      disabled={busy || releaseMissing.length > 0}
                       onClick={() => setConfirm({ kind: 'release' })}
                     >
                       <Send className="size-3.5" aria-hidden />
@@ -501,7 +602,7 @@ export default function ProductionOrderDialog({
                       size="sm"
                       className="h-8"
                       disabled={busy}
-                      onClick={() => void saveDraft()}
+                      onClick={() => void saveDraft('SPK saved')}
                     >
                       Save draft
                     </Button>
@@ -518,12 +619,17 @@ export default function ProductionOrderDialog({
                     </Button>
                   </>
                 ) : null}
-                {active && canReport ? (
+                {active && canReport && !vendorWork ? (
                   <Button
                     type="button"
                     size="sm"
                     className="h-8 gap-1.5"
-                    disabled={busy || doneNum >= Number(order.qty)}
+                    disabled={
+                      busy ||
+                      (staged
+                        ? !stageHasRoom
+                        : doneNum >= Number(order.qty))
+                    }
                     onClick={openReport}
                   >
                     <Plus className="size-3.5" aria-hidden />
@@ -532,6 +638,29 @@ export default function ProductionOrderDialog({
                 ) : null}
                 {active && canManage ? (
                   <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      disabled={busy}
+                      onClick={() => void saveDraft('SPK updated')}
+                    >
+                      Save changes
+                    </Button>
+                    {order.status === 'released' ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        disabled={busy}
+                        onClick={() => setConfirm({ kind: 'revert' })}
+                      >
+                        <Undo2 className="size-3.5" aria-hidden />
+                        Back to draft
+                      </Button>
+                    ) : null}
                     <Button
                       type="button"
                       variant="outline"
@@ -564,6 +693,7 @@ export default function ProductionOrderDialog({
                 ) : null}
               </div>
 
+
               <section className="space-y-2">
                 <h3 className={sectionTitleClassName}>Files</h3>
                 <div className="flex flex-wrap gap-2">
@@ -572,7 +702,10 @@ export default function ProductionOrderDialog({
                       ['sd', 'Shop drawing', order.shopDrawingFile],
                       ['production', 'File Produksi', order.productionFile],
                     ] as const
-                  ).map(([kind, label, file]) => (
+                  )
+                    // The vendor brings its own production files.
+                    .filter(([kind, , file]) => !(outsource && kind === 'production' && !file))
+                    .map(([kind, label, file]) => (
                     <Button
                       key={kind}
                       type="button"
@@ -595,10 +728,18 @@ export default function ProductionOrderDialog({
               </section>
 
               <section className="space-y-2">
-                <h3 className={sectionTitleClassName}>Material needed</h3>
+                <h3 className={sectionTitleClassName}>
+                  {outsource
+                    ? 'Vendor fee'
+                    : vendorWork
+                      ? 'Material'
+                      : 'Material needed'}
+                </h3>
                 {order.materials.length === 0 ? (
                   <p className={cn('text-sm', hintClassName)}>
-                    No BOQ materials.
+                    {vendorWork
+                      ? 'No vendor fee yet — request it in purchasing when ready.'
+                      : 'No BOQ materials.'}
                   </p>
                 ) : (
                   <div className="overflow-x-auto rounded-md border border-(--line)">
@@ -631,6 +772,16 @@ export default function ProductionOrderDialog({
                             </td>
                             <td className="px-3 py-1.5 text-right font-medium tabular-nums">
                               {m.qty} {m.uomSymbol}
+                              {Number(m.exactQty) !== Number(m.qty) ? (
+                                <span
+                                  className={cn(
+                                    'block text-xs font-normal',
+                                    hintClassName,
+                                  )}
+                                >
+                                  need {m.exactQty}
+                                </span>
+                              ) : null}
                             </td>
                           </tr>
                         ))}
@@ -644,6 +795,14 @@ export default function ProductionOrderDialog({
                     released.
                   </p>
                 ) : null}
+                {order.materials.some(
+                  (m) => Number(m.exactQty) !== Number(m.qty),
+                ) ? (
+                  <p className={cn('text-xs', hintClassName)}>
+                    Totals are rounded like the RAB (e.g. whole sheets) over all
+                    SPKs of this item, so they add up to the RAB qty.
+                  </p>
+                ) : null}
               </section>
 
               {order.status !== 'draft' && can('purchasing.view') ? (
@@ -653,15 +812,80 @@ export default function ProductionOrderDialog({
                 />
               ) : null}
 
+              {order.type === 'subcon' && order.status !== 'draft' ? (
+                <SubconDispatches
+                  order={order}
+                  onOrder={(next) => {
+                    apply(next)
+                    onChanged?.()
+                  }}
+                />
+              ) : null}
+
+              {vendorWork ? (
+                <VendorHandovers
+                  order={order}
+                  canHandover={can('production.handover')}
+                  canManage={canManage}
+                  onOrder={(next) => {
+                    apply(next)
+                    onChanged?.()
+                  }}
+                />
+              ) : null}
+
+              {staged ? (
+                <section className="space-y-2">
+                  <h3 className={sectionTitleClassName}>Labour stages</h3>
+                  <ol className="space-y-2">
+                    {[...labourStages]
+                      .sort((a, b) => a.sequence - b.sequence)
+                      .map((s) => {
+                        const pct = Math.min(
+                          100,
+                          Math.round(
+                            (Number(s.qtyDone) / Number(order.qty)) * 100,
+                          ) || 0,
+                        )
+                        return (
+                          <li
+                            key={s.sequence}
+                            className="rounded-md border border-(--line) px-3 py-2"
+                          >
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <p className="text-sm font-medium">
+                                <span className="tabular-nums text-(--muted)">
+                                  {s.sequence}.
+                                </span>{' '}
+                                {s.name}
+                                <span className={cn('ml-2 text-xs', hintClassName)}>
+                                  {s.weightPercent}%
+                                </span>
+                              </p>
+                              <p className="text-sm tabular-nums">
+                                {s.qtyDone} / {order.qty}
+                              </p>
+                            </div>
+                            <ProgressBar percent={pct} />
+                          </li>
+                        )
+                      })}
+                  </ol>
+                </section>
+              ) : null}
+
+              {!vendorWork || shownReports.length > 0 ? (
               <section className="space-y-2">
-                <h3 className={sectionTitleClassName}>Production reports</h3>
-                {order.reports.length === 0 ? (
+                <h3 className={sectionTitleClassName}>
+                  {vendorWork ? 'Earlier reports (entered by hand)' : 'Production reports'}
+                </h3>
+                {shownReports.length === 0 ? (
                   <p className={cn('text-sm', hintClassName)}>
                     No reports yet.
                   </p>
                 ) : (
                   <ul className="divide-y divide-(--line) rounded-md border border-(--line)">
-                    {order.reports.map((r) => (
+                    {shownReports.map((r) => (
                       <li
                         key={r.id}
                         className={cn(
@@ -677,7 +901,10 @@ export default function ProductionOrderDialog({
                             )}
                           >
                             <span className="font-medium">{r.qtyDone}</span>{' '}
-                            done · {r.reportDate}
+                            {stageName(r.stageSequence)
+                              ? `· ${stageName(r.stageSequence)} `
+                              : 'done '}
+                            · {r.reportDate}
                           </p>
                           <p className={cn('text-xs', hintClassName)}>
                             {r.reportedBy?.name ?? 'Unknown'}
@@ -690,7 +917,7 @@ export default function ProductionOrderDialog({
                             </p>
                           ) : null}
                         </div>
-                        {!r.isVoided && active && canManage ? (
+                        {!r.isVoided && !r.handoverId && active && canManage ? (
                           <Button
                             type="button"
                             variant="ghost"
@@ -710,6 +937,7 @@ export default function ProductionOrderDialog({
                   </ul>
                 )}
               </section>
+              ) : null}
             </div>
           )}
         </DialogContent>
@@ -725,13 +953,54 @@ export default function ProductionOrderDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Add production report</AlertDialogTitle>
             <AlertDialogDescription>
-              Qty finished on {order?.number}. Up to{' '}
-              {order ? Number(order.qty) - doneNum : 0} left.
+              {staged
+                ? `Pcs finished on a labour stage for ${order?.number}.`
+                : `Qty finished on ${order?.number}. Up to ${order ? Number(order.qty) - doneNum : 0} left.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {staged ? (
+            <label className="block space-y-1">
+              <span className="text-sm font-medium">Stage</span>
+              <select
+                value={reportStageSequence ?? ''}
+                disabled={busy}
+                onChange={(e) => {
+                  const seq = Number(e.target.value)
+                  setReportStageSequence(Number.isFinite(seq) ? seq : null)
+                  if (!order || !Number.isFinite(seq)) return
+                  const stages = [...order.labourStages].sort(
+                    (a, b) => a.sequence - b.sequence,
+                  )
+                  const idx = stages.findIndex((s) => s.sequence === seq)
+                  if (idx < 0) return
+                  const cap =
+                    idx === 0
+                      ? Number(order.qty)
+                      : Number(stages[idx - 1]!.qtyDone)
+                  const room = cap - Number(stages[idx]!.qtyDone)
+                  setReportQty(room > 0 ? String(room) : '')
+                }}
+                className={dialogInputClassName}
+              >
+                <option value="" disabled>
+                  Select stage…
+                </option>
+                {[...(order?.labourStages ?? [])]
+                  .sort((a, b) => a.sequence - b.sequence)
+                  .map((s) => (
+                    <option key={s.sequence} value={s.sequence}>
+                      {s.sequence}. {s.name} ({s.weightPercent}%) — {s.qtyDone}/
+                      {order?.qty}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block space-y-1">
-              <span className="text-sm font-medium">Qty done</span>
+              <span className="text-sm font-medium">
+                {staged ? 'Pcs finished' : 'Qty done'}
+              </span>
               <input
                 inputMode="decimal"
                 value={reportQty}
@@ -765,7 +1034,12 @@ export default function ProductionOrderDialog({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={busy || !reportQty.trim() || !reportDate}
+              disabled={
+                busy ||
+                !reportQty.trim() ||
+                !reportDate ||
+                (staged && reportStageSequence == null)
+              }
               onClick={(e) => {
                 e.preventDefault()
                 void addReport()
@@ -788,26 +1062,30 @@ export default function ProductionOrderDialog({
             <AlertDialogTitle>
               {confirm?.kind === 'release'
                 ? `Release ${order?.number}?`
-                : confirm?.kind === 'delete'
-                  ? `Delete draft ${order?.number}?`
-                  : confirm?.kind === 'complete'
-                    ? `Complete ${order?.number}?`
-                    : confirm?.kind === 'cancel'
-                      ? `Cancel ${order?.number}?`
-                      : 'Void this report?'}
+                : confirm?.kind === 'revert'
+                  ? `Move ${order?.number} back to draft?`
+                  : confirm?.kind === 'delete'
+                    ? `Delete draft ${order?.number}?`
+                    : confirm?.kind === 'complete'
+                      ? `Complete ${order?.number}?`
+                      : confirm?.kind === 'cancel'
+                        ? `Cancel ${order?.number}?`
+                        : 'Void this report?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirm?.kind === 'release'
                 ? 'Files and material list are fixed on the SPK and the floor can report output.'
-                : confirm?.kind === 'delete'
-                  ? 'The draft is removed and its qty is free again.'
-                  : confirm?.kind === 'complete'
-                    ? short
-                      ? `Only ${order?.doneQty} of ${order?.qty} finished. The rest is freed for a new SPK.`
-                      : 'All qty is finished. The SPK is closed.'
-                    : confirm?.kind === 'cancel'
-                      ? 'No output was reported. Its qty is free again.'
-                      : 'The qty no longer counts as done. The report stays in the history.'}
+                : confirm?.kind === 'revert'
+                  ? 'The SPK keeps its number and becomes an editable draft again. Files and materials are taken from the current BOQ on the next release.'
+                  : confirm?.kind === 'delete'
+                    ? 'The draft is removed and its qty is free again.'
+                    : confirm?.kind === 'complete'
+                      ? short
+                        ? `Only ${order?.doneQty} of ${order?.qty} finished. The rest is freed for a new SPK.`
+                        : 'All qty is finished. The SPK is closed.'
+                      : confirm?.kind === 'cancel'
+                        ? 'No output was reported. Its qty is free again.'
+                        : 'The qty no longer counts as done. The report stays in the history.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {confirmNeedsText ? (

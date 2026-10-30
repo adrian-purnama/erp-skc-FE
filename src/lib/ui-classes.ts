@@ -3,9 +3,10 @@ export const inputClassName = 'app-input px-2.5 py-1.5 text-sm'
 /**
  * Inputs inside Dialog / AlertDialog: those portal outside the app theme
  * wrapper, so `.app-input` styles do not reach them.
+ * Sheet sets `data-theme="app"` on content, so `inputClassName` works there.
  */
 export const dialogInputClassName =
-  'w-full rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm'
+  'box-border w-full max-w-full min-w-0 rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm'
 
 export const inputClassNameCompact = 'app-input px-2 py-1 text-sm'
 

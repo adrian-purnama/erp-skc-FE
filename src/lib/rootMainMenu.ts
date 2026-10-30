@@ -5,7 +5,8 @@ export type RootMenuLeaf = {
   label: string
   to: string
   match: string
-  permission?: string
+  /** Shown when the user has this permission (or any of a list). */
+  permission?: string | string[]
   /** Carry current project across this leaf’s navigation */
   carryProjectId?: boolean
   /** When carryProjectId + id present, use this path (e.g. dashboard detail) */
@@ -117,19 +118,26 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
         match: '/dashboard/production',
         permission: 'production.view',
       },
-      {
-        id: 'purchasing-requests',
-        label: 'Material Requests (SPP)',
-        to: '/dashboard/purchasing/requests',
-        match: '/dashboard/purchasing/requests',
-        permission: 'purchasing.view',
-      },
     ],
   },
   {
     id: 'purchasing',
     label: 'Purchasing',
     children: [
+      {
+        id: 'purchasing-rabs',
+        label: 'RAB',
+        to: '/dashboard/purchasing/rabs',
+        match: '/dashboard/purchasing/rabs',
+        permission: 'purchasing.rab',
+      },
+      {
+        id: 'purchasing-requests',
+        label: 'Purchase Requests',
+        to: '/dashboard/purchasing/requests',
+        match: '/dashboard/purchasing/requests',
+        permission: 'purchasing.view',
+      },
       {
         id: 'purchasing-orders',
         label: 'Purchase Orders',
@@ -142,7 +150,7 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
         label: 'PO Approval',
         to: '/dashboard/purchasing/approvals',
         match: '/dashboard/purchasing/approvals',
-        permission: 'purchasing.approve',
+        permission: ['purchasing.approve', 'purchasing.approve2'],
       },
       {
         id: 'purchasing-realizations',
@@ -150,6 +158,19 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
         to: '/dashboard/purchasing/realizations',
         match: '/dashboard/purchasing/realizations',
         permission: 'purchasing.realize',
+      },
+    ],
+  },
+  {
+    id: 'finance',
+    label: 'Finance',
+    children: [
+      {
+        id: 'finance-payments',
+        label: 'Payments',
+        to: '/dashboard/finance/payments',
+        match: '/dashboard/finance/payments',
+        permission: ['purchasing.pay', 'purchasing.realize', 'purchasing.manage'],
       },
     ],
   },
@@ -259,7 +280,7 @@ export function filterMenuTree(
       continue
     }
 
-    if (!node.permission || can(node.permission)) {
+    if (!node.permission || [node.permission].flat().some(can)) {
       out.push(node)
     }
   }
@@ -289,8 +310,7 @@ export function folderIdsForPath(
   return []
 }
 
-const PROJECT_DETAIL_PATH =
-  /^\/dashboard\/projects\/([^/]+)(?:\/|$)/
+const PROJECT_DETAIL_PATH = /^\/dashboard\/projects\/([^/]+)(?:\/|$)/
 
 /** Resolve current project from path (`/dashboard/projects/:id`) or `?projectId=`. */
 export function projectIdFromLocation(
