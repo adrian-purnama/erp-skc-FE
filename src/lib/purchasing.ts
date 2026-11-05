@@ -125,6 +125,8 @@ export type PurchaseRequest = PurchaseRequestSummary & {
     total: string
   }>
   canChange: boolean
+  /** You made it: you cancel it; purchasing on someone else's declines it. */
+  viewerIsOwner: boolean
 }
 
 export type PurchaseRequestPlanRow = {
@@ -330,7 +332,7 @@ export type PurchaseOrderSummary = {
   approvedAt: string | null
   /** Posted receipts against the PO's lines. */
   receiptStatus: RealizationProgress
-  /** Vendor payments marked paid, integer rupiah. */
+  /** Payments marked paid on this PO (vendor and reimbursements), integer rupiah. */
   paidTotal: string
 }
 
@@ -635,12 +637,14 @@ export type RealizationSummary = {
   deliveryNoteNumber: string
   /** `vendor`: the supplier delivered straight to the subcon vendor. */
   deliveredTo: 'us' | 'vendor'
-  /** Staff notas: the reimbursement paying it back, if any. */
-  reimbursement: {
+  /** The live payment that names this GR / NR, if any. */
+  payment: {
     id: string
     number: string
     status: PurchasePaymentStatus
   } | null
+  /** Vendor GR: the live vendor invoice covering it; null = at the PO price until invoiced. */
+  invoice: { id: string; number: string; status: VendorInvoiceStatus } | null
   /** Σ goods lines. */
   subtotal: string
   chargesTotal: string
@@ -763,7 +767,117 @@ export type PurchaseRabLineInput = {
   note: string
 }
 
-// ---- Payments (vendor stages, staff reimbursements) ----
+// ---- Vendor invoices (what the vendor billed for whole GRs of one PO) ----
+
+export type VendorInvoiceStatus = 'draft' | 'posted' | 'voided'
+
+export const VENDOR_INVOICE_STATUS_LABELS: Record<VendorInvoiceStatus, string> = {
+  draft: 'Draft',
+  posted: 'Posted',
+  voided: 'Voided',
+}
+
+export type VendorInvoiceReceiptRef = {
+  id: string
+  number: string
+  purchaseDate: string
+  deliveryNoteNumber: string
+}
+
+export type VendorInvoiceLine = {
+  id: string
+  realizationId: string
+  realizationNumber: string
+  realizationLineId: string
+  poLineId: string
+  materialCode: string
+  materialName: string
+  uomSymbol: string
+  qty: string
+  unitPrice: string
+  poPrice: string
+  amount: string
+  /** amount − qty × PO price. */
+  difference: string
+  note: string
+}
+
+export type VendorInvoiceSummary = {
+  id: string
+  number: string
+  status: VendorInvoiceStatus
+  purchaseOrderId: string
+  poNumber: string
+  vendorName: string
+  vendorInvoiceNumber: string
+  invoiceDate: string
+  dueDate: string | null
+  receipts: VendorInvoiceReceiptRef[]
+  subtotal: string
+  chargesTotal: string
+  total: string
+  fileCount: number
+  createdBy: ProjectRabUserRef | null
+  createdAt: string | null
+  postedAt: string | null
+}
+
+export type VendorInvoice = VendorInvoiceSummary & {
+  lines: VendorInvoiceLine[]
+  charges: RealizationCharge[]
+  files: RealizationPhoto[]
+  notes: string
+  postedBy: ProjectRabUserRef | null
+  voidedAt: string | null
+  voidedBy: ProjectRabUserRef | null
+  voidReason: string
+  /** An approved / paid payment names it: it can no longer change. */
+  lockedBy: { id: string; number: string } | null
+  /** Live payments naming this invoice. */
+  payments: Array<{
+    id: string
+    number: string
+    status: PurchasePaymentStatus
+    amount: string
+  }>
+  /** Other live invoices of this vendor with the same vendor invoice number. */
+  sameNumber: Array<{
+    id: string
+    number: string
+    poNumber: string
+    total: string
+    status: VendorInvoiceStatus
+  }>
+}
+
+export type InvoiceableReceipt = VendorInvoiceReceiptRef & {
+  lines: Array<{
+    realizationLineId: string
+    poLineId: string
+    materialCode: string
+    materialName: string
+    uomSymbol: string
+    qty: string
+    poPrice: string
+  }>
+}
+
+export type VendorInvoicePlan = {
+  purchaseOrderId: string
+  poNumber: string
+  vendorName: string
+  estimatedCharges: RealizationCharge[]
+  receipts: InvoiceableReceipt[]
+}
+
+export type VendorInvoiceQueueRow = {
+  purchaseOrderId: string
+  poNumber: string
+  vendorName: string
+  receipts: Array<VendorInvoiceReceiptRef & { total: string }>
+}
+
+// ---- Payments (per PO, to the vendor or to a staff member) ----
 
 export type PurchasePaymentKind = 'vendor' | 'reimburse'
 export type PurchasePaymentStatus =
@@ -773,7 +887,7 @@ export type PurchasePaymentStatus =
   | 'paid'
   | 'rejected'
   | 'cancelled'
-export type PurchasePaymentStage = 'dp' | 'termin' | 'pelunasan'
+export type PurchasePaymentStage = 'partial' | 'full'
 export type PurchasePaymentMethod = 'transfer' | 'cash' | 'other'
 
 /** Level 1 → level 2 sign-off. */
@@ -793,18 +907,6 @@ export type PaymentApproval = {
   rejectReason: string
 }
 
-export type ReimburseItem = PaymentApproval & {
-  id: string
-  realizationId: string
-  realizationNumber: string
-  purchaseOrderId: string
-  purchaseOrderNumber: string
-  purchaseDate: string
-  place: string
-  amount: string
-  status: 'pending' | 'approved' | 'rejected'
-}
-
 export type PaymentProof = {
   id: string
   originalFilename: string
@@ -820,10 +922,10 @@ export type PurchasePayment = PaymentApproval & {
   number: string
   kind: PurchasePaymentKind
   status: PurchasePaymentStatus
-  purchaseOrderId: string | null
-  purchaseOrderNumber: string | null
+  purchaseOrderId: string
+  purchaseOrderNumber: string
   vendorName: string | null
-  stage: PurchasePaymentStage | null
+  stage: PurchasePaymentStage
   basis: 'percent' | 'fixed' | null
   rate: string | null
   realizations: Array<{
@@ -832,9 +934,12 @@ export type PurchasePayment = PaymentApproval & {
     purchaseDate: string
     total: string
   }>
+  /** Reimburse: the staff member paid back. */
+  /** Vendor: the vendor invoices this pays, if named. */
+  invoices: PaymentInvoiceRef[]
   payeeUserId: string | null
+  /** Vendor or staff name: who receives the money. */
   payeeName: string
-  items: ReimburseItem[]
   amount: string
   dueDate: string | null
   notes: string
@@ -852,38 +957,58 @@ export type PurchasePayment = PaymentApproval & {
   cancelReason: string
 }
 
-/** A PO's vendor payments and what is left to pay. */
-export type PurchaseOrderPayments = {
-  purchaseOrderId: string
-  /** Estimate until fully received, then the actual received amount. */
-  payable: string
+/** A posted vendor invoice a vendor payment may name. */
+export type PaymentInvoiceRef = {
+  id: string
+  number: string
+  vendorInvoiceNumber: string
+  invoiceDate: string
+  total: string
+}
+
+/** One payee of a PO: its vendor, or a staff member with posted NR. */
+export type PaymentPayee = {
+  kind: PurchasePaymentKind
+  payeeUserId: string | null
+  name: string
+  /** Vendor: estimate less staff NR until fully received, then actual GR. Staff: their NR total. */
+  owed: string
+  /** The owed amount is actual, not an estimate. */
   final: boolean
   scheduledTotal: string
   paidTotal: string
   remaining: string
-  /** Bought by staff: paid by reimbursement, not to the vendor. */
-  staffRealizedTotal: string
+  /** Reimburse: this person's NR a payment may name. */
+  realizations: Array<{
+    id: string
+    number: string
+    purchaseDate: string
+    total: string
+  }>
+  /** Vendor: the PO's posted vendor invoices a payment may name. */
+  invoices: PaymentInvoiceRef[]
+}
+
+/** A PO's payments and what is left to pay, per payee. */
+export type PurchaseOrderPayments = {
+  purchaseOrderId: string
+  purchaseOrderNumber: string
+  vendorName: string
+  /** Vendor first, then staff with posted NR. */
+  payees: PaymentPayee[]
+  owedTotal: string
+  paidTotal: string
+  remaining: string
   payments: PurchasePayment[]
 }
 
-/** Slim row for Finance → Payments vendor-stage PO picker. */
+/** Slim row for the Finance → Payments PO picker. */
 export type PayablePurchaseOrder = {
   id: string
   number: string
   vendorName: string
-  payable: string
+  owed: string
   remaining: string
-  final: boolean
-}
-
-export type ReimbursableNota = {
-  realizationId: string
-  number: string
-  purchaseOrderId: string
-  purchaseOrderNumber: string
-  purchaseDate: string
-  place: string
-  total: string
 }
 
 export const PAYMENT_STATUS_LABELS: Record<PurchasePaymentStatus, string> = {
@@ -896,9 +1021,13 @@ export const PAYMENT_STATUS_LABELS: Record<PurchasePaymentStatus, string> = {
 }
 
 export const PAYMENT_STAGE_LABELS: Record<PurchasePaymentStage, string> = {
-  dp: 'DP',
-  termin: 'Termin',
-  pelunasan: 'Pelunasan',
+  partial: 'Partial',
+  full: 'Full',
+}
+
+export const PAYMENT_KIND_LABELS: Record<PurchasePaymentKind, string> = {
+  vendor: 'Vendor',
+  reimburse: 'Reimbursement',
 }
 
 export const PAYMENT_METHOD_LABELS: Record<PurchasePaymentMethod, string> = {
@@ -907,11 +1036,11 @@ export const PAYMENT_METHOD_LABELS: Record<PurchasePaymentMethod, string> = {
   other: 'Other',
 }
 
-/** "DP 30%", "Termin", "Reimbursement". */
+/** "Vendor · Partial 30%", "Reimbursement · Full". */
 export function paymentLabel(p: PurchasePayment): string {
-  if (p.kind === 'reimburse') return 'Reimbursement'
-  const stage = p.stage ? PAYMENT_STAGE_LABELS[p.stage] : 'Payment'
-  return p.basis === 'percent' && p.rate ? `${stage} ${p.rate}%` : stage
+  const stage = PAYMENT_STAGE_LABELS[p.stage]
+  const sized = p.basis === 'percent' && p.rate ? `${stage} ${p.rate}%` : stage
+  return `${PAYMENT_KIND_LABELS[p.kind]} · ${sized}`
 }
 
 export function paymentStatusTone(

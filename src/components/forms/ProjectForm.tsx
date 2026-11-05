@@ -23,7 +23,12 @@ import ListTable, {
   type ListTableColumn,
 } from '#/components/forms/shared/ListTable'
 import ProjectListOverview from '#/components/forms/ProjectListOverview'
-import { formatJakartaDate } from '#/lib/projectCalendar'
+import PeriodFilter, {
+  ALL_TIME,
+  periodRange,
+} from '#/components/forms/dashboard/PeriodFilter'
+import type { PeriodValue } from '#/components/forms/dashboard/PeriodFilter'
+import { formatJakartaDate, ymdInJakarta } from '#/lib/projectCalendar'
 import { formatRupiah } from '#/lib/quotation'
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
@@ -128,6 +133,8 @@ function ProjectList({ canManage }: { canManage: boolean }) {
   const [query, setQuery] = useState('')
   const debounced = useDebouncedValue(query, 250)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [period, setPeriod] = useState<PeriodValue>(ALL_TIME)
+  const [customerFilter, setCustomerFilter] = useState('')
   const [page, setPage] = useState(1)
 
   useEffect(() => {
@@ -156,9 +163,32 @@ function ProjectList({ canManage }: { canManage: boolean }) {
     }
   }, [])
 
+  /** Period (created date) + customer: scope both the dashboard and the list. */
+  const scoped = useMemo(() => {
+    const range = periodRange(period)
+    return results.filter((row) => {
+      if (customerFilter && row.customerId !== customerFilter) return false
+      if (!range) return true
+      if (!row.createdAt) return false
+      const created = ymdInJakarta(row.createdAt)
+      return created >= range.from && created <= range.to
+    })
+  }, [results, period, customerFilter])
+
+  const customerOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const r of results) byId.set(r.customerId, r.customerName || 'Unknown customer')
+    return [
+      { value: '', label: 'All customers' },
+      ...[...byId.entries()]
+        .sort((a, b) => a[1].localeCompare(b[1]))
+        .map(([value, label]) => ({ value, label })),
+    ]
+  }, [results])
+
   const filtered = useMemo(() => {
     const q = debounced.trim().toLowerCase()
-    return results.filter((row) => {
+    return scoped.filter((row) => {
       if (statusFilter === 'active' && !isProjectActive(row.status)) {
         return false
       }
@@ -176,7 +206,7 @@ function ProjectList({ canManage }: { canManage: boolean }) {
         (row.customerName ?? '').toLowerCase().includes(q)
       )
     })
-  }, [results, debounced, statusFilter])
+  }, [scoped, debounced, statusFilter])
 
   const statusFilterOptions = useMemo(
     () => [
@@ -192,7 +222,7 @@ function ProjectList({ canManage }: { canManage: boolean }) {
 
   useEffect(() => {
     setPage(1)
-  }, [debounced, statusFilter])
+  }, [debounced, statusFilter, scoped])
 
   const {
     pageItems,
@@ -373,7 +403,30 @@ function ProjectList({ canManage }: { canManage: boolean }) {
         </div>
       </div>
 
-      <ProjectListOverview rows={results} loading={loading} />
+      <ProjectListOverview
+        rows={scoped}
+        loading={loading}
+        filters={
+          <>
+            <PeriodFilter value={period} onChange={setPeriod} label="Created" />
+            <Combobox
+              value={customerFilter}
+              onValueChange={(value) => setCustomerFilter(value)}
+              options={customerOptions}
+              placeholder="All customers"
+              searchPlaceholder="Search customers…"
+              emptyText="No customers found."
+              aria-label="Filter by customer"
+              className="w-52 shrink-0"
+            />
+            {period.preset !== 'all' || customerFilter ? (
+              <span className={cn('text-xs', hintClassName)}>
+                {scoped.length} of {results.length} projects
+              </span>
+            ) : null}
+          </>
+        }
+      />
 
       <ListTable
         filters={
@@ -401,7 +454,7 @@ function ProjectList({ canManage }: { canManage: boolean }) {
         loading={loading}
         loadingLabel="Loading projects…"
         empty={
-          debounced.trim() || statusFilter !== 'all'
+          debounced.trim() || statusFilter !== 'all' || scoped.length !== results.length
             ? 'No projects match the current filter.'
             : 'No projects yet.'
         }
@@ -456,6 +509,8 @@ function ProjectEditor({
   const [status, setStatus] = useState<ProjectStatus>('open')
   const [loseReason, setLoseReason] = useState<ProjectLoseReason | ''>('')
   const [closeReason, setCloseReason] = useState<ProjectCloseReason | ''>('')
+  const [plannedStartDate, setPlannedStartDate] = useState('')
+  const [plannedFinishDate, setPlannedFinishDate] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -494,6 +549,8 @@ function ProjectEditor({
         const data = response.data
         setName(data.name)
         setDescription(data.description ?? '')
+        setPlannedStartDate(data.plannedStartDate ?? '')
+        setPlannedFinishDate(data.plannedFinishDate ?? '')
         setProjectNumber(data.projectNumber)
         setCustomerId(data.customerId)
         setAssignedCustomerName(data.customerName ?? '')
@@ -593,6 +650,8 @@ function ProjectEditor({
       status,
       loseReason: status === 'lose' ? loseReason : null,
       closeReason: status === 'close' ? closeReason : null,
+      plannedStartDate: plannedStartDate || null,
+      plannedFinishDate: plannedFinishDate || null,
     }
 
     setSaving(true)
@@ -680,6 +739,30 @@ function ProjectEditor({
             disabled={!canManage || saving}
           />
         </label>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Planned start</span>
+            <input
+              type="date"
+              className={inputClassName}
+              value={plannedStartDate}
+              onChange={(e) => setPlannedStartDate(e.target.value)}
+              disabled={!canManage || saving}
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Planned finish</span>
+            <input
+              type="date"
+              className={inputClassName}
+              value={plannedFinishDate}
+              min={plannedStartDate || undefined}
+              onChange={(e) => setPlannedFinishDate(e.target.value)}
+              disabled={!canManage || saving}
+            />
+          </label>
+        </div>
 
         <div className="space-y-1.5">
           <span className="text-sm font-medium">Customer</span>

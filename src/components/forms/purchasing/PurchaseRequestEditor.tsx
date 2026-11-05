@@ -6,6 +6,7 @@ import {
   Ban,
   Check,
   LoaderCircle,
+  MoreHorizontal,
   PackageCheck,
   Plus,
   Send,
@@ -34,6 +35,13 @@ import {
 import PurchaseFlowHeader from '#/components/forms/shared/PurchaseFlowHeader'
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu'
 import {
   Sheet,
   SheetContent,
@@ -304,7 +312,8 @@ export default function PurchaseRequestEditor({
     [plan],
   )
   const spkUomByMaterial = useMemo(
-    () => new Map((plan?.rows ?? []).map((r) => [r.materialItemId, r.itemUomId])),
+    () =>
+      new Map((plan?.rows ?? []).map((r) => [r.materialItemId, r.itemUomId])),
     [plan],
   )
   const materialById = useMemo(
@@ -318,7 +327,10 @@ export default function PurchaseRequestEditor({
     return [
       ...all
         .filter((m) => spkIds.has(m.id))
-        .map((m) => ({ value: m.id, label: `${m.itemId} · ${m.name} (${what})` })),
+        .map((m) => ({
+          value: m.id,
+          label: `${m.itemId} · ${m.name} (${what})`,
+        })),
       ...all
         .filter((m) => !spkIds.has(m.id))
         .map((m) => ({ value: m.id, label: `${m.itemId} · ${m.name}` })),
@@ -385,7 +397,8 @@ export default function PurchaseRequestEditor({
   }
   const issueCount = [...info.values()].filter((i) => i.issue).length
   const formErrors: string[] = []
-  if (isNew && !plan) formErrors.push(basis === 'rab' ? 'Choose a RAB' : 'Choose an SPK')
+  if (isNew && !plan)
+    formErrors.push(basis === 'rab' ? 'Choose a RAB' : 'Choose an SPK')
   if (!neededDate) formErrors.push('Set the date needed')
   if (rows.length === 0) formErrors.push('Add at least one item')
   const canSave = issueCount === 0 && formErrors.length === 0
@@ -398,7 +411,9 @@ export default function PurchaseRequestEditor({
     )
   }).length
   const keysInRows = new Set(
-    rows.filter((r) => r.materialItemId && r.itemUomId).map((r) => materialKey(r)),
+    rows
+      .filter((r) => r.materialItemId && r.itemUomId)
+      .map((r) => materialKey(r)),
   )
 
   async function send<T>(path: string, init: RequestInit): Promise<T | null> {
@@ -503,7 +518,9 @@ export default function PurchaseRequestEditor({
           { method: 'POST', body: JSON.stringify({ reason: cancelReason }) },
         )
         if (next) {
-          toast.success(confirm === 'decline' ? 'Request declined' : 'Request cancelled')
+          toast.success(
+            confirm === 'decline' ? 'Request declined' : 'Request cancelled',
+          )
           setRequest(next)
           setConfirm(null)
         }
@@ -583,7 +600,8 @@ export default function PurchaseRequestEditor({
 
   // Picking the SPK / RAB of a new request stays on the page; the rest opens in a sheet.
   const detailsInline = isNew && !initialOrderId && !initialRabId
-  const detailsNeedAttention = !detailsInline && editable && showErrors && !neededDate
+  const detailsNeedAttention =
+    !detailsInline && editable && showErrors && !neededDate
   const detailFields = (
     <>
       <div className="space-y-1">
@@ -674,7 +692,9 @@ export default function PurchaseRequestEditor({
           <h1 className={cn(pageTitleClassName, 'tabular-nums')}>
             {request ? request.number : 'New material request'}
           </h1>
-          {request ? <PurchaseRequestStatusChip status={request.status} /> : null}
+          {request ? (
+            <PurchaseRequestStatusChip status={request.status} />
+          ) : null}
           {request?.status === 'submitted' ? (
             request.receivedAt ? (
               <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-emerald-700 dark:text-emerald-300">
@@ -766,14 +786,19 @@ export default function PurchaseRequestEditor({
             setDetailsOpen(open)
           }}
         >
-          <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
+          <SheetContent
+            side="right"
+            className="w-full overflow-y-auto sm:max-w-lg"
+          >
             <SheetHeader>
               <SheetTitle>Request details</SheetTitle>
               <SheetDescription>
                 {what}, project, RAB, needed date and status history.
               </SheetDescription>
             </SheetHeader>
-            <div className="grid gap-4 px-4 pb-4 sm:grid-cols-2">{detailFields}</div>
+            <div className="grid gap-4 px-4 pb-4 sm:grid-cols-2">
+              {detailFields}
+            </div>
             {request && !editable ? (
               <div className="space-y-2 border-t border-(--line) px-4 py-4 text-sm">
                 {request.status === 'submitted' ||
@@ -794,8 +819,8 @@ export default function PurchaseRequestEditor({
                   </p>
                 ) : request.canConfirmReceived ? (
                   <p className="text-emerald-700 dark:text-emerald-300">
-                    Everything has arrived. Press “I have received” once you have
-                    the goods.
+                    Everything has arrived. Press “I have received” once you
+                    have the goods.
                   </p>
                 ) : null}
               </div>
@@ -846,10 +871,14 @@ export default function PurchaseRequestEditor({
                       <span
                         className={cn(
                           'text-xs tabular-nums',
-                          left > 0 ? 'text-(--muted)' : 'text-emerald-700 dark:text-emerald-300',
+                          left > 0
+                            ? 'text-(--muted)'
+                            : 'text-emerald-700 dark:text-emerald-300',
                         )}
                       >
-                        {left > 0 ? `${r.remainingQty} ${r.uomSymbol}` : 'all requested'}
+                        {left > 0
+                          ? `${r.remainingQty} ${r.uomSymbol}`
+                          : 'all requested'}
                       </span>
                     </button>
                   )
@@ -886,7 +915,9 @@ export default function PurchaseRequestEditor({
                     <tr className="border-b border-(--line)">
                       <th className="px-3 py-2 font-medium">Material</th>
                       <th className="w-28 px-3 py-2 font-medium">Unit</th>
-                      <th className="w-28 px-3 py-2 text-right font-medium">Qty</th>
+                      <th className="w-28 px-3 py-2 text-right font-medium">
+                        Qty
+                      </th>
                       <th className="w-64 px-3 py-2 font-medium">Reason</th>
                       <th className="w-10 px-2 py-2" aria-label="Remove" />
                     </tr>
@@ -910,14 +941,17 @@ export default function PurchaseRequestEditor({
                                 const m = materialById.get(v)
                                 const uom =
                                   spkUomByMaterial.get(v) ??
-                                  (m?.uoms.find((u) => u.isBase) ?? m?.uoms[0])?.id
+                                  (m?.uoms.find((u) => u.isBase) ?? m?.uoms[0])
+                                    ?.id
                                 updateRow(row.rowKey, {
                                   materialItemId: v,
                                   itemUomId: uom ?? '',
                                 })
                               }}
                               options={materialOptions}
-                              placeholder={materials ? 'Search material' : 'Loading…'}
+                              placeholder={
+                                materials ? 'Search material' : 'Loading…'
+                              }
                               contentClassName="w-[28rem]"
                               aria-label="Material"
                               disabled={busy || !materials}
@@ -925,8 +959,15 @@ export default function PurchaseRequestEditor({
                             {known ? (
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 {planRow ? (
-                                  <span className={cn('text-xs tabular-nums', hintClassName)}>
-                                    {what === 'RAB' ? 'RAB budgets' : 'SPK needs'}{' '}
+                                  <span
+                                    className={cn(
+                                      'text-xs tabular-nums',
+                                      hintClassName,
+                                    )}
+                                  >
+                                    {what === 'RAB'
+                                      ? 'RAB budgets'
+                                      : 'SPK needs'}{' '}
                                     {planRow.plannedQty} {planRow.uomSymbol}
                                     {planRow.unitPrice
                                       ? ` @ ${formatRupiah(planRow.unitPrice)}`
@@ -938,14 +979,18 @@ export default function PurchaseRequestEditor({
                                 ) : plan ? (
                                   <LineFlagBadge flag="extra" />
                                 ) : null}
-                                {i?.over ? <LineFlagBadge flag="overPlan" /> : null}
+                                {i?.over ? (
+                                  <LineFlagBadge flag="overPlan" />
+                                ) : null}
                                 {!rabKeys.has(materialKey(row)) ? (
                                   <LineFlagBadge flag="notInRab" />
                                 ) : null}
                               </div>
                             ) : null}
                             {issue ? (
-                              <p className="mt-1 text-xs text-red-600">{issue}</p>
+                              <p className="mt-1 text-xs text-red-600">
+                                {issue}
+                              </p>
                             ) : null}
                           </td>
                           <td className="px-3 py-2">
@@ -976,7 +1021,8 @@ export default function PurchaseRequestEditor({
                               className={cn(
                                 inputClassNameCompact,
                                 'w-full text-right tabular-nums',
-                                issue === 'Enter a qty above 0' && 'border-red-500',
+                                issue === 'Enter a qty above 0' &&
+                                  'border-red-500',
                               )}
                             />
                           </td>
@@ -985,7 +1031,9 @@ export default function PurchaseRequestEditor({
                               value={row.note}
                               disabled={busy}
                               placeholder={
-                                i?.needsReason ? 'Why is this needed?' : 'Optional'
+                                i?.needsReason
+                                  ? 'Why is this needed?'
+                                  : 'Optional'
                               }
                               aria-label="Reason"
                               onChange={(e) =>
@@ -994,7 +1042,10 @@ export default function PurchaseRequestEditor({
                               className={cn(
                                 inputClassNameCompact,
                                 'w-full',
-                                issue && i?.needsReason && !row.note.trim() && 'border-red-500',
+                                issue &&
+                                  i?.needsReason &&
+                                  !row.note.trim() &&
+                                  'border-red-500',
                               )}
                             />
                           </td>
@@ -1062,7 +1113,9 @@ export default function PurchaseRequestEditor({
                   {[
                     ...formErrors,
                     ...(issueCount > 0
-                      ? [`${issueCount} ${issueCount === 1 ? 'row needs' : 'rows need'} attention`]
+                      ? [
+                          `${issueCount} ${issueCount === 1 ? 'row needs' : 'rows need'} attention`,
+                        ]
                       : []),
                   ].join(' · ')}
                 </p>
@@ -1116,10 +1169,14 @@ export default function PurchaseRequestEditor({
                 <thead className="text-left text-xs text-(--muted)">
                   <tr className="border-b border-(--line)">
                     <th className="px-3 py-2 font-medium">Material</th>
-                    <th className="w-32 px-3 py-2 text-right font-medium">Qty</th>
+                    <th className="w-32 px-3 py-2 text-right font-medium">
+                      Qty
+                    </th>
                     <th className="px-3 py-2 font-medium">Reason</th>
                     <th className="w-56 px-3 py-2 font-medium">Ordered</th>
-                    <th className="w-28 px-3 py-2 text-right font-medium">Arrived</th>
+                    <th className="w-28 px-3 py-2 text-right font-medium">
+                      Arrived
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1153,7 +1210,10 @@ export default function PurchaseRequestEditor({
                         ) : (
                           <ul className="space-y-1">
                             {l.orders.map((o) => (
-                              <li key={o.id} className="flex flex-wrap items-center gap-1.5">
+                              <li
+                                key={o.id}
+                                className="flex flex-wrap items-center gap-1.5"
+                              >
                                 {canViewOrders ? (
                                   <Link
                                     to="/dashboard/purchasing/orders/$orderId"
@@ -1163,7 +1223,9 @@ export default function PurchaseRequestEditor({
                                     {o.number}
                                   </Link>
                                 ) : (
-                                  <span className="tabular-nums">{o.number}</span>
+                                  <span className="tabular-nums">
+                                    {o.number}
+                                  </span>
                                 )}
                                 <span className="text-xs tabular-nums text-(--muted)">
                                   {o.qty} {l.uomSymbol}
@@ -1219,10 +1281,16 @@ export default function PurchaseRequestEditor({
                         {o.number}
                       </Link>
                     ) : (
-                      <span className="font-medium tabular-nums">{o.number}</span>
+                      <span className="font-medium tabular-nums">
+                        {o.number}
+                      </span>
                     )}
-                    <span className="min-w-0 flex-1 truncate">{o.vendorName}</span>
-                    <span className="tabular-nums">{formatRupiah(o.total)}</span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {o.vendorName}
+                    </span>
+                    <span className="tabular-nums">
+                      {formatRupiah(o.total)}
+                    </span>
                     <PurchaseOrderStatusChip status={o.status} />
                   </li>
                 ))}
@@ -1233,96 +1301,25 @@ export default function PurchaseRequestEditor({
             Requested by {request.requestedBy?.name ?? 'Unknown'} ·{' '}
             {formatWhen(request.createdAt)} · {request.lineCount}{' '}
             {request.lineCount === 1 ? 'item' : 'items'}
-            {request.flaggedCount > 0 ? ` · ${request.flaggedCount} flagged` : ''}
+            {request.flaggedCount > 0
+              ? ` · ${request.flaggedCount} flagged`
+              : ''}
           </p>
-          <div className="flex flex-wrap gap-2">
-            {request.status === 'submitted' &&
-            request.orderStatus !== 'ordered' &&
-            can('purchasing.manage') ? (
-              <Link
-                to="/dashboard/purchasing/orders/new"
-                search={{ requestId: request.id }}
-                className={cn(
-                  buttonClassName,
-                  'inline-flex h-8 items-center gap-1.5 no-underline',
-                )}
-              >
-                <ShoppingCart className="size-3.5" aria-hidden />
-                {request.orderStatus === 'open' ? 'Create PO' : 'PO for remaining items'}
-              </Link>
-            ) : null}
-            {request.productionOrderId && canRequest ? (
-              <Link
-                to="/dashboard/purchasing/requests/new"
-                search={{ productionOrderId: request.productionOrderId }}
-                className={cn(
-                  buttonOutlineClassName,
-                  'inline-flex h-8 items-center gap-1.5 no-underline',
-                )}
-              >
-                <Plus className="size-3.5" aria-hidden />
-                Request more for this SPK
-              </Link>
-            ) : null}
-            {request.purchaseRabId && canRequest ? (
-              <Link
-                to="/dashboard/purchasing/requests/new"
-                search={{ purchaseRabId: request.purchaseRabId }}
-                className={cn(
-                  buttonOutlineClassName,
-                  'inline-flex h-8 items-center gap-1.5 no-underline',
-                )}
-              >
-                <Plus className="size-3.5" aria-hidden />
-                Request more from this RAB
-              </Link>
-            ) : null}
-            {request.canConfirmReceived ? (
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy}
-                onClick={() => setConfirm('received')}
-              >
-                <PackageCheck className="size-3.5" aria-hidden />
-                I have received
-              </Button>
-            ) : null}
-            {request.status === 'submitted' &&
-            can('purchasing.manage') &&
-            !request.orders.some((o) => o.status !== 'cancelled') ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="text-red-700"
-                disabled={busy}
-                onClick={() => {
-                  setCancelReason('')
-                  setConfirm('decline')
-                }}
-              >
-                <Ban className="size-3.5" aria-hidden />
-                Decline request
-              </Button>
-            ) : null}
-            {request.status === 'submitted' && request.canChange ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-red-700"
-                disabled={busy}
-                onClick={() => {
-                  setCancelReason('')
-                  setConfirm('cancel')
-                }}
-              >
-                <Ban className="size-3.5" aria-hidden />
-                Cancel request
-              </Button>
-            ) : null}
-          </div>
+          <RequestActions
+            request={request}
+            busy={busy}
+            canManage={can('purchasing.manage')}
+            canRequest={canRequest}
+            onConfirmReceived={() => setConfirm('received')}
+            onDecline={() => {
+              setCancelReason('')
+              setConfirm('decline')
+            }}
+            onCancel={() => {
+              setCancelReason('')
+              setConfirm('cancel')
+            }}
+          />
         </>
       ) : null}
 
@@ -1338,19 +1335,19 @@ export default function PurchaseRequestEditor({
               {confirm === 'received'
                 ? `Confirm you received ${request?.number}?`
                 : confirm === 'delete'
-                ? `Delete draft ${request?.number}?`
-                : confirm === 'decline'
-                  ? `Decline ${request?.number}?`
-                  : `Cancel ${request?.number}?`}
+                  ? `Delete draft ${request?.number}?`
+                  : confirm === 'decline'
+                    ? `Decline ${request?.number}?`
+                    : `Cancel ${request?.number}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirm === 'received'
                 ? 'Records that you have all the requested materials, with your name and the time.'
                 : confirm === 'delete'
-                ? 'The draft is removed. Its quantities are free to request again.'
-                : confirm === 'decline'
-                  ? 'The requester sees your reason. Its quantities are free to request again.'
-                  : 'Purchasing will no longer act on it. Its quantities are free to request again.'}
+                  ? 'The draft is removed. Its quantities are free to request again.'
+                  : confirm === 'decline'
+                    ? 'The requester sees your reason. Its quantities are free to request again.'
+                    : 'Purchasing will no longer act on it. Its quantities are free to request again.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {confirm === 'cancel' || confirm === 'decline' ? (
@@ -1370,7 +1367,8 @@ export default function PurchaseRequestEditor({
               variant={confirm === 'received' ? 'default' : 'destructive'}
               disabled={
                 busy ||
-                ((confirm === 'cancel' || confirm === 'decline') && !cancelReason.trim())
+                ((confirm === 'cancel' || confirm === 'decline') &&
+                  !cancelReason.trim())
               }
               onClick={(e) => {
                 e.preventDefault()
@@ -1380,14 +1378,133 @@ export default function PurchaseRequestEditor({
               {confirm === 'received'
                 ? 'I have received'
                 : confirm === 'delete'
-                ? 'Delete'
-                : confirm === 'decline'
-                  ? 'Decline'
-                  : 'Cancel request'}
+                  ? 'Delete'
+                  : confirm === 'decline'
+                    ? 'Decline'
+                    : 'Cancel request'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  )
+}
+
+/**
+ * One primary action for the viewer's next step; the rest sit in a ⋯ menu.
+ * The requester cancels their own SPP; purchasing declines someone else's.
+ */
+function RequestActions({
+  request,
+  busy,
+  canManage,
+  canRequest,
+  onConfirmReceived,
+  onDecline,
+  onCancel,
+}: {
+  request: PurchaseRequest
+  busy: boolean
+  canManage: boolean
+  canRequest: boolean
+  onConfirmReceived: () => void
+  onDecline: () => void
+  onCancel: () => void
+}) {
+  const submitted = request.status === 'submitted'
+  const canOrder = submitted && request.orderStatus !== 'ordered' && canManage
+  const hasLiveOrder = request.orders.some((o) => o.status !== 'cancelled')
+  const canCancel = submitted && request.canChange && request.viewerIsOwner
+  const canDecline =
+    submitted && canManage && !request.viewerIsOwner && !hasLiveOrder
+  const moreFor = canRequest
+    ? request.productionOrderId
+      ? {
+          label: 'Request more for this SPK',
+          search: { productionOrderId: request.productionOrderId },
+        }
+      : request.purchaseRabId
+        ? {
+            label: 'Request more from this RAB',
+            search: { purchaseRabId: request.purchaseRabId },
+          }
+        : null
+    : null
+  const hasMenu = moreFor !== null || canCancel || canDecline
+
+  if (!canOrder && !request.canConfirmReceived && !hasMenu) return null
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {canOrder ? (
+        <Link
+          to="/dashboard/purchasing/orders/new"
+          search={{ requestId: request.id }}
+          className={cn(
+            buttonClassName,
+            'inline-flex h-8 items-center gap-1.5 no-underline',
+          )}
+        >
+          <ShoppingCart className="size-3.5" aria-hidden />
+          {request.orderStatus === 'open'
+            ? 'Create PO'
+            : 'PO for remaining items'}
+        </Link>
+      ) : null}
+      {request.canConfirmReceived ? (
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy}
+          onClick={onConfirmReceived}
+        >
+          <PackageCheck className="size-3.5" aria-hidden />I have received
+        </Button>
+      ) : null}
+      {hasMenu ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              disabled={busy}
+              aria-label="More actions"
+            >
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-52">
+            {moreFor ? (
+              <DropdownMenuItem asChild>
+                <Link
+                  to="/dashboard/purchasing/requests/new"
+                  search={moreFor.search}
+                  className="no-underline"
+                >
+                  <Plus />
+                  {moreFor.label}
+                </Link>
+              </DropdownMenuItem>
+            ) : null}
+            {moreFor && (canCancel || canDecline) ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            {canDecline ? (
+              <DropdownMenuItem variant="destructive" onClick={onDecline}>
+                <Ban />
+                Decline request
+              </DropdownMenuItem>
+            ) : null}
+            {canCancel ? (
+              <DropdownMenuItem variant="destructive" onClick={onCancel}>
+                <Ban />
+                Cancel request
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </div>
   )
 }

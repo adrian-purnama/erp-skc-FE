@@ -23,12 +23,7 @@ function waitingFor(iso: string | null): string {
   return days === 1 ? '1 day' : `${days} days`
 }
 
-/** Notas of a reimbursement that wait on you. */
-function myItems(p: PurchasePayment) {
-  return p.items.filter((i) => i.viewerCanApprove)
-}
-
-/** Vendor payments and reimbursement notas waiting on your approval. */
+/** Payments (to vendors or staff) waiting on your approval. */
 export default function PaymentApprovalsList({
   onCount,
 }: {
@@ -78,7 +73,7 @@ export default function PaymentApprovalsList({
           <div className="min-w-0">
             <p className="truncate">{paymentLabel(r)}</p>
             <p className="truncate text-xs text-(--muted)">
-              {r.kind === 'vendor' ? r.vendorName : `to ${r.payeeName}`}
+              to {r.payeeName}
             </p>
           </div>
         ),
@@ -87,42 +82,19 @@ export default function PaymentApprovalsList({
         header: 'PO',
         icon: ShoppingCart,
         cellClassName: 'w-48 tabular-nums',
-        cell: (r) =>
-          r.kind === 'vendor'
-            ? r.purchaseOrderNumber
-            : [...new Set(myItems(r).map((i) => i.purchaseOrderNumber))].join(
-                ', ',
-              ),
+        cell: (r) => r.purchaseOrderNumber,
       },
       {
         header: 'Amount',
         icon: Wallet,
         cellClassName: 'w-40 text-right tabular-nums',
-        cell: (r) => (
-          <div>
-            <p className="font-medium">
-              {formatRupiah(
-                r.kind === 'vendor'
-                  ? r.amount
-                  : String(
-                      myItems(r).reduce((s, i) => s + Number(i.amount), 0),
-                    ),
-              )}
-            </p>
-            {r.kind === 'reimburse' ? (
-              <p className="text-xs text-(--muted)">
-                {myItems(r).length} of {r.items.length} notas for you
-              </p>
-            ) : null}
-          </div>
-        ),
+        cell: (r) => <p className="font-medium">{formatRupiah(r.amount)}</p>,
       },
       {
         header: 'Level',
         icon: Layers,
         cellClassName: 'w-24',
-        cell: (r) =>
-          `Level ${(r.kind === 'vendor' ? r.approvalLevel : myItems(r)[0]?.approvalLevel) ?? '—'}`,
+        cell: (r) => `Level ${r.approvalLevel ?? '—'}`,
       },
       {
         header: 'Waiting',

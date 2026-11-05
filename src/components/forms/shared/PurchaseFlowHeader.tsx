@@ -4,8 +4,10 @@ import { Link } from '@tanstack/react-router'
 import {
   ClipboardList,
   PackageCheck,
+  ReceiptText,
   RefreshCw,
   ShoppingCart,
+  Wallet,
 } from 'lucide-react'
 import {
   Badge as PipelineBadge,
@@ -19,6 +21,7 @@ import type {
   FlowStageInsight,
   PurchaseFlow,
   PurchaseFlowKind,
+  PurchaseFlowStage,
 } from '#/lib/purchaseFlow'
 import { hintClassName } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
@@ -50,8 +53,8 @@ const linkClass =
   'text-sky-700 underline-offset-4 hover:underline dark:text-sky-300'
 
 /**
- * Where a purchase stands: SPP → PO → receipts, showing only the documents
- * linked to this one, with what to do next. Payments live on Finance.
+ * Where a purchase stands: SPP → PO → receipts → vendor invoices → payments,
+ * showing only the documents linked to this one, with what to do next.
  * Hidden when the viewer may not see the chain.
  */
 export default function PurchaseFlowHeader({
@@ -86,6 +89,9 @@ export default function PurchaseFlowHeader({
 
   if (!flow) return null
   const insight = buildPurchaseFlowInsight(flow)
+  const shows = (stage: PurchaseFlowStage) => flow.stages.includes(stage)
+  // Requesters can't open POs: show the number without a link.
+  const linkOrders = shows('pay')
   const is = (k: PurchaseFlowKind, docId: string) =>
     flow.focus.kind === k && flow.focus.id === docId
   const more = (n: number) =>
@@ -114,7 +120,9 @@ export default function PurchaseFlowHeader({
               className={linkClass}
             >
               {s.number}
-              {s.type !== 'inhouse' ? ` (${s.type})` : ''}
+              {s.labourName
+                ? ` (${s.labourName}${s.executor === 'vendor' ? ', vendor' : ''})`
+                : ''}
             </Link>
           ))}
           {flow.purchaseRabs.map((r) => (
@@ -143,7 +151,14 @@ export default function PurchaseFlowHeader({
           </Button>
         </div>
       </div>
-      <ol className="grid gap-px bg-(--line) sm:grid-cols-3">
+      <ol
+        className={cn(
+          'grid gap-px bg-(--line)',
+          flow.stages.length <= 2
+            ? 'sm:grid-cols-2'
+            : 'sm:grid-cols-3 xl:grid-cols-5',
+        )}
+      >
         <FlowStage
           index={1}
           title="Request"
@@ -185,7 +200,7 @@ export default function PurchaseFlowHeader({
               title={o.vendorName}
             >
               <DocLink
-                current={is('order', o.id)}
+                current={is('order', o.id) || !linkOrders}
                 to={
                   <Link
                     to="/dashboard/purchasing/orders/$orderId"
@@ -206,50 +221,127 @@ export default function PurchaseFlowHeader({
           ))}
           {more(flow.orders.length)}
         </FlowStage>
-        <FlowStage
-          index={3}
-          title="Receive"
-          icon={<PackageCheck className="size-3.5" aria-hidden />}
-          insight={insight.receive}
-          active={flow.focus.kind === 'realization'}
-        >
-          {flow.realizations.slice(0, MAX_LINKS).map((r) => (
-            <p
-              key={r.id}
-              className={cn(
-                'truncate tabular-nums',
-                r.status === 'draft' && 'italic',
-              )}
-            >
-              <DocLink
-                current={is('realization', r.id)}
-                to={
-                  <Link
-                    to="/dashboard/purchasing/realizations/$realizationId"
-                    params={{ realizationId: r.id }}
-                    className={linkClass}
-                  >
-                    {r.number}
-                  </Link>
-                }
+        {shows('receive') ? (
+          <FlowStage
+            index={3}
+            title="Receive"
+            icon={<PackageCheck className="size-3.5" aria-hidden />}
+            insight={insight.receive}
+            active={flow.focus.kind === 'realization'}
+          >
+            {flow.realizations.slice(0, MAX_LINKS).map((r) => (
+              <p
+                key={r.id}
+                className={cn(
+                  'truncate tabular-nums',
+                  r.status === 'draft' && 'italic',
+                )}
               >
-                {r.number}
-              </DocLink>
-              <span className={hintClassName}>
-                {' '}
-                ·{' '}
-                {r.status === 'draft'
-                  ? 'draft'
-                  : r.method === 'staff'
-                    ? 'staff bought'
-                    : r.deliveredTo === 'vendor'
-                      ? 'to vendor'
-                      : 'arrived'}
-              </span>
-            </p>
-          ))}
-          {more(flow.realizations.length)}
-        </FlowStage>
+                <DocLink
+                  current={is('realization', r.id)}
+                  to={
+                    <Link
+                      to="/dashboard/purchasing/realizations/$realizationId"
+                      params={{ realizationId: r.id }}
+                      className={linkClass}
+                    >
+                      {r.number}
+                    </Link>
+                  }
+                >
+                  {r.number}
+                </DocLink>
+                <span className={hintClassName}>
+                  {' '}
+                  ·{' '}
+                  {r.status === 'draft'
+                    ? 'draft'
+                    : r.method === 'staff'
+                      ? 'staff bought'
+                      : r.deliveredTo === 'vendor'
+                        ? 'to vendor'
+                        : 'arrived'}
+                </span>
+              </p>
+            ))}
+            {more(flow.realizations.length)}
+          </FlowStage>
+        ) : null}
+        {shows('invoice') ? (
+          <FlowStage
+            index={4}
+            title="Invoice"
+            icon={<ReceiptText className="size-3.5" aria-hidden />}
+            insight={insight.invoice}
+            active={flow.focus.kind === 'invoice'}
+          >
+            {flow.invoices.slice(0, MAX_LINKS).map((inv) => (
+              <p
+                key={inv.id}
+                className={cn(
+                  'truncate tabular-nums',
+                  inv.status === 'draft' && 'italic',
+                )}
+              >
+                <DocLink
+                  current={is('invoice', inv.id)}
+                  to={
+                    <Link
+                      to="/dashboard/purchasing/invoices/$invoiceId"
+                      params={{ invoiceId: inv.id }}
+                      className={linkClass}
+                    >
+                      {inv.number}
+                    </Link>
+                  }
+                >
+                  {inv.number}
+                </DocLink>
+                <span className={hintClassName}>
+                  {' '}
+                  ·{' '}
+                  {inv.status === 'draft'
+                    ? 'draft'
+                    : inv.vendorInvoiceNumber || 'posted'}
+                </span>
+              </p>
+            ))}
+            {more(flow.invoices.length)}
+          </FlowStage>
+        ) : null}
+        {shows('pay') ? (
+          <FlowStage
+            index={5}
+            title="Pay"
+            icon={<Wallet className="size-3.5" aria-hidden />}
+            insight={insight.pay}
+            active={flow.focus.kind === 'payment'}
+          >
+            {flow.payments
+              .filter((p) => p.status !== 'cancelled')
+              .slice(0, MAX_LINKS)
+              .map((p) => (
+                <p key={p.id} className="truncate tabular-nums">
+                  <DocLink
+                    current={is('payment', p.id)}
+                    to={
+                      <Link
+                        to="/dashboard/finance/payments"
+                        search={{ payment: p.id }}
+                        className={linkClass}
+                      >
+                        {p.number}
+                      </Link>
+                    }
+                  >
+                    {p.number}
+                  </DocLink>
+                  <span className={hintClassName}> · {p.payeeName}</span>
+                </p>
+              ))}
+            {more(flow.payments.filter((p) => p.status !== 'cancelled').length)}
+          </FlowStage>
+        ) : null}
       </ol>
     </section>
   )

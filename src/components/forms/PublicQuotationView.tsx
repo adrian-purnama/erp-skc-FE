@@ -3,6 +3,8 @@ import { BadgeCheck, Clock, Download, FileX2, LoaderCircle } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { API_BASE_URL, apiFetch } from '#/lib/api'
 import {
+  formatSignedRupiah,
+  chargeLabel,
   formatRupiah,
   formatYmdLong,
   quotationPrintRows,
@@ -418,14 +420,14 @@ function QuotationDocument({
               </dd>
             </>
           ) : null}
-          {Number(q.taxPercent) > 0 ? (
-            <>
-              <dt>PPN {q.taxPercent}%</dt>
+          {q.totals.charges.map((c, i) => (
+            <div key={`${c.label}:${i}`} className="contents">
+              <dt>{chargeLabel(c)}</dt>
               <dd className="text-right tabular-nums">
-                {formatRupiah(q.totals.taxAmount)}
+                {formatSignedRupiah(c.amount)}
               </dd>
-            </>
-          ) : null}
+            </div>
+          ))}
           <dt className="border-t border-(--line) pt-1 font-semibold">Total</dt>
           <dd className="border-t border-(--line) pt-1 text-right font-semibold tabular-nums">
             {formatRupiah(q.totals.grandTotal)}

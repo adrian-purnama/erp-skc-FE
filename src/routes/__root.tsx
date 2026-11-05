@@ -36,7 +36,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <link rel="stylesheet" href={appCss} />
       </head>
 
-      <body className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-[var(--surface)] text-[var(--ink)] antialiased">
+      <body className="grid min-h-dvh grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] bg-[var(--surface)] text-[var(--ink)] antialiased">
         <AuthProvider>
           <BrandingProvider>
             <DocumentBrandingHead />

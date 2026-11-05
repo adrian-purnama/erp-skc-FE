@@ -42,7 +42,7 @@ import { apiDownload, apiFetch } from '#/lib/api'
 import { jakartaDateKey } from '#/lib/jakartaDate'
 import {
   PRODUCTION_ORDER_STATUS_LABELS,
-  PRODUCTION_ORDER_TYPE_LABELS,
+  PRODUCTION_EXECUTOR_LABELS,
   isActiveOrder,
   productionStatusChipClass,
 } from '#/lib/production'
@@ -125,6 +125,13 @@ export function ProductionStatusChip({
   )
 }
 
+/** What may still be reported: SPK qty left, capped by what the previous stage passed on. */
+function reportLeft(order: ProductionOrder): number {
+  const left = Number(order.qty) - Number(order.doneQty)
+  const room = order.reportRoom === null ? left : Number(order.reportRoom)
+  return Math.max(0, Math.min(left, room))
+}
+
 export function ProgressBar({ percent }: { percent: number }) {
   return (
     <div
@@ -164,9 +171,6 @@ export default function ProductionOrderDialog({
   const [reportQty, setReportQty] = useState('')
   const [reportDate, setReportDate] = useState('')
   const [reportNotes, setReportNotes] = useState('')
-  const [reportStageSequence, setReportStageSequence] = useState<number | null>(
-    null,
-  )
 
   const apply = useCallback((next: ProductionOrder) => {
     setOrder(next)
@@ -289,11 +293,6 @@ export default function ProductionOrderDialog({
 
   async function addReport() {
     if (!order) return
-    const stages = order.labourStages ?? []
-    if (stages.length > 0 && reportStageSequence == null) {
-      toast.error('Pick which labour stage this report finishes')
-      return
-    }
     const ok = await call(
       `/production/orders/${order.id}/reports`,
       {
@@ -302,9 +301,6 @@ export default function ProductionOrderDialog({
           qtyDone: reportQty,
           reportDate,
           notes: reportNotes,
-          ...(reportStageSequence != null
-            ? { stageSequence: reportStageSequence }
-            : {}),
         }),
       },
       'Production report added',
@@ -314,26 +310,7 @@ export default function ProductionOrderDialog({
 
   function openReport() {
     if (!order) return
-    const stages = [...(order.labourStages ?? [])].sort(
-      (a, b) => a.sequence - b.sequence,
-    )
-    const orderQty = Number(order.qty)
-    let pick: number | null = null
-    let left = orderQty - Number(order.doneQty)
-    if (stages.length > 0) {
-      for (let i = 0; i < stages.length; i++) {
-        const s = stages[i]!
-        const at = Number(s.qtyDone)
-        const cap = i === 0 ? orderQty : Number(stages[i - 1]!.qtyDone)
-        const room = cap - at
-        if (room > 0) {
-          pick = s.sequence
-          left = room
-          break
-        }
-      }
-    }
-    setReportStageSequence(pick)
+    const left = reportLeft(order)
     setReportQty(left > 0 ? String(left) : '')
     setReportDate(jakartaDateKey(new Date()))
     setReportNotes('')
@@ -370,27 +347,13 @@ export default function ProductionOrderDialog({
 
   const active = order ? isActiveOrder(order.status) : false
   const isDraft = order?.status === 'draft'
-  const outsource = order?.type === 'outsource'
-  // Subcon and outsource: a vendor does the work, engaged through its fee PO.
-  const vendorWork = order ? order.type !== 'inhouse' : false
+  // A vendor does this labour, engaged through its fee PO.
+  const vendorWork = order?.executor === 'vendor'
+  // The item's BOQ materials ride on its first making stage.
+  const carriesMaterials = order?.role === 'making' && order.sequence === 1
   const doneNum = order ? Number(order.doneQty) : 0
-  const labourStages = order?.labourStages ?? []
-  const staged = !vendorWork && labourStages.length > 0
-  const progressPercent = order
-    ? staged
-      ? order.progressPercent
-      : Math.min(100, Math.round((doneNum / Number(order.qty)) * 100) || 0)
-    : 0
-  const stagesSorted = [...labourStages].sort(
-    (a, b) => a.sequence - b.sequence,
-  )
-  const stageHasRoom =
-    staged &&
-    stagesSorted.some((s, i) => {
-      const cap =
-        i === 0 ? Number(order!.qty) : Number(stagesSorted[i - 1]!.qtyDone)
-      return Number(s.qtyDone) < cap
-    })
+  const progressPercent = order ? order.progressPercent : 0
+  const reportable = order ? reportLeft(order) : 0
   const releaseMissing = draft
     ? [
         !draft.picUserId && 'PIC',
@@ -405,8 +368,6 @@ export default function ProductionOrderDialog({
       ? order.reports.filter((r) => !r.handoverId)
       : order.reports
     : []
-  const stageName = (seq: number | null) =>
-    labourStages.find((s) => s.sequence === seq)?.name ?? null
   const confirmNeedsText =
     confirm?.kind === 'cancel' ||
     confirm?.kind === 'void' ||
@@ -434,13 +395,21 @@ export default function ProductionOrderDialog({
                     status={order.status}
                     label={PRODUCTION_ORDER_STATUS_LABELS[order.status]}
                   />
+                  <span className="text-sm font-medium">
+                    {order.labourName}
+                  </span>
+                  <span className={cn('text-xs', hintClassName)}>
+                    {order.role === 'install'
+                      ? 'Install'
+                      : `Stage ${order.sequence ?? '—'}`}
+                  </span>
                   {vendorWork ? (
                     <ListChip dot tone="info">
-                      {PRODUCTION_ORDER_TYPE_LABELS[order.type]}
+                      {PRODUCTION_EXECUTOR_LABELS[order.executor]}
                     </ListChip>
                   ) : (
                     <span className={cn('text-xs', hintClassName)}>
-                      {PRODUCTION_ORDER_TYPE_LABELS[order.type]}
+                      {PRODUCTION_EXECUTOR_LABELS[order.executor]}
                     </span>
                   )}
                 </div>
@@ -453,13 +422,16 @@ export default function ProductionOrderDialog({
               <div className="grid gap-4 sm:grid-cols-3">
                 <div>
                   <p className={cn('text-xs', hintClassName)}>
-                    {staged ? 'Progress / finished' : 'Done / qty'}
+                    Done / qty
                   </p>
                   <p className="text-lg font-semibold tabular-nums">
-                    {staged
-                      ? `${order.progressPercent}% · ${order.doneQty} / ${order.qty}`
-                      : `${order.doneQty} / ${order.qty}`}
+                    {order.doneQty} / {order.qty}
                   </p>
+                  {order.reportRoom !== null && active ? (
+                    <p className={cn('text-xs tabular-nums', hintClassName)}>
+                      {order.reportRoom} ready from {order.reportRoomFrom}
+                    </p>
+                  ) : null}
                   <ProgressBar percent={progressPercent} />
                 </div>
                 <div>
@@ -624,12 +596,7 @@ export default function ProductionOrderDialog({
                     type="button"
                     size="sm"
                     className="h-8 gap-1.5"
-                    disabled={
-                      busy ||
-                      (staged
-                        ? !stageHasRoom
-                        : doneNum >= Number(order.qty))
-                    }
+                    disabled={busy || reportable <= 0}
                     onClick={openReport}
                   >
                     <Plus className="size-3.5" aria-hidden />
@@ -703,8 +670,8 @@ export default function ProductionOrderDialog({
                       ['production', 'File Produksi', order.productionFile],
                     ] as const
                   )
-                    // The vendor brings its own production files.
-                    .filter(([kind, , file]) => !(outsource && kind === 'production' && !file))
+                    // File Produksi is optional on outsource items.
+                    .filter(([kind, , file]) => !(vendorWork && kind === 'production' && !file))
                     .map(([kind, label, file]) => (
                     <Button
                       key={kind}
@@ -729,11 +696,11 @@ export default function ProductionOrderDialog({
 
               <section className="space-y-2">
                 <h3 className={sectionTitleClassName}>
-                  {outsource
-                    ? 'Vendor fee'
-                    : vendorWork
-                      ? 'Material'
-                      : 'Material needed'}
+                  {vendorWork
+                    ? carriesMaterials
+                      ? 'Material & vendor fee'
+                      : 'Vendor fee'
+                    : 'Material needed'}
                 </h3>
                 {order.materials.length === 0 ? (
                   <p className={cn('text-sm', hintClassName)}>
@@ -812,7 +779,7 @@ export default function ProductionOrderDialog({
                 />
               ) : null}
 
-              {order.type === 'subcon' && order.status !== 'draft' ? (
+              {vendorWork && carriesMaterials && order.status !== 'draft' ? (
                 <SubconDispatches
                   order={order}
                   onOrder={(next) => {
@@ -832,46 +799,6 @@ export default function ProductionOrderDialog({
                     onChanged?.()
                   }}
                 />
-              ) : null}
-
-              {staged ? (
-                <section className="space-y-2">
-                  <h3 className={sectionTitleClassName}>Labour stages</h3>
-                  <ol className="space-y-2">
-                    {[...labourStages]
-                      .sort((a, b) => a.sequence - b.sequence)
-                      .map((s) => {
-                        const pct = Math.min(
-                          100,
-                          Math.round(
-                            (Number(s.qtyDone) / Number(order.qty)) * 100,
-                          ) || 0,
-                        )
-                        return (
-                          <li
-                            key={s.sequence}
-                            className="rounded-md border border-(--line) px-3 py-2"
-                          >
-                            <div className="flex flex-wrap items-baseline justify-between gap-2">
-                              <p className="text-sm font-medium">
-                                <span className="tabular-nums text-(--muted)">
-                                  {s.sequence}.
-                                </span>{' '}
-                                {s.name}
-                                <span className={cn('ml-2 text-xs', hintClassName)}>
-                                  {s.weightPercent}%
-                                </span>
-                              </p>
-                              <p className="text-sm tabular-nums">
-                                {s.qtyDone} / {order.qty}
-                              </p>
-                            </div>
-                            <ProgressBar percent={pct} />
-                          </li>
-                        )
-                      })}
-                  </ol>
-                </section>
               ) : null}
 
               {!vendorWork || shownReports.length > 0 ? (
@@ -901,9 +828,7 @@ export default function ProductionOrderDialog({
                             )}
                           >
                             <span className="font-medium">{r.qtyDone}</span>{' '}
-                            {stageName(r.stageSequence)
-                              ? `· ${stageName(r.stageSequence)} `
-                              : 'done '}
+                            done
                             · {r.reportDate}
                           </p>
                           <p className={cn('text-xs', hintClassName)}>
@@ -953,53 +878,17 @@ export default function ProductionOrderDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Add production report</AlertDialogTitle>
             <AlertDialogDescription>
-              {staged
-                ? `Pcs finished on a labour stage for ${order?.number}.`
-                : `Qty finished on ${order?.number}. Up to ${order ? Number(order.qty) - doneNum : 0} left.`}
+              {`Qty finished on ${order?.number}. Up to ${reportable} left${
+                order?.reportRoom !== null && order?.reportRoom !== undefined
+                  ? ` (ready from ${order.reportRoomFrom})`
+                  : ''
+              }.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {staged ? (
-            <label className="block space-y-1">
-              <span className="text-sm font-medium">Stage</span>
-              <select
-                value={reportStageSequence ?? ''}
-                disabled={busy}
-                onChange={(e) => {
-                  const seq = Number(e.target.value)
-                  setReportStageSequence(Number.isFinite(seq) ? seq : null)
-                  if (!order || !Number.isFinite(seq)) return
-                  const stages = [...order.labourStages].sort(
-                    (a, b) => a.sequence - b.sequence,
-                  )
-                  const idx = stages.findIndex((s) => s.sequence === seq)
-                  if (idx < 0) return
-                  const cap =
-                    idx === 0
-                      ? Number(order.qty)
-                      : Number(stages[idx - 1]!.qtyDone)
-                  const room = cap - Number(stages[idx]!.qtyDone)
-                  setReportQty(room > 0 ? String(room) : '')
-                }}
-                className={dialogInputClassName}
-              >
-                <option value="" disabled>
-                  Select stage…
-                </option>
-                {[...(order?.labourStages ?? [])]
-                  .sort((a, b) => a.sequence - b.sequence)
-                  .map((s) => (
-                    <option key={s.sequence} value={s.sequence}>
-                      {s.sequence}. {s.name} ({s.weightPercent}%) — {s.qtyDone}/
-                      {order?.qty}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block space-y-1">
               <span className="text-sm font-medium">
-                {staged ? 'Pcs finished' : 'Qty done'}
+                Qty done
               </span>
               <input
                 inputMode="decimal"
@@ -1037,8 +926,7 @@ export default function ProductionOrderDialog({
               disabled={
                 busy ||
                 !reportQty.trim() ||
-                !reportDate ||
-                (staged && reportStageSequence == null)
+                !reportDate
               }
               onClick={(e) => {
                 e.preventDefault()

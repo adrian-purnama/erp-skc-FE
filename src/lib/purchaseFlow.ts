@@ -7,22 +7,29 @@ import type {
   PurchaseRequestStatus,
   RealizationMethod,
   RealizationStatus,
+  VendorInvoiceStatus,
 } from '#/lib/purchasing'
 import type {
   ProductionOrderStatus,
-  ProductionOrderType,
+  ProductionLabourExecutor,
 } from '#/lib/production'
 
 export type PurchaseFlowKind =
-  'request' | 'order' | 'realization' | 'payment' | 'spk'
+  'request' | 'order' | 'realization' | 'invoice' | 'payment' | 'spk'
 
-/** SPP → PO → receipts → payments around one document, related ones only. */
+/** SPP → PO → receipts → invoices → payments around one document, related ones only. */
+export type PurchaseFlowStage =
+  'request' | 'order' | 'receive' | 'invoice' | 'pay'
+
 export type PurchaseFlow = {
   focus: { kind: PurchaseFlowKind; id: string }
+  /** Stages this viewer may see: a requester gets request + order, no amounts. */
+  stages: PurchaseFlowStage[]
   spks: Array<{
     id: string
     number: string
-    type: ProductionOrderType
+    labourName: string
+    executor: ProductionLabourExecutor
     status: ProductionOrderStatus
   }>
   purchaseRabs: Array<{ id: string; number: string }>
@@ -51,15 +58,25 @@ export type PurchaseFlow = {
     purchaseOrderId: string
     total: string
     deliveredTo: 'us' | 'vendor'
+    /** Vendor GR: its live invoice; null = still at the PO price. */
+    invoiceId: string | null
+  }>
+  invoices: Array<{
+    id: string
+    number: string
+    status: VendorInvoiceStatus
+    purchaseOrderId: string
+    vendorInvoiceNumber: string
+    total: string
   }>
   payments: Array<{
     id: string
     number: string
     kind: PurchasePaymentKind
     status: PurchasePaymentStatus
-    stage: PurchasePaymentStage | null
+    stage: PurchasePaymentStage
     amount: string
-    purchaseOrderId: string | null
+    purchaseOrderId: string
     payeeName: string
   }>
   totals: {
@@ -85,6 +102,8 @@ export type PurchaseFlowInsight = {
   request: FlowStageInsight
   order: FlowStageInsight
   receive: FlowStageInsight
+  invoice: FlowStageInsight
+  pay: FlowStageInsight
   next: { tone: PipelineTone; text: string }
 }
 
@@ -136,6 +155,7 @@ export function buildPurchaseFlowInsight(
     (o) => o.status === 'approved' || o.closedPartial,
   )
   const ordered = Number(flow.totals.ordered)
+  const requesterOnly = !flow.stages.includes('pay')
   const order: FlowStageInsight =
     live.length === 0
       ? { tone: 'idle', label: 'Not ordered', pct: null, detail: 'No PO yet' }
@@ -160,7 +180,14 @@ export function buildPurchaseFlowInsight(
                 pct: null,
                 detail: `${drafts.length} PO not sent`,
               }
-            : { tone: 'ok', label: 'Approved', pct: null, detail: rp(ordered) }
+            : {
+                tone: 'ok',
+                label: 'Approved',
+                pct: null,
+                detail: requesterOnly
+                  ? `${live.length} PO approved`
+                  : rp(ordered),
+              }
 
   const received = Number(flow.totals.receivedGoods)
   const allFull =
@@ -190,7 +217,79 @@ export function buildPurchaseFlowInsight(
               detail: 'Nothing arrived yet',
             }
 
+  // Vendor GRs are priced by their invoice; until then they count at the PO price.
+  const postedInvoice = new Set(
+    flow.invoices.filter((i) => i.status === 'posted').map((i) => i.id),
+  )
+  const vendorGrs = flow.realizations.filter(
+    (r) => r.method === 'vendor' && r.status === 'posted',
+  )
+  const invoiced = vendorGrs.filter(
+    (r) => r.invoiceId !== null && postedInvoice.has(r.invoiceId),
+  )
+  const uninvoiced = vendorGrs.filter(
+    (r) => r.invoiceId === null || !postedInvoice.has(r.invoiceId),
+  )
+  const invoice: FlowStageInsight =
+    vendorGrs.length === 0
+      ? {
+          tone: 'idle',
+          label: 'Nothing yet',
+          pct: null,
+          detail: 'No vendor goods receipt',
+        }
+      : uninvoiced.length === 0
+        ? {
+            tone: 'ok',
+            label: 'Invoiced',
+            pct: 100,
+            detail: `${vendorGrs.length} of ${vendorGrs.length} GRs`,
+          }
+        : {
+            tone: invoiced.length > 0 ? 'progress' : 'idle',
+            label: invoiced.length > 0 ? 'Partial' : 'Not invoiced',
+            pct: pct(invoiced.length, vendorGrs.length),
+            detail: `${invoiced.length} of ${vendorGrs.length} GRs · rest at PO price`,
+          }
+
+  const owed = Number(flow.totals.owed)
+  const paid = Number(flow.totals.paid)
+  const pay: FlowStageInsight =
+    owed <= 0
+      ? {
+          tone: 'idle',
+          label: 'Nothing owed',
+          pct: null,
+          detail: 'Needs an approved PO',
+        }
+      : paid >= owed
+        ? { tone: 'ok', label: 'Paid', pct: 100, detail: rp(paid) }
+        : paid > 0
+          ? {
+              tone: 'progress',
+              label: 'Partial',
+              pct: pct(paid, owed),
+              detail: `${rp(paid)} of ${rp(owed)}`,
+            }
+          : {
+              tone: 'idle',
+              label: 'Not paid',
+              pct: 0,
+              detail: `${rp(owed)} owed`,
+            }
+
   const next = ((): PurchaseFlowInsight['next'] => {
+    // A requester only waits on purchasing: say what they are waiting for.
+    if (requesterOnly) {
+      if (live.length === 0) {
+        return liveRequests.length > 0
+          ? { tone: 'progress', text: 'Waiting for purchasing to order it' }
+          : { tone: 'idle', text: 'Nothing open in this request' }
+      }
+      if (approved.length === 0)
+        return { tone: 'progress', text: 'Ordered: waiting for PO approval' }
+      return { tone: 'ok', text: 'Ordered: waiting for delivery' }
+    }
     if (live.length === 0) {
       return liveRequests.length > 0
         ? { tone: 'progress', text: 'Next: make a PO for this SPP' }
@@ -214,8 +313,18 @@ export function buildPurchaseFlowInsight(
     }
     if (!allFull)
       return { tone: 'progress', text: 'Next: record what arrives (receipt)' }
-    return { tone: 'ok', text: 'Done: ordered and received' }
+    if (uninvoiced.length > 0)
+      return {
+        tone: 'progress',
+        text: `Next: add the vendor invoice for ${uninvoiced[0]!.number}${uninvoiced.length > 1 ? ` and ${uninvoiced.length - 1} more` : ''}`,
+      }
+    if (paid < owed)
+      return {
+        tone: 'progress',
+        text: 'Next: pay what is owed (Finance → Payments)',
+      }
+    return { tone: 'ok', text: 'Done: ordered, received, invoiced and paid' }
   })()
 
-  return { request, order, receive, next }
+  return { request, order, receive, invoice, pay, next }
 }

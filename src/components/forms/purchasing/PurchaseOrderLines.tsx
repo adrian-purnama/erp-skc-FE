@@ -1,18 +1,18 @@
 import { useState } from 'react'
-import type { ReactNode } from 'react'
 import {
   Banknote,
   ChevronDown,
+  CircleCheck,
   ChevronRight,
   Hash,
   Package,
   Store,
+  TriangleAlert,
   X,
 } from 'lucide-react'
 import {
   FLAG_LABELS,
   FLAG_TITLES,
-  LineFlagBadge,
 } from '#/components/forms/purchasing/PurchaseRequestBadges'
 import type { LineFlag } from '#/components/forms/purchasing/PurchaseRequestBadges'
 import ListTable, { ListChip } from '#/components/forms/shared/ListTable'
@@ -257,42 +257,89 @@ export default function PurchaseOrderLines({
   )
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="min-w-0 space-y-2">
-      <h3 className="text-[11px] font-medium tracking-wide text-(--muted) uppercase">
-        {title}
-      </h3>
-      {children}
-    </section>
-  )
+type Check = { ok: boolean; text: string; detail?: string }
+
+function fmtQty(n: number): string {
+  return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(n)
 }
 
-function Fact({
-  label,
-  value,
-  warn = false,
-}: {
-  label: string
-  value: ReactNode
-  warn?: boolean
-}) {
+/** Plain-language budget verdicts for one line (qty and price vs the RAB). */
+function budgetChecks(r: PoLineRow, q: number): Check[] {
+  const uom = r.ref.uomSymbol
+  if (!r.ref.inRab || r.ref.rabQty === null) {
+    return [
+      {
+        ok: false,
+        text: `Not on ${r.ref.rabLabel ?? 'the RAB'}`,
+        detail: 'Say why in the note.',
+      },
+    ]
+  }
+  const rabQty = Number(r.ref.rabQty)
+  const after = Number(r.ref.rabOrderedQty) + q
+  const left = rabQty - after
+  const checks: Check[] = [
+    left >= -1e-9
+      ? {
+          ok: true,
+          text: `Within RAB qty`,
+          detail: `${fmtQty(left)} ${uom} of ${fmtQty(rabQty)} left after this PO`,
+        }
+      : {
+          ok: false,
+          text: `Over RAB qty by ${fmtQty(-left)} ${uom}`,
+          detail: `RAB ${fmtQty(rabQty)} ${uom}, ordered ${fmtQty(after)} ${uom} with this PO`,
+        },
+  ]
+  if (r.ref.rabUnitPrice !== null && Number(r.unitPrice) > 0) {
+    const rab = Number(r.ref.rabUnitPrice)
+    const price = Number(r.unitPrice)
+    checks.push(
+      price <= rab
+        ? {
+            ok: true,
+            text: 'Within RAB price',
+            detail: `RAB ${formatRupiah(r.ref.rabUnitPrice)}`,
+          }
+        : {
+            ok: false,
+            text: `Price ${Math.round(((price - rab) / rab) * 100)}% over RAB`,
+            detail: `RAB ${formatRupiah(r.ref.rabUnitPrice)}`,
+          },
+    )
+  }
+  return checks
+}
+
+function CheckLine({ check }: { check: Check }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 text-sm">
-      <span className={hintClassName}>{label}</span>
-      <span
-        className={cn(
-          'text-right tabular-nums',
-          warn && 'text-amber-700 dark:text-amber-300',
-        )}
-      >
-        {value}
+    <li className="flex items-start gap-2 text-sm">
+      {check.ok ? (
+        <CircleCheck
+          className="mt-0.5 size-4 shrink-0 text-emerald-600"
+          aria-hidden
+        />
+      ) : (
+        <TriangleAlert
+          className="mt-0.5 size-4 shrink-0 text-amber-600"
+          aria-hidden
+        />
+      )}
+      <span className="min-w-0">
+        <span className={cn(!check.ok && 'text-amber-800 dark:text-amber-300')}>
+          {check.text}
+        </span>
+        {check.detail ? (
+          <span className={cn('block text-xs', hintClassName)}>
+            {check.detail}
+          </span>
+        ) : null}
       </span>
-    </div>
+    </li>
   )
 }
 
-/** Order fields, budget check and price history of one line. */
+/** One line opened: what to order on the left, budget and price checks on the right. */
 function LineDetails({
   row: r,
   editable,
@@ -308,19 +355,27 @@ function LineDetails({
   arrived: string | null
   onChange: (patch: Partial<PoLineRow>) => void
 }) {
+  const [allPrices, setAllPrices] = useState(false)
   const flags = rowFlags(r)
   const q = parseQty(r.qty) ?? 0
-  const afterPo = Number(r.ref.rabOrderedQty) + q
   const uom = r.ref.uomSymbol
+  const checks = budgetChecks(r, q)
+  const history = r.ref.priceHistory
+  const best = history.at(0) ?? null
+  const shownPrices = allPrices ? history : history.slice(0, 1)
+  const context = [r.ref.productionOrderNumber, r.ref.itemLabel]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <div
-      className="grid cursor-default gap-x-8 gap-y-5 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.4fr)]"
+      className="grid cursor-default gap-x-10 gap-y-5 px-4 py-4 pl-10 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]"
       onClick={(e) => e.stopPropagation()}
     >
-      <Section title="Order">
-        {editable ? (
-          <div className="space-y-2">
+      {editable ? (
+        <div className="space-y-3">
+          <label className="block space-y-1">
+            <span className={cn('text-xs', hintClassName)}>Vendor</span>
             <Combobox
               value={r.vendorId}
               onValueChange={(vendorId) =>
@@ -339,187 +394,159 @@ function LineDetails({
                 !r.vendorId && 'border-red-500',
               )}
             />
-            <div className="grid grid-cols-2 gap-2">
-              <label className="space-y-1">
-                <span className={cn('text-xs', hintClassName)}>
-                  Qty ({uom}) · {r.leftQty} left
-                </span>
-                <input
-                  inputMode="decimal"
-                  value={r.qty}
-                  disabled={busy}
-                  onChange={(e) => onChange({ qty: e.target.value })}
-                  className={cn(
-                    inputClassNameCompact,
-                    'w-full text-right tabular-nums',
-                    parseQty(r.qty) === null && 'border-red-500',
-                  )}
-                />
-              </label>
-              <label className="space-y-1">
-                <span className={cn('text-xs', hintClassName)}>Unit price</span>
-                <RupiahInput
-                  value={r.unitPrice}
-                  onValueChange={(digits) => onChange({ unitPrice: digits })}
-                  disabled={busy}
-                  className={cn(
-                    'h-8 text-right',
-                    !(Number(r.unitPrice) > 0) && 'border-red-500',
-                  )}
-                />
-              </label>
-            </div>
-            <input
-              value={r.orderNote}
-              disabled={busy}
-              placeholder={
-                flags.length > 0
-                  ? 'Why (optional), e.g. price went up'
-                  : 'Note (optional)'
-              }
-              aria-label={`Note for ${r.ref.materialName}`}
-              onChange={(e) => onChange({ orderNote: e.target.value })}
-              className={cn(inputClassNameCompact, 'w-full')}
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1">
+              <span className={cn('text-xs', hintClassName)}>Qty ({uom})</span>
+              <input
+                inputMode="decimal"
+                value={r.qty}
+                disabled={busy}
+                onChange={(e) => onChange({ qty: e.target.value })}
+                className={cn(
+                  inputClassNameCompact,
+                  'w-full text-right tabular-nums',
+                  parseQty(r.qty) === null && 'border-red-500',
+                )}
+              />
+              <span className={cn('block text-xs', hintClassName)}>
+                SPP still needs {r.leftQty}
+              </span>
+            </label>
+            <label className="space-y-1">
+              <span className={cn('text-xs', hintClassName)}>Unit price</span>
+              <RupiahInput
+                value={r.unitPrice}
+                onValueChange={(digits) => onChange({ unitPrice: digits })}
+                disabled={busy}
+                className={cn(
+                  'h-8 text-right',
+                  !(Number(r.unitPrice) > 0) && 'border-red-500',
+                )}
+              />
+            </label>
+          </div>
+          <input
+            value={r.orderNote}
+            disabled={busy}
+            placeholder={
+              flags.length > 0 ? 'Why, e.g. price went up' : 'Note (optional)'
+            }
+            aria-label={`Note for ${r.ref.materialName}`}
+            onChange={(e) => onChange({ orderNote: e.target.value })}
+            className={cn(inputClassNameCompact, 'w-full')}
+          />
+        </div>
+      ) : (
+        <ul className="space-y-1.5 text-sm">
+          <li>
+            <span className={hintClassName}>Requested </span>
+            {r.ref.requestedQty} {uom}
+          </li>
+          {arrived !== null ? (
+            <li>
+              <span className={hintClassName}>Arrived </span>
+              {arrived} {uom}
+            </li>
+          ) : null}
+          {r.orderNote ? <li>“{r.orderNote}”</li> : null}
+        </ul>
+      )}
+
+      <div className="space-y-4">
+        <ul className="space-y-2">
+          {checks.map((c) => (
+            <CheckLine key={c.text} check={c} />
+          ))}
+          {flags.includes('overRequest') ? (
+            <CheckLine
+              check={{
+                ok: false,
+                text: 'More than the SPP asked for',
+                detail: `SPP still needs ${r.leftQty} ${uom}`,
+              }}
             />
+          ) : null}
+          {flags.includes('extra') ? (
+            <CheckLine check={{ ok: false, text: FLAG_TITLES.extra }} />
+          ) : null}
+        </ul>
+
+        {best ? (
+          <div className="space-y-1.5">
+            <p className={cn('text-xs', hintClassName)}>
+              {allPrices ? 'Past prices' : 'Best past price'}
+            </p>
+            <ul className="space-y-1">
+              {shownPrices.map((h) => {
+                const inUse =
+                  h.vendorId === r.vendorId && h.lastPrice === r.unitPrice
+                return (
+                  <li
+                    key={h.vendorId}
+                    className="flex items-center gap-2 text-sm"
+                    title={`${h.lastOrderNumber}${h.orderCount > 1 ? ` · ${h.orderCount} POs` : ''}`}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {h.vendorName}
+                    </span>
+                    <span className="tabular-nums">
+                      {formatRupiah(h.lastPrice)}
+                    </span>
+                    {editable ? (
+                      inUse ? (
+                        <span className="w-12 text-right text-xs text-emerald-700">
+                          In use
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 w-12 px-2 text-xs"
+                          disabled={busy}
+                          onClick={() =>
+                            onChange({
+                              vendorId: h.vendorId,
+                              unitPrice: h.lastPrice,
+                            })
+                          }
+                        >
+                          Use
+                        </Button>
+                      )
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ul>
+            {history.length > 1 ? (
+              <button
+                type="button"
+                className="text-xs text-sky-700 underline-offset-4 hover:underline"
+                onClick={() => setAllPrices((v) => !v)}
+              >
+                {allPrices
+                  ? 'Show only the best'
+                  : `Compare ${history.length} vendors`}
+              </button>
+            ) : null}
           </div>
         ) : (
-          <div className="space-y-1">
-            <Fact
-              label="Requested on SPP"
-              value={`${r.ref.requestedQty} ${uom}`}
-            />
-            {arrived !== null ? (
-              <Fact label="Arrived" value={`${arrived} ${uom}`} />
-            ) : null}
-            {r.orderNote ? (
-              <p className="pt-1 text-sm">“{r.orderNote}”</p>
-            ) : null}
-          </div>
-        )}
-        {r.ref.note || r.ref.itemLabel || r.ref.productionOrderNumber ? (
           <p className={cn('text-xs', hintClassName)}>
-            {[r.ref.productionOrderNumber, r.ref.itemLabel]
-              .filter(Boolean)
-              .join(' · ')}
-            {r.ref.note ? ` · SPP note “${r.ref.note}”` : ''}
+            First purchase of this material: no past prices.
+          </p>
+        )}
+
+        {context || r.ref.note ? (
+          <p className={cn('text-xs', hintClassName)}>
+            {context ? `For ${context}` : ''}
+            {r.ref.note
+              ? `${context ? ' · ' : ''}SPP note “${r.ref.note}”`
+              : ''}
           </p>
         ) : null}
-      </Section>
-
-      <Section title="Budget (RAB)">
-        {r.ref.rabQty === null ? (
-          <p className={cn('text-sm', hintClassName)}>
-            Not budgeted on {r.ref.rabLabel ?? 'the RAB'}.
-          </p>
-        ) : (
-          <div className="space-y-1">
-            {r.ref.rabLabel ? <Fact label="RAB" value={r.ref.rabLabel} /> : null}
-            <Fact label="RAB qty" value={`${r.ref.rabQty} ${uom}`} />
-            <Fact
-              label="On other POs"
-              value={`${r.ref.rabOrderedQty} ${uom}`}
-            />
-            <Fact
-              label="After this PO"
-              value={`${afterPo} ${uom}`}
-              warn={afterPo > Number(r.ref.rabQty) + 1e-9}
-            />
-            <Fact
-              label="RAB price"
-              value={
-                r.ref.rabUnitPrice ? formatRupiah(r.ref.rabUnitPrice) : '—'
-              }
-              warn={flags.includes('overBudget')}
-            />
-          </div>
-        )}
-        {flags.length > 0 ? (
-          <ul className="space-y-1 pt-1">
-            {flags.map((f) => (
-              <li key={f} className="flex items-start gap-2 text-xs">
-                <LineFlagBadge flag={f} />
-                <span className={hintClassName}>{FLAG_TITLES[f]}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </Section>
-
-      <Section title="Price history">
-        {r.ref.priceHistory.length === 0 ? (
-          <p className={cn('text-sm', hintClassName)}>
-            No approved PO for this material yet.
-          </p>
-        ) : (
-          <div className="overflow-hidden rounded-md border border-(--line) bg-(--background)">
-            <table className="w-full text-sm">
-              <thead className="bg-(--surface) text-left text-xs text-(--muted)">
-                <tr>
-                  <th className="px-2 py-1 font-medium">Vendor</th>
-                  <th className="px-2 py-1 text-right font-medium">Last</th>
-                  <th className="px-2 py-1 text-right font-medium">Lowest</th>
-                  {editable ? <th className="w-14" aria-label="Use" /> : null}
-                </tr>
-              </thead>
-              <tbody>
-                {r.ref.priceHistory.map((h, i) => {
-                  const current =
-                    h.vendorId === r.vendorId && h.lastPrice === r.unitPrice
-                  return (
-                    <tr
-                      key={h.vendorId}
-                      className={cn(
-                        'border-t border-(--line)',
-                        h.vendorId === r.vendorId && 'bg-(--surface)',
-                      )}
-                      title={`${h.lastOrderNumber}${h.orderCount > 1 ? ` · ${h.orderCount} POs` : ''}`}
-                    >
-                      <td className="max-w-0 truncate px-2 py-1">
-                        {h.vendorName}
-                        {i === 0 ? (
-                          <span className="ml-1.5 text-xs text-emerald-700 dark:text-emerald-300">
-                            cheapest
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="px-2 py-1 text-right whitespace-nowrap tabular-nums">
-                        {formatRupiah(h.lastPrice)}
-                      </td>
-                      <td
-                        className={cn(
-                          'px-2 py-1 text-right whitespace-nowrap tabular-nums',
-                          hintClassName,
-                        )}
-                      >
-                        {formatRupiah(h.minPrice)}
-                      </td>
-                      {editable ? (
-                        <td className="px-1 py-0.5 text-right">
-                          <Button
-                            type="button"
-                            variant={current ? 'ghost' : 'outline'}
-                            size="sm"
-                            className="h-6 px-2 text-xs"
-                            disabled={busy || current}
-                            onClick={() =>
-                              onChange({
-                                vendorId: h.vendorId,
-                                unitPrice: h.lastPrice,
-                              })
-                            }
-                          >
-                            {current ? 'In use' : 'Use'}
-                          </Button>
-                        </td>
-                      ) : null}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
+      </div>
     </div>
   )
 }

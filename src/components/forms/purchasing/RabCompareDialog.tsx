@@ -101,7 +101,11 @@ export function RabCompareButton({
         Compare
       </Button>
       {open ? (
-        <RabCompareDialog orderId={orderId} open={open} onOpenChange={setOpen} />
+        <RabCompareDialog
+          orderId={orderId}
+          open={open}
+          onOpenChange={setOpen}
+        />
       ) : null}
     </span>
   )
@@ -193,11 +197,16 @@ export default function RabCompareDialog({
           0,
         )
     // Goods not received yet are assumed to cost the PO price.
-    const forecast = actual + Math.max(poTotal - receivedAtPo, 0) + forecastCharges
+    const forecast =
+      actual + Math.max(poTotal - receivedAtPo, 0) + forecastCharges
     // This PO's share of the RAB's own charge budget, pro rata to its RAB goods.
     const rabGoods = num(data?.rab?.total ?? '0')
     const rabChargeShare =
-      rabGoods > 0 ? Math.round((rabAtPoQty * num(data?.rab?.chargesTotal ?? '0')) / rabGoods) : 0
+      rabGoods > 0
+        ? Math.round(
+            (rabAtPoQty * num(data?.rab?.chargesTotal ?? '0')) / rabGoods,
+          )
+        : 0
     return {
       onPo,
       rabAtPoQty,
@@ -210,7 +219,8 @@ export default function RabCompareDialog({
       forecast,
       forecastCharges,
       rabChargeShare,
-      forecastVsRab: rabAtPoQty > 0 ? forecast - rabAtPoQty - rabChargeShare : null,
+      forecastVsRab:
+        rabAtPoQty > 0 ? forecast - rabAtPoQty - rabChargeShare : null,
       fullyReceived,
       notOnRab: onPo.filter((l) => l.rabQty === null).length,
       overRab: onPo.filter((l) => overPrice(l) || overQty(l)).length,
@@ -218,62 +228,36 @@ export default function RabCompareDialog({
     }
   }, [data])
 
-  /** Short “why” lines — drivers of the verdict, not a repeat of the headline. */
+  /** Where the difference comes from (the steps already show PO and received). */
   const why: Array<{ tone: 'warn' | 'good' | 'info'; text: string }> = []
   if (data) {
     const s = stats
-    if (s.poVsRabTotal !== null && s.poVsRabTotal !== 0) {
-      why.push({
-        tone: s.poVsRabTotal > 0 ? 'warn' : 'good',
-        text: `Goods on the PO are ${formatRupiah(String(Math.abs(s.poVsRabTotal)))} ${s.poVsRabTotal > 0 ? 'above' : 'below'} RAB price for the same qty.`,
-      })
-    }
-    if (data.realizationCount > 0 && s.actualVsPoTotal !== 0) {
-      why.push({
-        tone: s.actualVsPoTotal > 0 ? 'warn' : 'good',
-        text: `What arrived cost ${formatRupiah(String(Math.abs(s.actualVsPoTotal)))} ${s.actualVsPoTotal > 0 ? 'more' : 'less'} than the PO price.`,
-      })
-    }
-    if (s.charges > 0) {
-      why.push({
-        tone: 'warn',
-        text: `${formatRupiah(String(s.charges))} in charges (tax, delivery, fees) on top of the goods.`,
-      })
-    }
     if (s.biggest) {
       why.push({
         tone: 'warn',
-        text: `Biggest overrun: ${s.biggest.name} (${formatRupiahDiff(String(s.biggest.diff))} vs RAB).`,
+        text: `Biggest difference: ${s.biggest.name}, ${formatRupiahDiff(String(s.biggest.diff))} vs RAB.`,
       })
     }
     if (s.notOnRab > 0) {
       why.push({
         tone: 'warn',
-        text: `${s.notOnRab} ${s.notOnRab === 1 ? 'item is' : 'items are'} not on the RAB.`,
+        text: `${s.notOnRab} ${s.notOnRab === 1 ? 'item is' : 'items are'} not on the RAB, so they have no budget.`,
       })
-    } else if (data.realizationCount === 0 && why.length < 3) {
+    }
+    if (s.charges > 0) {
       why.push({
-        tone: 'info',
-        text: 'Nothing received yet — expected final uses PO prices for the rest.',
+        tone: 'warn',
+        text: `${formatRupiah(String(s.charges))} in tax, delivery and fees on top of the goods.`,
       })
     }
   }
   const whyLines = why.slice(0, 3)
   const rabOnlyCount = (data?.lines.length ?? 0) - stats.onPo.length
-  const verdict =
-    stats.forecastVsRab === null
-      ? { tone: 'info' as const, label: 'No RAB to compare' }
-      : stats.forecastVsRab > 0
-        ? { tone: 'warn' as const, label: 'Over budget' }
-        : stats.forecastVsRab < 0
-          ? { tone: 'good' as const, label: 'Under budget' }
-          : { tone: 'good' as const, label: 'On budget' }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-7xl">
         <DialogHeader>
-          <DialogTitle>RAB · PO · Realization</DialogTitle>
+          <DialogTitle>Budget check</DialogTitle>
           <DialogDescription asChild>
             <div className="flex flex-wrap items-center gap-x-1.5 text-sm">
               {data ? (
@@ -313,73 +297,7 @@ export default function RabCompareDialog({
           </p>
         ) : (
           <div className="min-w-0 space-y-5">
-            <div className="rounded-md border border-(--line) bg-(--surface) px-3.5 py-3">
-              <div className="flex gap-2.5">
-                {verdict.tone === 'warn' ? (
-                  <AlertTriangle
-                    className={cn('mt-0.5 size-4 shrink-0', warnClassName)}
-                    aria-hidden
-                  />
-                ) : verdict.tone === 'good' ? (
-                  <CheckCircle2
-                    className={cn('mt-0.5 size-4 shrink-0', goodClassName)}
-                    aria-hidden
-                  />
-                ) : (
-                  <Info
-                    className="mt-0.5 size-4 shrink-0 text-(--muted)"
-                    aria-hidden
-                  />
-                )}
-                <div className="min-w-0 flex-1 space-y-2.5">
-                  <div>
-                    <p
-                      className={cn(
-                        'text-sm font-semibold',
-                        verdict.tone === 'warn'
-                          ? warnClassName
-                          : verdict.tone === 'good'
-                            ? goodClassName
-                            : 'text-(--ink)',
-                      )}
-                    >
-                      {verdict.label}
-                      {stats.forecastVsRab !== null ? (
-                        <span className="font-normal tabular-nums">
-                          {' · '}
-                          {rupiahDiff(stats.forecastVsRab)} vs RAB
-                        </span>
-                      ) : null}
-                    </p>
-                    <p className={cn('mt-0.5 text-xs tabular-nums', hintClassName)}>
-                      Expected final {formatRupiah(String(stats.forecast))}
-                    </p>
-                  </div>
-                  <CostCompareStrip
-                    rab={
-                      stats.rabAtPoQty > 0
-                        ? stats.rabAtPoQty + stats.rabChargeShare
-                        : null
-                    }
-                    po={stats.poTotal}
-                    inSoFar={stats.actual + stats.charges}
-                    expected={stats.forecast}
-                  />
-                  {whyLines.length > 0 ? (
-                    <div
-                      className={cn(
-                        'space-y-0.5 border-t border-(--line)/60 pt-2 text-xs leading-relaxed',
-                        hintClassName,
-                      )}
-                    >
-                      {whyLines.map((i) => (
-                        <p key={i.text}>{i.text}</p>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
+            <BudgetStory data={data} stats={stats} whyLines={whyLines} />
 
             <details className="group rounded-md border border-(--line) open:pb-3">
               <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
@@ -387,7 +305,7 @@ export default function RabCompareDialog({
                   className="size-3.5 shrink-0 text-(--muted) transition-transform group-open:rotate-90"
                   aria-hidden
                 />
-                Charge categories
+                Tax, delivery and other charges
               </summary>
               <div className="px-3">
                 <ChargeCategoryTable
@@ -408,7 +326,7 @@ export default function RabCompareDialog({
                   aria-hidden
                 />
                 <span className="flex flex-wrap items-center gap-2">
-                  Line details
+                  Per item
                   {stats.notOnRab > 0 ? (
                     <Badge variant="destructive" className="text-xs">
                       {stats.notOnRab} not on RAB
@@ -425,176 +343,249 @@ export default function RabCompareDialog({
                 </span>
               </summary>
               <div className="space-y-3 px-3">
-            {data.rab && rabOnlyCount > 0 ? (
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={showAll}
-                  onCheckedChange={(v) => setShowAll(v === true)}
-                />
-                Show all RAB items ({rabOnlyCount} not on this PO)
-              </label>
-            ) : null}
+                {data.rab && rabOnlyCount > 0 ? (
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={showAll}
+                      onCheckedChange={(v) => setShowAll(v === true)}
+                    />
+                    Show all RAB items ({rabOnlyCount} not on this PO)
+                  </label>
+                ) : null}
 
-            <div className="overflow-x-auto rounded-md border border-(--line)">
-              <table className="w-full min-w-[1040px] text-xs">
-                <thead className="text-xs text-(--muted)">
-                  <tr className="border-b border-(--line)">
-                    <th rowSpan={2} className="px-3 py-2 text-left font-medium">
-                      Item
-                    </th>
-                    {['RAB', 'PO', 'Realized'].map((g) => (
-                      <th
-                        key={g}
-                        colSpan={2}
-                        className={cn(
-                          groupClassName,
-                          'px-3 py-1.5 text-center font-semibold text-(--ink)',
-                        )}
-                      >
-                        {g}
-                      </th>
-                    ))}
-                    <th
-                      colSpan={2}
-                      className={cn(
-                        groupClassName,
-                        'px-3 py-1.5 text-center font-semibold text-(--ink)',
-                      )}
-                    >
-                      Difference
-                    </th>
-                  </tr>
-                  <tr className="border-b border-(--line)">
-                    {['RAB', 'PO', 'Realized'].map((g) => (
-                      <SubHeads key={g} />
-                    ))}
-                    <th className={cn(groupClassName, 'px-3 py-1.5 text-right font-medium')}>
-                      PO vs RAB
-                    </th>
-                    <th className="px-3 py-1.5 text-right font-medium">
-                      Actual vs PO
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-(--line)">
-                  {lines.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className={cn('px-3 py-6 text-center', hintClassName)}>
-                        No items to compare.
-                      </td>
-                    </tr>
-                  ) : (
-                    lines.map((l) => {
-                      const d1 = poVsRab(l)
-                      const d2 = actualVsPo(l)
-                      const received =
-                        l.poQty !== null && num(l.poQty) > 0
-                          ? num(l.realizedQty) / num(l.poQty)
-                          : 0
-                      return (
-                        <tr key={l.key} className={cn(l.poQty === null && 'opacity-60')}>
-                          <td className="max-w-64 px-3 py-2">
-                            <p className="truncate font-medium">{l.materialName}</p>
-                            <p className="flex items-center gap-1.5 truncate text-xs text-(--muted)">
-                              <span className="tabular-nums">{l.materialCode}</span>
-                              {l.rabQty === null ? (
-                                <Badge variant="destructive" className="px-1.5 py-0">
-                                  Not on RAB
-                                </Badge>
-                              ) : null}
-                            </p>
-                          </td>
-                          {/* RAB */}
-                          <QtyCell
-                            first
-                            qty={l.rabQty}
-                            uom={l.uomSymbol}
-                            sub={
-                              l.rabQty !== null && num(l.otherOrderedQty) > 0
-                                ? `${l.otherOrderedQty} on other POs`
-                                : null
-                            }
-                          />
-                          <AmountCell amount={l.rabAmount} unitPrice={l.rabUnitPrice} />
-                          {/* PO */}
-                          <QtyCell
-                            first
-                            qty={l.poQty}
-                            uom={l.uomSymbol}
-                            warn={overQty(l)}
-                            title={overQty(l) ? 'Ordered qty goes past the RAB qty' : undefined}
-                          />
-                          <AmountCell
-                            amount={l.poAmount}
-                            unitPrice={l.poUnitPrice}
-                            warnPrice={overPrice(l)}
-                          />
-                          {/* Realized */}
-                          <QtyCell
-                            first
-                            qty={l.realizedQty}
-                            uom={l.uomSymbol}
-                            sub={l.poQty !== null ? `${Math.round(received * 100)}% in` : null}
-                            good={l.poQty !== null && received >= 1 - 1e-9}
-                          />
-                          <AmountCell
-                            amount={l.realizedQty !== null && num(l.realizedQty) > 0 ? l.realizedAmount : null}
-                            unitPrice={l.realizedUnitPrice}
-                            warnPrice={
-                              l.realizedUnitPrice !== null &&
-                              l.poUnitPrice !== null &&
-                              num(l.realizedUnitPrice) > num(l.poUnitPrice)
-                            }
-                          />
-                          <td className={cn(groupClassName, 'px-3 py-2 text-right tabular-nums whitespace-nowrap', diffClass(d1))}>
-                            {rupiahDiff(d1)}
-                          </td>
-                          <td className={cn('px-3 py-2 text-right tabular-nums whitespace-nowrap', diffClass(d2))}>
-                            {rupiahDiff(d2)}
+                <div className="overflow-x-auto rounded-md border border-(--line)">
+                  <table className="w-full min-w-[1040px] text-xs">
+                    <thead className="text-xs text-(--muted)">
+                      <tr className="border-b border-(--line)">
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-2 text-left font-medium"
+                        >
+                          Item
+                        </th>
+                        {['RAB', 'PO', 'Realized'].map((g) => (
+                          <th
+                            key={g}
+                            colSpan={2}
+                            className={cn(
+                              groupClassName,
+                              'px-3 py-1.5 text-center font-semibold text-(--ink)',
+                            )}
+                          >
+                            {g}
+                          </th>
+                        ))}
+                        <th
+                          colSpan={2}
+                          className={cn(
+                            groupClassName,
+                            'px-3 py-1.5 text-center font-semibold text-(--ink)',
+                          )}
+                        >
+                          Difference
+                        </th>
+                      </tr>
+                      <tr className="border-b border-(--line)">
+                        {['RAB', 'PO', 'Realized'].map((g) => (
+                          <SubHeads key={g} />
+                        ))}
+                        <th
+                          className={cn(
+                            groupClassName,
+                            'px-3 py-1.5 text-right font-medium',
+                          )}
+                        >
+                          PO vs RAB
+                        </th>
+                        <th className="px-3 py-1.5 text-right font-medium">
+                          Actual vs PO
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-(--line)">
+                      {lines.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={9}
+                            className={cn(
+                              'px-3 py-6 text-center',
+                              hintClassName,
+                            )}
+                          >
+                            No items to compare.
                           </td>
                         </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-                {stats.onPo.length > 0 ? (
-                  <tfoot className="border-t border-(--line) font-medium">
-                    <tr>
-                      <td className="px-3 py-2">PO items</td>
-                      <td className={groupClassName} />
-                      <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                        {stats.rabAtPoQty > 0 ? formatRupiah(String(stats.rabAtPoQty)) : '—'}
-                        <span className="block text-xs font-normal text-(--muted)">at PO qty</span>
-                      </td>
-                      <td className={groupClassName} />
-                      <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                        {formatRupiah(data.poTotal)}
-                      </td>
-                      <td className={groupClassName} />
-                      <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                        {formatRupiah(data.realizedSubtotal)}
-                        {stats.charges > 0 ? (
-                          <span className="block text-xs font-normal text-(--muted)">
-                            +{formatRupiah(data.realizedCharges)} charges
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className={cn(groupClassName, 'px-3 py-2 text-right tabular-nums whitespace-nowrap', diffClass(stats.poVsRabTotal))}>
-                        {rupiahDiff(stats.poVsRabTotal)}
-                      </td>
-                      <td className={cn('px-3 py-2 text-right tabular-nums whitespace-nowrap', diffClass(data.realizationCount > 0 ? stats.actualVsPoTotal : null))}>
-                        {data.realizationCount > 0 ? rupiahDiff(stats.actualVsPoTotal) : '—'}
-                      </td>
-                    </tr>
-                  </tfoot>
-                ) : null}
-              </table>
-            </div>
-            <p className={cn('text-xs', hintClassName)}>
-              Differences compare the same qty at each price. Realized counts
-              posted receipts and notas only; expected final cost assumes the
-              rest comes in at the PO price.
-            </p>
+                      ) : (
+                        lines.map((l) => {
+                          const d1 = poVsRab(l)
+                          const d2 = actualVsPo(l)
+                          const received =
+                            l.poQty !== null && num(l.poQty) > 0
+                              ? num(l.realizedQty) / num(l.poQty)
+                              : 0
+                          return (
+                            <tr
+                              key={l.key}
+                              className={cn(l.poQty === null && 'opacity-60')}
+                            >
+                              <td className="max-w-64 px-3 py-2">
+                                <p className="truncate font-medium">
+                                  {l.materialName}
+                                </p>
+                                <p className="flex items-center gap-1.5 truncate text-xs text-(--muted)">
+                                  <span className="tabular-nums">
+                                    {l.materialCode}
+                                  </span>
+                                  {l.rabQty === null ? (
+                                    <Badge
+                                      variant="destructive"
+                                      className="px-1.5 py-0"
+                                    >
+                                      Not on RAB
+                                    </Badge>
+                                  ) : null}
+                                </p>
+                              </td>
+                              {/* RAB */}
+                              <QtyCell
+                                first
+                                qty={l.rabQty}
+                                uom={l.uomSymbol}
+                                sub={
+                                  l.rabQty !== null &&
+                                  num(l.otherOrderedQty) > 0
+                                    ? `${l.otherOrderedQty} on other POs`
+                                    : null
+                                }
+                              />
+                              <AmountCell
+                                amount={l.rabAmount}
+                                unitPrice={l.rabUnitPrice}
+                              />
+                              {/* PO */}
+                              <QtyCell
+                                first
+                                qty={l.poQty}
+                                uom={l.uomSymbol}
+                                warn={overQty(l)}
+                                title={
+                                  overQty(l)
+                                    ? 'Ordered qty goes past the RAB qty'
+                                    : undefined
+                                }
+                              />
+                              <AmountCell
+                                amount={l.poAmount}
+                                unitPrice={l.poUnitPrice}
+                                warnPrice={overPrice(l)}
+                              />
+                              {/* Realized */}
+                              <QtyCell
+                                first
+                                qty={l.realizedQty}
+                                uom={l.uomSymbol}
+                                sub={
+                                  l.poQty !== null
+                                    ? `${Math.round(received * 100)}% in`
+                                    : null
+                                }
+                                good={l.poQty !== null && received >= 1 - 1e-9}
+                              />
+                              <AmountCell
+                                amount={
+                                  l.realizedQty !== null &&
+                                  num(l.realizedQty) > 0
+                                    ? l.realizedAmount
+                                    : null
+                                }
+                                unitPrice={l.realizedUnitPrice}
+                                warnPrice={
+                                  l.realizedUnitPrice !== null &&
+                                  l.poUnitPrice !== null &&
+                                  num(l.realizedUnitPrice) > num(l.poUnitPrice)
+                                }
+                              />
+                              <td
+                                className={cn(
+                                  groupClassName,
+                                  'px-3 py-2 text-right tabular-nums whitespace-nowrap',
+                                  diffClass(d1),
+                                )}
+                              >
+                                {rupiahDiff(d1)}
+                              </td>
+                              <td
+                                className={cn(
+                                  'px-3 py-2 text-right tabular-nums whitespace-nowrap',
+                                  diffClass(d2),
+                                )}
+                              >
+                                {rupiahDiff(d2)}
+                              </td>
+                            </tr>
+                          )
+                        })
+                      )}
+                    </tbody>
+                    {stats.onPo.length > 0 ? (
+                      <tfoot className="border-t border-(--line) font-medium">
+                        <tr>
+                          <td className="px-3 py-2">PO items</td>
+                          <td className={groupClassName} />
+                          <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                            {stats.rabAtPoQty > 0
+                              ? formatRupiah(String(stats.rabAtPoQty))
+                              : '—'}
+                            <span className="block text-xs font-normal text-(--muted)">
+                              at PO qty
+                            </span>
+                          </td>
+                          <td className={groupClassName} />
+                          <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                            {formatRupiah(data.poTotal)}
+                          </td>
+                          <td className={groupClassName} />
+                          <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                            {formatRupiah(data.realizedSubtotal)}
+                            {stats.charges > 0 ? (
+                              <span className="block text-xs font-normal text-(--muted)">
+                                +{formatRupiah(data.realizedCharges)} charges
+                              </span>
+                            ) : null}
+                          </td>
+                          <td
+                            className={cn(
+                              groupClassName,
+                              'px-3 py-2 text-right tabular-nums whitespace-nowrap',
+                              diffClass(stats.poVsRabTotal),
+                            )}
+                          >
+                            {rupiahDiff(stats.poVsRabTotal)}
+                          </td>
+                          <td
+                            className={cn(
+                              'px-3 py-2 text-right tabular-nums whitespace-nowrap',
+                              diffClass(
+                                data.realizationCount > 0
+                                  ? stats.actualVsPoTotal
+                                  : null,
+                              ),
+                            )}
+                          >
+                            {data.realizationCount > 0
+                              ? rupiahDiff(stats.actualVsPoTotal)
+                              : '—'}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    ) : null}
+                  </table>
+                </div>
+                <p className={cn('text-xs', hintClassName)}>
+                  Differences compare the same qty at each price. Realized
+                  counts posted receipts and notas only; expected final cost
+                  assumes the rest comes in at the PO price.
+                </p>
               </div>
             </details>
           </div>
@@ -604,103 +595,209 @@ export default function RabCompareDialog({
   )
 }
 
-/** Numbers + neutral bars; only the Expected overshoot/undershoot is tinted. */
-function CostCompareStrip({
-  rab,
-  po,
-  inSoFar,
-  expected,
+/** One step of the money story: what it is, the amount, and how it compares. */
+function StoryStep({
+  label,
+  hint,
+  amount,
+  note,
+  tone = 'muted',
 }: {
-  rab: number | null
-  po: number
-  inSoFar: number
-  expected: number
+  label: string
+  hint: string
+  amount: string
+  note?: string | null
+  tone?: 'muted' | 'warn' | 'good'
 }) {
-  const rows: Array<{ label: string; value: number | null }> = [
-    { label: 'RAB', value: rab },
-    { label: 'PO', value: po },
-    { label: 'In so far', value: inSoFar },
-    { label: 'Expected', value: expected },
-  ]
-  const max = Math.max(...rows.map((r) => r.value ?? 0), 1)
-  const rabPct = rab !== null && rab > 0 ? Math.min((rab / max) * 100, 100) : null
-  const expectedOver = rab !== null && expected > rab
-  const expectedUnder = rab !== null && expected < rab
+  return (
+    <div className="min-w-0 flex-1 rounded-md border border-(--line) bg-(--background) px-3 py-2.5">
+      <p className="text-xs font-medium">{label}</p>
+      <p className={cn('text-xs', hintClassName)}>{hint}</p>
+      <p className="mt-1.5 text-base font-semibold tabular-nums">{amount}</p>
+      {note ? (
+        <p
+          className={cn(
+            'text-xs tabular-nums',
+            tone === 'warn'
+              ? warnClassName
+              : tone === 'good'
+                ? goodClassName
+                : hintClassName,
+          )}
+        >
+          {note}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function pctOf(part: number, whole: number): string {
+  if (whole <= 0) return ''
+  const p = (Math.abs(part) / whole) * 100
+  return `${p >= 10 ? Math.round(p) : p.toFixed(1)}%`
+}
+
+/**
+ * The summary as a short story: a one-sentence verdict, then budget →
+ * ordered → received, then where the difference comes from.
+ */
+function BudgetStory({
+  data,
+  stats,
+  whyLines,
+}: {
+  data: PurchaseOrderRabCompare
+  stats: {
+    rabAtPoQty: number
+    rabChargeShare: number
+    poTotal: number
+    actual: number
+    charges: number
+    actualVsPoTotal: number
+    forecast: number
+    forecastVsRab: number | null
+    fullyReceived: number
+    onPo: PurchaseOrderRabCompareLine[]
+  }
+  whyLines: Array<{ tone: 'warn' | 'good' | 'info'; text: string }>
+}) {
+  const budget =
+    stats.rabAtPoQty > 0 ? stats.rabAtPoQty + stats.rabChargeShare : null
+  const poVsBudget = budget !== null ? stats.poTotal - budget : null
+  const inSoFar = stats.actual + stats.charges
+  const received = data.realizationCount > 0
+  const allIn =
+    stats.onPo.length > 0 && stats.fullyReceived === stats.onPo.length
+  const final = stats.forecastVsRab
+
+  const headline =
+    final === null
+      ? { tone: 'info' as const, text: 'No RAB to compare this PO with' }
+      : final > 0
+        ? {
+            tone: 'warn' as const,
+            text: `${allIn ? 'Cost' : 'Will cost'} ${formatRupiah(String(final))} more than budgeted (+${pctOf(final, budget ?? 0)})`,
+          }
+        : final < 0
+          ? {
+              tone: 'good' as const,
+              text: `${allIn ? 'Cost' : 'Will cost'} ${formatRupiah(String(-final))} less than budgeted`,
+            }
+          : { tone: 'good' as const, text: 'Exactly on budget' }
 
   return (
-    <div className="space-y-2.5 border-t border-(--line)/60 pt-2.5">
-      <dl
-        className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs"
-        aria-label="Cost comparison"
+    <div className="space-y-3 rounded-md border border-(--line) bg-(--surface) px-3.5 py-3">
+      <p
+        className={cn(
+          'flex items-center gap-2 text-sm font-semibold',
+          headline.tone === 'warn'
+            ? warnClassName
+            : headline.tone === 'good'
+              ? goodClassName
+              : 'text-(--ink)',
+        )}
       >
-        {rows.map((r) => (
-          <div key={r.label} className="min-w-0">
-            <dt className={hintClassName}>{r.label}</dt>
-            <dd className="font-medium tabular-nums text-(--ink)">
-              {r.value === null ? '—' : formatRupiah(String(r.value))}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      <div
-        className="space-y-1.5"
-        role="img"
-        aria-label="Cost comparison chart"
-      >
-        {rows.map((r) => {
-          const pct =
-            r.value === null || r.value <= 0
-              ? 0
-              : Math.max((r.value / max) * 100, 1.5)
-          const isExpected = r.label === 'Expected'
-          return (
-            <div
-              key={r.label}
-              className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2"
-            >
-              <span className={cn('truncate text-xs', hintClassName)}>
-                {r.label}
-              </span>
-              <div className="relative h-2 overflow-hidden rounded-sm bg-(--line)/70">
-                {rabPct !== null && r.label !== 'RAB' ? (
-                  <span
-                    className="absolute inset-y-0 z-1 w-px bg-(--muted)"
-                    style={{ left: `${rabPct}%` }}
-                    aria-hidden
-                  />
-                ) : null}
-                {isExpected && expectedOver && rabPct !== null ? (
-                  <>
-                    <div
-                      className="absolute inset-y-0 left-0 rounded-l-sm bg-(--ink)/50"
-                      style={{ width: `${rabPct}%` }}
-                    />
-                    <div
-                      className="absolute inset-y-0 rounded-r-sm bg-amber-500/80"
-                      style={{
-                        left: `${rabPct}%`,
-                        width: `${Math.max(pct - rabPct, 0)}%`,
-                      }}
-                    />
-                  </>
-                ) : (
-                  <div
-                    className={cn(
-                      'h-full rounded-sm',
-                      isExpected && expectedUnder
-                        ? 'bg-emerald-600/75'
-                        : r.label === 'RAB'
-                          ? 'bg-(--muted)/40'
-                          : 'bg-(--ink)/50',
-                    )}
-                    style={{ width: `${pct}%` }}
-                  />
-                )}
-              </div>
-            </div>
-          )
-        })}
+        {headline.tone === 'warn' ? (
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
+        ) : headline.tone === 'good' ? (
+          <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+        ) : (
+          <Info className="size-4 shrink-0 text-(--muted)" aria-hidden />
+        )}
+        {headline.text}
+      </p>
+
+      <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+        <StoryStep
+          label="1. Budget"
+          hint="RAB price for these items"
+          amount={budget !== null ? formatRupiah(String(budget)) : '—'}
+          note={
+            stats.rabChargeShare > 0
+              ? `incl. ${formatRupiah(String(stats.rabChargeShare))} charges`
+              : null
+          }
+        />
+        <ChevronRight
+          className="mx-auto size-4 shrink-0 rotate-90 text-(--muted) sm:rotate-0"
+          aria-hidden
+        />
+        <StoryStep
+          label="2. Ordered"
+          hint="This PO"
+          amount={formatRupiah(String(stats.poTotal))}
+          note={
+            poVsBudget === null || poVsBudget === 0
+              ? poVsBudget === 0
+                ? 'Same as budget'
+                : null
+              : `${poVsBudget > 0 ? '+' : '−'}${formatRupiah(String(Math.abs(poVsBudget)))} vs budget`
+          }
+          tone={
+            poVsBudget === null || poVsBudget === 0
+              ? 'muted'
+              : poVsBudget > 0
+                ? 'warn'
+                : 'good'
+          }
+        />
+        <ChevronRight
+          className="mx-auto size-4 shrink-0 rotate-90 text-(--muted) sm:rotate-0"
+          aria-hidden
+        />
+        <StoryStep
+          label="3. Received"
+          hint={
+            received
+              ? `${stats.fullyReceived} of ${stats.onPo.length} items fully in`
+              : 'What actually arrived'
+          }
+          amount={received ? formatRupiah(String(inSoFar)) : 'Nothing yet'}
+          note={
+            !received
+              ? 'Assumed at PO price until it arrives'
+              : stats.actualVsPoTotal !== 0
+                ? `${stats.actualVsPoTotal > 0 ? '+' : '−'}${formatRupiah(String(Math.abs(stats.actualVsPoTotal)))} vs PO price`
+                : 'At PO price'
+          }
+          tone={
+            received && stats.actualVsPoTotal > 0
+              ? 'warn'
+              : received && stats.actualVsPoTotal < 0
+                ? 'good'
+                : 'muted'
+          }
+        />
       </div>
+
+      {received && !allIn ? (
+        <p className={cn('text-xs tabular-nums', hintClassName)}>
+          Expected final cost {formatRupiah(String(stats.forecast))}, if the
+          rest arrives at the PO price.
+        </p>
+      ) : null}
+
+      {whyLines.length > 0 ? (
+        <ul className="space-y-1 border-t border-(--line) pt-2.5">
+          {whyLines.map((w) => (
+            <li key={w.text} className="flex items-start gap-2 text-xs">
+              <span
+                className={cn(
+                  'mt-1.5 size-1.5 shrink-0 rounded-full',
+                  w.tone === 'warn'
+                    ? 'bg-amber-500'
+                    : w.tone === 'good'
+                      ? 'bg-emerald-500'
+                      : 'bg-(--muted)',
+                )}
+                aria-hidden
+              />
+              <span>{w.text}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }
@@ -708,7 +805,9 @@ function CostCompareStrip({
 function SubHeads() {
   return (
     <>
-      <th className={cn(groupClassName, 'px-3 py-1.5 text-right font-medium')}>Qty</th>
+      <th className={cn(groupClassName, 'px-3 py-1.5 text-right font-medium')}>
+        Qty
+      </th>
       <th className="px-3 py-1.5 text-right font-medium">Amount</th>
     </>
   )
@@ -742,7 +841,12 @@ function QtyCell({
     >
       {qty !== null ? `${qty} ${uom}` : '—'}
       {sub ? (
-        <span className={cn('block text-xs', good ? goodClassName : 'text-(--muted)')}>
+        <span
+          className={cn(
+            'block text-xs',
+            good ? goodClassName : 'text-(--muted)',
+          )}
+        >
           {sub}
         </span>
       ) : null}
@@ -763,7 +867,12 @@ function AmountCell({
     <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
       {formatRupiah(amount)}
       {unitPrice !== null ? (
-        <span className={cn('block text-xs', warnPrice ? warnClassName : 'text-(--muted)')}>
+        <span
+          className={cn(
+            'block text-xs',
+            warnPrice ? warnClassName : 'text-(--muted)',
+          )}
+        >
           @ {formatRupiah(unitPrice)}
         </span>
       ) : null}
@@ -809,9 +918,7 @@ function ChargeCategoryTable({
       diff,
       diffKind,
     }
-  }).filter(
-    (r) => r.budget > 0 || r.estimate !== null || r.actual > 0,
-  )
+  }).filter((r) => r.budget > 0 || r.estimate !== null || r.actual > 0)
   if (rows.length === 0) {
     return (
       <p className={cn('py-2 text-sm', hintClassName)}>

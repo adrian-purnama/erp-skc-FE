@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import toast from 'react-hot-toast'
 import {
   Camera,
   Check,
+  Circle,
+  CircleCheck,
+  CircleX,
+  FileDown,
   LoaderCircle,
   Pencil,
   Send,
@@ -12,7 +17,6 @@ import {
 } from 'lucide-react'
 import ProofFile from '#/components/forms/shared/ProofFile'
 import { ListChip } from '#/components/forms/shared/ListTable'
-import PurchaseFlowHeader from '#/components/forms/shared/PurchaseFlowHeader'
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
 import {
@@ -23,8 +27,9 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog'
 import { useAuth } from '#/context/authContext'
-import { apiFetch, apiUpload } from '#/lib/api'
+import { apiDownload, apiFetch, apiUpload } from '#/lib/api'
 import { jakartaDateKey } from '#/lib/jakartaDate'
+import { formatYmdLong } from '#/lib/quotation'
 import {
   PAYMENT_METHOD_LABELS,
   PAYMENT_STATUS_LABELS,
@@ -77,12 +82,9 @@ export default function PaymentDialog({
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [reason, setReason] = useState('')
-  /** Which reason box is open: the whole payment, one nota, or cancelling. */
+  /** Which reason box is open: rejecting or cancelling. */
   const [asking, setAsking] = useState<
-    | { kind: 'reject' }
-    | { kind: 'rejectItem'; itemId: string }
-    | { kind: 'cancel' }
-    | null
+    { kind: 'reject' } | { kind: 'cancel' } | null
   >(null)
   const [paidDate, setPaidDate] = useState('')
   const [method, setMethod] = useState<PurchasePaymentMethod>('transfer')
@@ -160,9 +162,7 @@ export default function PaymentDialog({
     const ok =
       asking.kind === 'reject'
         ? await post('/reject', 'Payment rejected', body)
-        : asking.kind === 'cancel'
-          ? await post('/cancel', 'Payment cancelled', body)
-          : await post(`/items/${asking.itemId}/reject`, 'Nota rejected', body)
+        : await post('/cancel', 'Payment cancelled', body)
     if (ok) {
       setAsking(null)
       setReason('')
@@ -201,10 +201,9 @@ export default function PaymentDialog({
 
   const p = payment
   const canPay = can('purchasing.pay') && p?.status === 'approved'
-  // A rejected vendor stage is edited and sent again; a reimbursement is rebuilt instead.
+  // A rejected payment is edited and sent again.
   const editable =
-    p?.viewerIsOwner &&
-    (p.status === 'draft' || (p.status === 'rejected' && p.kind === 'vendor'))
+    p?.viewerIsOwner && (p.status === 'draft' || p.status === 'rejected')
   const cancellable =
     p?.viewerIsOwner &&
     (p.status === 'pending_approval' ||
@@ -232,148 +231,94 @@ export default function PaymentDialog({
                 <ListChip tone={paymentStatusTone(p.status)}>
                   {PAYMENT_STATUS_LABELS[p.status]}
                 </ListChip>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto h-7 gap-1.5 text-xs"
+                  onClick={() =>
+                    void apiDownload(
+                      `/purchasing/payments/${p.id}/pdf`,
+                      `${p.number.replace(/\//g, '_')}.pdf`,
+                    ).catch((e: unknown) =>
+                      toast.error(
+                        e instanceof Error ? e.message : 'Download failed',
+                      ),
+                    )
+                  }
+                >
+                  <FileDown className="size-3.5" aria-hidden />
+                  Bukti PDF
+                </Button>
               </div>
-              <DialogDescription>
-                {paymentLabel(p)} ·{' '}
-                {p.kind === 'vendor'
-                  ? `${p.vendorName ?? '—'} · ${p.purchaseOrderNumber ?? '—'}`
-                  : `to ${p.payeeName}`}
-              </DialogDescription>
+              <DialogDescription>{paymentLabel(p)}</DialogDescription>
             </DialogHeader>
 
-            <PurchaseFlowHeader key={`${p.id}:${p.status}`} kind="payment" id={p.id} />
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <p className={cn('text-xs', hintClassName)}>Amount</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {formatRupiah(p.amount)}
-                </p>
-              </div>
-              <div>
-                <p className={cn('text-xs', hintClassName)}>Due</p>
-                <p className="text-sm tabular-nums">{p.dueDate ?? '—'}</p>
-              </div>
-              <div>
-                <p className={cn('text-xs', hintClassName)}>Requested by</p>
-                <p className="text-sm">{p.createdBy?.name ?? '—'}</p>
-              </div>
+            <div className="space-y-1">
+              <p className="text-2xl font-semibold tabular-nums">
+                {formatRupiah(p.amount)}
+              </p>
+              <p className={cn('text-sm', hintClassName)}>
+                {p.stage === 'full'
+                  ? 'Full payment'
+                  : p.basis === 'percent' && p.rate
+                    ? `${p.rate}% partial payment`
+                    : 'Partial payment'}{' '}
+                to <span className="text-(--ink)">{p.payeeName}</span>
+                {p.dueDate ? ` · due ${formatYmdLong(p.dueDate)}` : ''}
+              </p>
             </div>
 
-            {p.kind === 'vendor' && p.purchaseOrderId ? (
-              <p className="text-sm">
+            <PaymentSteps payment={p} />
+
+            <dl className="divide-y divide-(--line) rounded-md border border-(--line) text-sm">
+              <FactRow label="For">
                 <Link
                   to="/dashboard/purchasing/orders/$orderId"
                   params={{ orderId: p.purchaseOrderId }}
-                  className="underline-offset-4 hover:underline"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium tabular-nums underline-offset-4 hover:underline"
                 >
-                  Open {p.purchaseOrderNumber}
+                  {p.purchaseOrderNumber}
                 </Link>
-                {p.realizations.length > 0 ? (
-                  <span className={hintClassName}>
-                    {' '}
-                    · for {p.realizations.map((r) => r.number).join(', ')}
-                  </span>
+                {p.vendorName ? (
+                  <span className={hintClassName}> · {p.vendorName}</span>
                 ) : null}
-              </p>
-            ) : null}
-
-            {p.notes ? (
-              <p className="text-sm whitespace-pre-line">{p.notes}</p>
-            ) : null}
-
-            {p.kind === 'vendor' && p.status !== 'draft' ? (
-              <p className={cn('text-xs', hintClassName)}>{approvalLine(p)}</p>
-            ) : null}
-
-            {p.kind === 'reimburse' ? (
-              <section className="space-y-2">
-                <h3 className={sectionTitleClassName}>Notas</h3>
-                <ul className="divide-y divide-(--line) rounded-md border border-(--line)">
-                  {p.items.map((i) => (
-                    <li key={i.id} className="space-y-1 px-3 py-2 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Link
-                          to="/dashboard/purchasing/realizations/$realizationId"
-                          params={{ realizationId: i.realizationId }}
-                          className="font-medium tabular-nums underline-offset-4 hover:underline"
-                        >
-                          {i.realizationNumber}
-                        </Link>
-                        <span className={cn('text-xs', hintClassName)}>
-                          {i.purchaseOrderNumber} · {i.purchaseDate}
-                          {i.place ? ` · ${i.place}` : ''}
-                        </span>
-                        <span className="ml-auto tabular-nums">
-                          {formatRupiah(i.amount)}
-                        </span>
-                        {p.status !== 'draft' ? (
-                          <ListChip
-                            tone={
-                              i.status === 'approved'
-                                ? 'success'
-                                : i.status === 'rejected'
-                                  ? 'danger'
-                                  : 'warning'
-                            }
-                          >
-                            {i.status === 'pending'
-                              ? `Level ${i.approvalLevel ?? '—'}`
-                              : i.status === 'approved'
-                                ? 'Approved'
-                                : 'Rejected'}
-                          </ListChip>
-                        ) : null}
-                      </div>
-                      {p.status !== 'draft' ? (
-                        <p className={cn('text-xs', hintClassName)}>
-                          {approvalLine(i)}
-                        </p>
-                      ) : null}
-                      {i.viewerCanApprove ? (
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-7 gap-1 px-2 text-xs"
-                            disabled={busy}
-                            onClick={() =>
-                              void post(
-                                `/items/${i.id}/approve`,
-                                'Nota approved',
-                              )
-                            }
-                          >
-                            <Check className="size-3.5" aria-hidden />
-                            Approve level {i.approvalLevel}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 gap-1 px-2 text-xs"
-                            disabled={busy}
-                            onClick={() => {
-                              setReason('')
-                              setAsking({ kind: 'rejectItem', itemId: i.id })
-                            }}
-                          >
-                            <X className="size-3.5" aria-hidden />
-                            Reject
-                          </Button>
-                        </div>
-                      ) : null}
-                    </li>
+              </FactRow>
+              {p.realizations.length > 0 ? (
+                <FactRow label="Receipts">
+                  {p.realizations.map((r) => r.number).join(', ')}
+                </FactRow>
+              ) : null}
+              {p.invoices.length > 0 ? (
+                <FactRow label="Invoices">
+                  {p.invoices.map((i, idx) => (
+                    <span key={i.id}>
+                      {idx > 0 ? ', ' : ''}
+                      <Link
+                        to="/dashboard/purchasing/invoices/$invoiceId"
+                        params={{ invoiceId: i.id }}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="tabular-nums underline-offset-4 hover:underline"
+                      >
+                        {i.number}
+                      </Link>
+                      {i.vendorInvoiceNumber
+                        ? ` (${i.vendorInvoiceNumber})`
+                        : ''}
+                    </span>
                   ))}
-                </ul>
-                {p.status === 'pending_approval' ? (
-                  <p className={cn('text-xs', hintClassName)}>
-                    Each nota is approved by its own PO's approvers. Finance
-                    pays once every nota is decided; rejected ones drop out.
-                  </p>
-                ) : null}
-              </section>
-            ) : null}
+                </FactRow>
+              ) : null}
+              <FactRow label="Requested by">{p.createdBy?.name ?? '—'}</FactRow>
+              {p.notes ? (
+                <FactRow label="Note">
+                  <span className="whitespace-pre-line">{p.notes}</span>
+                </FactRow>
+              ) : null}
+            </dl>
 
             {p.status === 'cancelled' ? (
               <p className="text-sm text-red-700 dark:text-red-300">
@@ -559,7 +504,7 @@ export default function PaymentDialog({
                     Mark paid
                   </Button>
                 ) : null}
-                {p.kind === 'vendor' && p.viewerCanApprove ? (
+                {p.viewerCanApprove ? (
                   <>
                     <Button
                       type="button"
@@ -653,5 +598,105 @@ export default function PaymentDialog({
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function FactRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 px-3 py-2">
+      <dt className={cn('text-xs leading-5', hintClassName)}>{label}</dt>
+      <dd className="min-w-0">{children}</dd>
+    </div>
+  )
+}
+
+type StepState = 'done' | 'current' | 'todo' | 'failed'
+
+/** This payment's own path: request → level 1 → level 2 → paid. */
+function PaymentSteps({ payment: p }: { payment: PurchasePayment }) {
+  const cancelled = p.status === 'cancelled'
+  const steps: Array<{ label: string; who: string; state: StepState }> = [
+    {
+      label: 'Requested',
+      who: p.createdBy?.name ?? '—',
+      state: p.status === 'draft' ? 'current' : 'done',
+    },
+    {
+      label: 'Level 1',
+      who: (p.approved1By ?? p.approver1)?.name ?? '—',
+      state: p.approved1By
+        ? 'done'
+        : p.rejectedBy && p.approvalLevel !== 2
+          ? 'failed'
+          : p.status === 'pending_approval' && p.approvalLevel === 1
+            ? 'current'
+            : 'todo',
+    },
+    {
+      label: 'Level 2',
+      who: (p.approvedBy ?? p.approver2)?.name ?? '—',
+      state: p.approvedBy
+        ? 'done'
+        : p.rejectedBy && p.approvalLevel === 2
+          ? 'failed'
+          : p.status === 'pending_approval' && p.approvalLevel === 2
+            ? 'current'
+            : 'todo',
+    },
+    {
+      label: 'Paid',
+      who:
+        p.status === 'paid'
+          ? `${p.paidDate ? formatYmdLong(p.paidDate) : ''}`
+          : 'Finance',
+      state:
+        p.status === 'paid'
+          ? 'done'
+          : p.status === 'approved'
+            ? 'current'
+            : 'todo',
+    },
+  ]
+  return (
+    <ol
+      className={cn(
+        'grid grid-cols-2 gap-px overflow-hidden rounded-md border border-(--line) bg-(--line) sm:grid-cols-4',
+        cancelled && 'opacity-60',
+      )}
+    >
+      {steps.map((st) => (
+        <li
+          key={st.label}
+          className={cn(
+            'flex min-w-0 items-start gap-2 bg-(--background) px-3 py-2',
+            st.state === 'current' && 'bg-(--surface)',
+          )}
+        >
+          {st.state === 'done' ? (
+            <CircleCheck
+              className="mt-0.5 size-4 shrink-0 text-emerald-600"
+              aria-hidden
+            />
+          ) : st.state === 'failed' ? (
+            <CircleX
+              className="mt-0.5 size-4 shrink-0 text-red-600"
+              aria-hidden
+            />
+          ) : (
+            <Circle
+              className={cn(
+                'mt-0.5 size-4 shrink-0',
+                st.state === 'current' ? 'text-sky-600' : 'text-(--line)',
+              )}
+              aria-hidden
+            />
+          )}
+          <div className="min-w-0">
+            <p className="text-xs font-medium">{st.label}</p>
+            <p className={cn('truncate text-xs', hintClassName)}>{st.who}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
   )
 }

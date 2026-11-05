@@ -8,9 +8,8 @@ import {
   UserRound,
   Wallet,
 } from 'lucide-react'
-import ReimbursementDialog from '#/components/forms/finance/ReimbursementDialog'
 import PaymentDialog from '#/components/forms/purchasing/PaymentDialog'
-import VendorPaymentDialog from '#/components/forms/purchasing/VendorPaymentDialog'
+import PaymentEditorDialog from '#/components/forms/purchasing/PaymentEditorDialog'
 import ListTable, {
   ListChip,
   ListSearchInput,
@@ -47,7 +46,7 @@ const STATUSES: PurchasePaymentStatus[] = [
   'cancelled',
 ]
 
-/** Finance: approved payments to pay, and every vendor payment and reimbursement. */
+/** Finance: approved payments to pay, and every payment (per PO, to a vendor or staff). */
 export default function PaymentsForm({
   initialPaymentId = null,
 }: {
@@ -68,12 +67,9 @@ export default function PaymentsForm({
   const [kind, setKind] = useState<string>(ALL)
   const [page, setPage] = useState(1)
   const [openId, setOpenId] = useState<string | null>(initialPaymentId)
-  const [vendorEditing, setVendorEditing] = useState<
-    PurchasePayment | 'new' | null
-  >(null)
-  const [reimbursing, setReimbursing] = useState<
-    PurchasePayment | 'new' | null
-  >(null)
+  const [editing, setEditing] = useState<PurchasePayment | 'new' | null>(
+    null,
+  )
 
   const load = useCallback(async () => {
     setError(null)
@@ -138,13 +134,9 @@ export default function PaymentsForm({
         icon: Truck,
         cell: (r) => (
           <div className="min-w-0">
-            <p className="truncate">
-              {r.kind === 'vendor' ? r.vendorName : r.payeeName}
-            </p>
+            <p className="truncate">{r.payeeName}</p>
             <p className="truncate text-xs text-(--muted) tabular-nums">
-              {r.kind === 'vendor'
-                ? r.purchaseOrderNumber
-                : `${r.items.length} ${r.items.length === 1 ? 'nota' : 'notas'}`}
+              {r.purchaseOrderNumber}
             </p>
           </div>
         ),
@@ -190,35 +182,22 @@ export default function PaymentsForm({
         <div>
           <h1 className={pageTitleClassName}>Payments</h1>
           <p className={cn('mt-2', hintClassName)}>
-            Create vendor stages (DP, termin, or pelunasan) and staff
-            reimbursements here. Approved ones are paid with proof.
+            Every payment is for one PO, to its vendor or to a staff member
+            paid back for their Nota Realisasi; partial or full. Approved ones
+            are paid with proof.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {canManage ? (
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 gap-1.5"
-              onClick={() => setVendorEditing('new')}
-            >
-              <Plus className="size-3.5" aria-hidden />
-              New vendor payment
-            </Button>
-          ) : null}
-          {canReimburse ? (
-            <Button
-              type="button"
-              size="sm"
-              variant={canManage ? 'outline' : 'default'}
-              className="h-8 gap-1.5"
-              onClick={() => setReimbursing('new')}
-            >
-              <Plus className="size-3.5" aria-hidden />
-              New reimbursement
-            </Button>
-          ) : null}
-        </div>
+        {canManage || canReimburse ? (
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={() => setEditing('new')}
+          >
+            <Plus className="size-3.5" aria-hidden />
+            New payment
+          </Button>
+        ) : null}
       </div>
 
       {error ? (
@@ -333,27 +312,14 @@ export default function PaymentsForm({
         onChanged={() => void load()}
         onEdit={(p) => {
           setOpenId(null)
-          if (p.kind === 'reimburse') {
-            setReimbursing(p)
-            return
-          }
-          if (p.kind === 'vendor' && canManage) setVendorEditing(p)
+          setEditing(p)
         }}
       />
-      <VendorPaymentDialog
-        editing={vendorEditing}
-        onOpenChange={(open) => !open && setVendorEditing(null)}
+      <PaymentEditorDialog
+        editing={editing}
+        onOpenChange={(open) => !open && setEditing(null)}
         onSaved={(p) => {
-          setVendorEditing(null)
-          void load()
-          setOpenId(p.id)
-        }}
-      />
-      <ReimbursementDialog
-        editing={reimbursing}
-        onOpenChange={(open) => !open && setReimbursing(null)}
-        onSaved={(p) => {
-          setReimbursing(null)
+          setEditing(null)
           void load()
           setOpenId(p.id)
         }}

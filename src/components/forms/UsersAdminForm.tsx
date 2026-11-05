@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import toast from 'react-hot-toast'
-import { Ban, Mail, Pencil, Shield, UserRound } from 'lucide-react'
+import { Ban, Copy, Mail, Pencil, Shield, UserPlus, UserRound } from 'lucide-react'
 import UserAdminEditor from '#/components/forms/admin/UserAdminEditor'
+import UserCreateEditor from '#/components/forms/admin/UserCreateEditor'
 import ListTable, {
   ListChip,
   type ListTableColumn,
@@ -15,6 +16,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '#/components/ui/sheet'
+import { useAuth } from '#/context/authContext'
 import type { AdminRole, AdminUser } from '#/lib/adminUser'
 import { apiFetch } from '#/lib/api'
 import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
@@ -28,6 +30,8 @@ type Props = {
 
 export default function UsersAdminForm({ initialEditUserId }: Props) {
   const navigate = useNavigate()
+  const { can } = useAuth()
+  const canManageUser = can('admin.user.manage')
   const [emailQuery, setEmailQuery] = useState('')
   const debouncedQuery = useDebouncedValue(emailQuery, 250)
   const [loading, setLoading] = useState(true)
@@ -37,6 +41,10 @@ export default function UsersAdminForm({ initialEditUserId }: Props) {
   const [editUserId, setEditUserId] = useState<string | null>(
     initialEditUserId ?? null,
   )
+  /** Open create sheet; `source` is the user being copied (roles only). */
+  const [createFrom, setCreateFrom] = useState<{
+    source: AdminUser | null
+  } | null>(null)
 
   const roleNameByKey = useMemo(() => {
     const map = new Map<string, string>()
@@ -153,14 +161,26 @@ export default function UsersAdminForm({ initialEditUserId }: Props) {
       {
         header: 'Actions',
         align: 'right',
-        widthClassName: 'w-28 whitespace-nowrap',
+        widthClassName: 'w-48 whitespace-nowrap',
         cellClassName: 'py-1.5',
         cell: (user) => (
           <div
-            className="flex items-center justify-end"
+            className="flex items-center justify-end gap-2"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >
+            {canManageUser ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                title="Create a new user with the same roles"
+                onClick={() => setCreateFrom({ source: user })}
+              >
+                <Copy />
+                Copy
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -174,7 +194,7 @@ export default function UsersAdminForm({ initialEditUserId }: Props) {
         ),
       },
     ],
-    [roleNameByKey],
+    [roleNameByKey, canManageUser],
   )
 
   return (
@@ -193,6 +213,14 @@ export default function UsersAdminForm({ initialEditUserId }: Props) {
           placeholder: 'Search email…',
           'aria-label': 'Search users by email',
         }}
+        addAction={
+          canManageUser
+            ? {
+                label: 'Add',
+                onClick: () => setCreateFrom({ source: null }),
+              }
+            : undefined
+        }
         isRowMuted={(user) => user.isBlocked}
         loading={loading}
         loadingLabel="Loading users…"
@@ -238,6 +266,42 @@ export default function UsersAdminForm({ initialEditUserId }: Props) {
               <UserAdminEditor
                 userId={editUserId}
                 onSaved={() => void reload()}
+              />
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
+      <Sheet
+        open={createFrom !== null}
+        onOpenChange={(open) => {
+          if (!open) setCreateFrom(null)
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full overflow-y-auto sm:max-w-2xl"
+        >
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <UserPlus className="size-4" aria-hidden />
+              {createFrom?.source ? 'Copy user' : 'New user'}
+            </SheetTitle>
+            <SheetDescription>
+              {createFrom?.source
+                ? `New account with the same roles as ${createFrom.source.email}.`
+                : 'Create an account without the public register form.'}
+            </SheetDescription>
+          </SheetHeader>
+          {createFrom ? (
+            <div className="px-4 pb-4">
+              <UserCreateEditor
+                key={createFrom.source?.id ?? 'new'}
+                initialRoles={createFrom.source?.roles}
+                onCreated={() => {
+                  setCreateFrom(null)
+                  void reload()
+                }}
               />
             </div>
           ) : null}

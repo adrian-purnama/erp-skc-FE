@@ -14,7 +14,9 @@ import {
   Ban,
   Camera,
   CheckCheck,
+  FileDown,
   LoaderCircle,
+  ReceiptText,
   Store,
   Trash2,
   Truck,
@@ -51,7 +53,7 @@ import {
   SheetTitle,
 } from '#/components/ui/sheet'
 import { useAuth } from '#/context/authContext'
-import { apiFetch, apiUpload } from '#/lib/api'
+import { apiDownload, apiFetch, apiUpload } from '#/lib/api'
 import { jakartaDateKey } from '#/lib/jakartaDate'
 import {
   PURCHASE_CHARGE_CATEGORIES,
@@ -373,7 +375,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
       )
       continue
     }
-    if (!(Number(st.unitPrice) > 0)) {
+    if (method !== 'vendor' && !(Number(st.unitPrice) > 0)) {
       issues.set(l.poLineId, 'Enter the actual price')
       continue
     }
@@ -386,6 +388,8 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
       note: st.note,
     })
   }
+  // A vendor GR is goods only: priced by its vendor invoice (the PO price until then).
+  const goodsOnly = method === 'vendor'
   const difference = total - approvedTotal
   const subtotal = total
   const {
@@ -408,7 +412,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
   if (!purchaseDate) formErrors.push('Set the date')
   if (payload.length === 0 && issues.size === 0)
     formErrors.push(`Enter at least one ${verb} qty`)
-  if (chargeIssues.size > 0) formErrors.push('Fix the charges')
+  if (!goodsOnly && chargeIssues.size > 0) formErrors.push('Fix the charges')
   const canSave = formErrors.length === 0 && issues.size === 0
   const photos = doc?.photos ?? []
 
@@ -625,7 +629,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                 ? ' · all done'
                 : ` · ${l.remainingQty} left`}
             </p>
-            {lineDiff(l) !== 0 || st.note ? (
+            {!goodsOnly && (lineDiff(l) !== 0 || st.note) ? (
               <input
                 value={st.note}
                 disabled={busy}
@@ -708,6 +712,11 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
         ) : null,
     },
   ]
+
+  const priceHeaders = new Set(['Actual price', 'Amount', 'vs PO'])
+  const visibleEditColumns = goodsOnly
+    ? editColumns.filter((c) => !priceHeaders.has(String(c.header)))
+    : editColumns
 
   const viewColumns: ListTableColumn<RealizationLine>[] = [
     {
@@ -823,7 +832,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
           <p className={cn('text-sm', hintClassName)}>
             {editable
               ? method === 'vendor'
-                ? 'Photos or PDF scans of the invoice, surat jalan or the goods. At least one is needed to post.'
+                ? 'Photos or PDF scans of the surat jalan or the goods. At least one is needed to post.'
                 : 'Photos or PDF scans of the shop nota or receipt. At least one is needed to post.'
               : `${photos.length} ${photos.length === 1 ? 'file' : 'files'}. Click to open full size.`}
           </p>
@@ -869,7 +878,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
           <Camera className="size-5" aria-hidden />
           {editable
             ? method === 'vendor'
-              ? 'Take or choose photos of the invoice / surat jalan'
+              ? 'Take or choose photos of the surat jalan / goods'
               : 'Take or choose photos of the nota'
             : 'No files.'}
         </button>
@@ -931,6 +940,25 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
           ) : null}
           <div className="ml-auto flex items-center gap-2">
             {poId ? <RabCompareButton orderId={poId} /> : null}
+            {doc ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() =>
+                  void apiDownload(
+                    `/purchasing/realizations/${doc.id}/pdf`,
+                    `${doc.number.replace(/\//g, '_')}.pdf`,
+                  ).catch((e: unknown) =>
+                    toast.error(e instanceof Error ? e.message : 'Download failed'),
+                  )
+                }
+              >
+                <FileDown className="size-3.5" aria-hidden />
+                PDF
+              </Button>
+            ) : null}
             {doc || method ? (
               <Button
                 type="button"
@@ -1013,7 +1041,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                   [
                     'vendor',
                     Truck,
-                    'The vendor delivered: record a Penerimaan with its invoice / surat jalan.',
+                    'The vendor delivered: record a Penerimaan (goods + surat jalan). Their invoice is entered separately.',
                   ],
                   [
                     'staff',
@@ -1145,21 +1173,23 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                     className={cn(inputClassName, 'w-full')}
                   />
                 </label>
-                <label className="block space-y-1">
-                  <span className="text-sm font-medium">
-                    {method === 'staff' ? 'Nota no.' : 'Invoice no.'}
-                    <span className={cn('font-normal', hintClassName)}>
-                      {' '}
-                      (optional)
+                {method === 'staff' ? (
+                  <label className="block space-y-1">
+                    <span className="text-sm font-medium">
+                      Nota no.
+                      <span className={cn('font-normal', hintClassName)}>
+                        {' '}
+                        (optional)
+                      </span>
                     </span>
-                  </span>
-                  <input
-                    value={notaNumber}
-                    disabled={busy}
-                    onChange={(e) => setNotaNumber(e.target.value)}
-                    className={cn(inputClassName, 'w-full')}
-                  />
-                </label>
+                    <input
+                      value={notaNumber}
+                      disabled={busy}
+                      onChange={(e) => setNotaNumber(e.target.value)}
+                      className={cn(inputClassName, 'w-full')}
+                    />
+                  </label>
+                ) : null}
                 {method === 'vendor' ? (
                   <label className="block space-y-1">
                     <span className="text-sm font-medium">
@@ -1188,9 +1218,9 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                 {method === 'staff' ? 'What was bought' : 'What arrived'}
               </h2>
               <p className={cn('text-sm', hintClassName)}>
-                Filled with what is still open on the PO. Change qty and price
-                to match the {method === 'staff' ? 'nota' : 'invoice'}; clear a
-                qty if it did not come this time.
+                {goodsOnly
+                  ? 'Filled with what is still open on the PO. Enter what arrived; clear a qty if it did not come this time. Prices come from the vendor invoice (the PO price until then).'
+                  : 'Filled with what is still open on the PO. Change qty and price to match the nota; clear a qty if it was not bought this time.'}
               </p>
               {method === 'vendor' && plan?.directToVendor ? (
                 <label className="mt-2 flex items-start gap-2 text-sm">
@@ -1226,7 +1256,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
               isRowMuted={(l) =>
                 Number(l.remainingQty) <= 0 && !lineState(l).qty
               }
-              columns={editColumns}
+              columns={visibleEditColumns}
             />
           </section>
 
@@ -1235,9 +1265,12 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
             open={charges.length > 0 || photos.length > 0 || Boolean(comments)}
           >
             <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
-              More · charges, files, comments
+              {goodsOnly
+                ? 'More · files, comments'
+                : 'More · charges, files, comments'}
             </summary>
             <div className="space-y-6 px-3">
+              {goodsOnly ? null : (
               <ChargesEditor
                 rows={charges}
                 onChange={setCharges}
@@ -1269,6 +1302,7 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                   />
                 }
               />
+              )}
               {photoSection}
               <label className="block max-w-2xl space-y-1">
                 <span className={sectionTitleClassName}>Comments</span>
@@ -1287,17 +1321,26 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
           {/* Action bar */}
           <div className="sticky bottom-0 z-10 -mx-6 flex flex-wrap items-center justify-between gap-3 border-t border-(--line) bg-(--surface) px-6 py-3 sm:-mx-8 sm:px-8">
             <div className="text-sm">
-              <span className={hintClassName}>Grand total </span>
-              <span className="font-semibold tabular-nums">
-                {formatRupiah(String(grandTotal))}
-              </span>
-              <span className={cn('tabular-nums', hintClassName)}>
-                {' '}
-                · goods {formatRupiah(String(subtotal))}
-                {chargesTotal > 0
-                  ? ` + charges ${formatRupiah(String(chargesTotal))}`
-                  : ''}
-              </span>
+              {goodsOnly ? (
+                <span className={hintClassName}>
+                  Goods only · priced by the vendor invoice (PO price until
+                  then)
+                </span>
+              ) : (
+                <>
+                  <span className={hintClassName}>Grand total </span>
+                  <span className="font-semibold tabular-nums">
+                    {formatRupiah(String(grandTotal))}
+                  </span>
+                  <span className={cn('tabular-nums', hintClassName)}>
+                    {' '}
+                    · goods {formatRupiah(String(subtotal))}
+                    {chargesTotal > 0
+                      ? ` + charges ${formatRupiah(String(chargesTotal))}`
+                      : ''}
+                  </span>
+                </>
+              )}
               {showErrors && (formErrors.length > 0 || issues.size > 0) ? (
                 <p className="text-xs text-red-600">
                   {[
@@ -1410,19 +1453,59 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                 </div>
                 <div>
                   <p className={cn('text-xs', hintClassName)}>
-                    {doc.method === 'staff'
-                      ? 'Nota no.'
-                      : 'Invoice no. · surat jalan'}
+                    {doc.method === 'staff' ? 'Nota no.' : 'Surat jalan'}
                   </p>
                   <p>
                     {doc.method === 'staff'
                       ? doc.notaNumber || '—'
-                      : `${doc.notaNumber || '—'} · ${doc.deliveryNoteNumber || '—'}`}
+                      : doc.deliveryNoteNumber || '—'}
                   </p>
                 </div>
               </div>
             </SheetContent>
           </Sheet>
+
+          {doc.method === 'vendor' && doc.status === 'posted' ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-(--line) px-3 py-2 text-sm">
+              <span className="flex items-center gap-2">
+                <ReceiptText className="size-4 shrink-0" aria-hidden />
+                {doc.invoice ? (
+                  <span>
+                    Priced by vendor invoice{' '}
+                    <Link
+                      to="/dashboard/purchasing/invoices/$invoiceId"
+                      params={{ invoiceId: doc.invoice.id }}
+                      className="font-medium tabular-nums underline-offset-4 hover:underline"
+                    >
+                      {doc.invoice.number}
+                    </Link>
+                    {doc.invoice.status === 'draft'
+                      ? ' (draft: still at the PO price)'
+                      : ''}
+                  </span>
+                ) : (
+                  <span>
+                    No vendor invoice yet:{' '}
+                    <span className={hintClassName}>
+                      counted at the PO price.
+                    </span>
+                  </span>
+                )}
+              </span>
+              {!doc.invoice && canRealize ? (
+                <Link
+                  to="/dashboard/purchasing/invoices/new"
+                  search={{ orderId: doc.purchaseOrderId, receiptId: doc.id }}
+                  className={cn(
+                    buttonOutlineClassName,
+                    'inline-flex h-8 items-center gap-1.5 no-underline',
+                  )}
+                >
+                  Add invoice
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
 
           <section className="space-y-3">
             <h2 className={sectionTitleClassName}>
@@ -1506,7 +1589,9 @@ export default function RealizationEditor({ realizationId, orderId }: Props) {
                   : `Delete draft ${doc?.number}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {confirm === 'post'
+              {confirm === 'post' && goodsOnly
+                ? `${payload.length} ${payload.length === 1 ? 'line' : 'lines'}, ${photos.length} ${photos.length === 1 ? 'file' : 'files'}. The qty counts as arrived on the SPP / SPK and it can no longer be edited. Enter the vendor invoice afterwards.`
+                : confirm === 'post'
                 ? `${formatRupiah(String(grandTotal))} (goods ${formatRupiahDiff(String(difference))} vs approved${chargesTotal > 0 ? `, incl. ${formatRupiah(String(chargesTotal))} charges` : ''}), ${photos.length} ${photos.length === 1 ? 'file' : 'files'}. The qty counts as ${verb} on the SPP / SPK and it can no longer be edited.`
                 : confirm === 'void'
                   ? 'Its qty no longer counts as arrived on the SPP / SPK and can be recorded again.'

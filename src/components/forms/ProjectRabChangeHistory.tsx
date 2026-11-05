@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -31,6 +26,7 @@ import type {
   ProjectRabChangeDetail,
   ProjectRabChangeLineDiff,
   ProjectRabChangeSummary,
+  ProjectRabLineProcessChange,
   ProjectRabLockOrigin,
   ProjectRabUserRef,
 } from '#/lib/project'
@@ -87,11 +83,46 @@ function relativeWhen(iso: string): string {
   return ''
 }
 
+const PROCESS_FIELD_LABEL: Record<
+  ProjectRabLineProcessChange['field'],
+  string
+> = {
+  role: 'Role',
+  executor: 'Done by',
+  sequence: 'Sequence',
+  weightPercent: 'Weight',
+}
+
+function processValue(
+  field: ProjectRabLineProcessChange['field'],
+  value: string | null,
+): string {
+  if (value === null) return '—'
+  if (field === 'weightPercent') return `${value}%`
+  if (field === 'role') return value === 'install' ? 'Install' : 'Making'
+  if (field === 'executor') return value === 'vendor' ? 'Vendor' : 'Inhouse'
+  return value
+}
+
+/** "Weight 40% → 50% · Sequence 2 → 3". */
+function processSummary(changes: ProjectRabLineProcessChange[]): string {
+  return changes
+    .map(
+      (c) =>
+        `${PROCESS_FIELD_LABEL[c.field]} ${processValue(c.field, c.from)} → ${processValue(c.field, c.to)}`,
+    )
+    .join(' · ')
+}
+
 function titleFor(change: ProjectRabChangeSummary): string {
   if (change.status === 'committed') {
-    return change.revision !== null
-      ? `Revision ${change.revision} committed`
-      : 'Change committed'
+    const base =
+      change.revision !== null
+        ? `Revision ${change.revision} committed`
+        : 'Change committed'
+    return change.source === 'production'
+      ? `${base} · Production process`
+      : base
   }
   if (change.status === 'draft') return 'Change in progress'
   return 'Change discarded'
@@ -183,27 +214,28 @@ export default function ProjectRabChangeHistory({
     void load()
   }, [load, refreshKey])
 
-  const ensureLockOrigin = useCallback(async (): Promise<ProjectRabLockOrigin | null> => {
-    if (lockOriginLoaded) return lockOrigin
-    setLoadingId(LOCK_ORIGIN_ID)
-    try {
-      const res = await apiFetch<ProjectRabLockOrigin | null>(
-        `/project/${projectId}/rab/lock-origin`,
-      )
-      if (!res.success) {
-        toast.error(res.message || 'Failed to load lock details')
+  const ensureLockOrigin =
+    useCallback(async (): Promise<ProjectRabLockOrigin | null> => {
+      if (lockOriginLoaded) return lockOrigin
+      setLoadingId(LOCK_ORIGIN_ID)
+      try {
+        const res = await apiFetch<ProjectRabLockOrigin | null>(
+          `/project/${projectId}/rab/lock-origin`,
+        )
+        if (!res.success) {
+          toast.error(res.message || 'Failed to load lock details')
+          return null
+        }
+        setLockOrigin(res.data)
+        setLockOriginLoaded(true)
+        return res.data
+      } catch {
+        toast.error('Unable to reach the server')
         return null
+      } finally {
+        setLoadingId(null)
       }
-      setLockOrigin(res.data)
-      setLockOriginLoaded(true)
-      return res.data
-    } catch {
-      toast.error('Unable to reach the server')
-      return null
-    } finally {
-      setLoadingId(null)
-    }
-  }, [lockOrigin, lockOriginLoaded, projectId])
+    }, [lockOrigin, lockOriginLoaded, projectId])
 
   useEffect(() => {
     if (!sheetOpen || lockOriginLoaded) return
@@ -285,7 +317,9 @@ export default function ProjectRabChangeHistory({
                 </Button>
               </div>
             ) : rows === null ? (
-              <p className={cn('flex items-center gap-2 text-sm', hintClassName)}>
+              <p
+                className={cn('flex items-center gap-2 text-sm', hintClassName)}
+              >
                 <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
                 Loading activity…
               </p>
@@ -340,7 +374,9 @@ export default function ProjectRabChangeHistory({
                             : []),
                         ]}
                         expanded={expanded}
-                        loading={loadingId === change.id || (expanded && !detail)}
+                        loading={
+                          loadingId === change.id || (expanded && !detail)
+                        }
                         onToggle={() => void toggleExpand(change)}
                       >
                         {detail ? <ChangeDetail detail={detail} /> : null}
@@ -380,7 +416,9 @@ export default function ProjectRabChangeHistory({
                     expandLabel="Show what was added"
                     collapseLabel="Hide lines"
                   >
-                    {lockOrigin ? <LockOriginDetail origin={lockOrigin} /> : null}
+                    {lockOrigin ? (
+                      <LockOriginDetail origin={lockOrigin} />
+                    ) : null}
                   </ActivityCard>
                 </li>
               </ol>
@@ -627,6 +665,11 @@ function LineDiffTable({
                 {d.materialName ?? '—'}
                 {d.uomSymbol ? (
                   <span className={hintClassName}> ({d.uomSymbol})</span>
+                ) : null}
+                {d.processChanges && d.processChanges.length > 0 ? (
+                  <p className={cn('text-xs', hintClassName)}>
+                    {processSummary(d.processChanges)}
+                  </p>
                 ) : null}
               </td>
               <td className="py-1 pr-2 text-right tabular-nums">

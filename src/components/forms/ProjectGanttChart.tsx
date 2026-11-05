@@ -19,6 +19,8 @@ import {
   metaTextClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
+import { formatPct } from '#/lib/projectSchedule'
+import type { ProjectSCurve, SCurvePoint } from '#/lib/projectSchedule'
 
 type Scale = 'day' | 'week' | 'month'
 
@@ -51,6 +53,34 @@ const WINDOW_STEP: Record<Scale, number> = {
 type Props = {
   events: ProjectCalendarEvent[]
   onSelectEvent: (event: ProjectCalendarEvent) => void
+  /** Daily S-curve drawn behind the bars on the same date axis. */
+  sCurve?: ProjectSCurve | null
+}
+
+/** Min height of the rows area while the S-curve is shown, so the curve has room. */
+const CURVE_MIN_H = 240
+const CURVE_PAD = 14
+
+/** Series colors match the Production S-curve chart (plan = blue, actual = orange). */
+const CURVE_PLAN = 'stroke-[#2a78d6] dark:stroke-[#3987e5]'
+const CURVE_ACTUAL = 'stroke-[#eb6834] dark:stroke-[#d95926]'
+
+/** SVG path of cumulative % over dates: 0% at the start of the first day, then each day's end. */
+function curvePath(
+  points: SCurvePoint[],
+  value: (p: SCurvePoint) => number | null,
+  xOfDayEnd: (ymd: string) => number,
+  xOfDayStart: (ymd: string) => number,
+  y: (pct: number) => number,
+): string {
+  const first = points.at(0)
+  if (!first) return ''
+  const coords = [`${xOfDayStart(first.periodStart)},${y(0)}`]
+  for (const p of points) {
+    const v = value(p)
+    if (v !== null) coords.push(`${xOfDayEnd(p.periodEnd)},${y(v)}`)
+  }
+  return coords.length > 1 ? `M${coords.join('L')}` : ''
 }
 
 type Col = {
@@ -201,8 +231,9 @@ function eventBounds(events: ProjectCalendarEvent[]): {
   return { min, max }
 }
 
-export default function ProjectGanttChart({ events, onSelectEvent }: Props) {
+export default function ProjectGanttChart({ events, onSelectEvent, sCurve }: Props) {
   const [scale, setScale] = useState<Scale>('week')
+  const [showCurve, setShowCurve] = useState(true)
   const [anchorYmd, setAnchorYmd] = useState(todayYmdJakarta)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const todayYmd = todayYmdJakarta()
@@ -282,6 +313,15 @@ export default function ProjectGanttChart({ events, onSelectEvent }: Props) {
       ? ((daysBetweenYmd(rangeStart, todayYmd) + 0.5) / totalDays) * 100
       : null
 
+  const curve = sCurve && showCurve ? sCurve : null
+  const rowsHeight = Math.max(rows.length * 44, curve ? CURVE_MIN_H : 0)
+  const xOfDayStart = (ymd: string) =>
+    (daysBetweenYmd(rangeStart, ymd) / totalDays) * gridWidth
+  const xOfDayEnd = (ymd: string) =>
+    ((daysBetweenYmd(rangeStart, ymd) + 1) / totalDays) * gridWidth
+  const yOf = (pct: number) =>
+    CURVE_PAD + (1 - Math.min(100, Math.max(0, pct)) / 100) * (rowsHeight - 2 * CURVE_PAD)
+
   if (events.length === 0) {
     return (
       <p className={hintClassName}>No events to show on the Gantt chart.</p>
@@ -333,14 +373,74 @@ export default function ProjectGanttChart({ events, onSelectEvent }: Props) {
             {windowLabel}
           </span>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          className={cn(buttonOutlineClassName, 'h-8 shrink-0 px-3 text-xs')}
-          onClick={goToday}
-        >
-          Today
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {sCurve ? (
+            <>
+              {curve ? (
+                <ul
+                  className="flex flex-wrap items-center gap-3 text-xs text-(--muted)"
+                  aria-label="S-curve legend"
+                >
+                  <li className="inline-flex items-center gap-1.5">
+                    <svg width="16" height="6" aria-hidden>
+                      <line x1="0" y1="3" x2="16" y2="3" strokeWidth="2" className={CURVE_PLAN} />
+                    </svg>
+                    Plan
+                    <span className="tabular-nums text-(--ink)">
+                      {formatPct(curve.today.plannedPct)}
+                    </span>
+                  </li>
+                  <li className="inline-flex items-center gap-1.5">
+                    <svg width="16" height="6" aria-hidden>
+                      <line x1="0" y1="3" x2="16" y2="3" strokeWidth="2" className={CURVE_ACTUAL} />
+                    </svg>
+                    Actual
+                    <span className="tabular-nums text-(--ink)">
+                      {formatPct(curve.today.actualPct)}
+                    </span>
+                  </li>
+                  {curve.baselineSetAt ? (
+                    <li className="inline-flex items-center gap-1.5">
+                      <svg width="16" height="6" aria-hidden>
+                        <line
+                          x1="0"
+                          y1="3"
+                          x2="16"
+                          y2="3"
+                          strokeWidth="2"
+                          strokeDasharray="4 3"
+                          className="stroke-(--muted)"
+                        />
+                      </svg>
+                      Baseline
+                    </li>
+                  ) : null}
+                </ul>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                aria-pressed={showCurve}
+                className={cn(
+                  buttonOutlineClassName,
+                  'h-8 shrink-0 px-3 text-xs',
+                  showCurve && 'bg-(--surface)',
+                )}
+                onClick={() => setShowCurve((v) => !v)}
+              >
+                {showCurve ? 'Hide S-curve' : 'Show S-curve'}
+              </Button>
+            </>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(buttonOutlineClassName, 'h-8 shrink-0 px-3 text-xs')}
+            onClick={goToday}
+          >
+            Today
+          </Button>
+        </div>
       </div>
 
       {outsideCount > 0 ? (
@@ -451,7 +551,60 @@ export default function ProjectGanttChart({ events, onSelectEvent }: Props) {
               })}
             </div>
 
-            <div className="relative">
+            <div className="relative" style={{ minHeight: rowsHeight }}>
+              {curve ? (
+                <svg
+                  width={gridWidth}
+                  height={rowsHeight}
+                  className="pointer-events-none absolute inset-0"
+                  role="img"
+                  aria-label={`S-curve: plan ${formatPct(curve.today.plannedPct)}, actual ${formatPct(curve.today.actualPct)} today`}
+                >
+                  {[0, 25, 50, 75, 100].map((t) => (
+                    <g key={t}>
+                      <line
+                        x1={0}
+                        x2={gridWidth}
+                        y1={yOf(t)}
+                        y2={yOf(t)}
+                        strokeWidth="1"
+                        strokeDasharray="2 4"
+                        className="stroke-(--muted)/40"
+                      />
+                      <text
+                        x={4}
+                        y={yOf(t) - 3}
+                        className="fill-(--muted) text-[10px] tabular-nums"
+                      >
+                        {t}%
+                      </text>
+                    </g>
+                  ))}
+                  {curve.baselineSetAt ? (
+                    <path
+                      d={curvePath(curve.points, (p) => p.baselinePct, xOfDayEnd, xOfDayStart, yOf)}
+                      fill="none"
+                      strokeWidth="2"
+                      strokeDasharray="5 4"
+                      className="stroke-(--muted)"
+                    />
+                  ) : null}
+                  <path
+                    d={curvePath(curve.points, (p) => p.plannedPct, xOfDayEnd, xOfDayStart, yOf)}
+                    fill="none"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                    className={CURVE_PLAN}
+                  />
+                  <path
+                    d={curvePath(curve.points, (p) => p.actualPct, xOfDayEnd, xOfDayStart, yOf)}
+                    fill="none"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                    className={CURVE_ACTUAL}
+                  />
+                </svg>
+              ) : null}
               {todayPct !== null ? (
                 <div
                   className="pointer-events-none absolute inset-y-0 z-[1] w-px bg-(--ink)/50"

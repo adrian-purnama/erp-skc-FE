@@ -184,6 +184,9 @@ export type ProjectCalendarEvent = {
   notes: string
   startAt: string
   endAt: string | null
+  /** `schedule`: read-only, from the project schedule (edit it in the calendar S-curve view). */
+  source: 'event' | 'schedule'
+  shopDrawingItemId: string | null
 }
 
 export type ProjectCalendarAgenda = {
@@ -192,7 +195,14 @@ export type ProjectCalendarAgenda = {
   dueIn: ProjectCalendarEvent[]
 }
 
-export type ProjectCalendarView = 'month' | 'day' | 'gantt'
+export type ProjectCalendarView = 'month' | 'day' | 'gantt' | 'scurve'
+
+export const PROJECT_CALENDAR_VIEW_LABELS: Record<ProjectCalendarView, string> = {
+  month: 'Month',
+  day: 'Day',
+  gantt: 'Gantt',
+  scurve: 'S-curve',
+}
 
 export function ymdInJakarta(isoOrDate: string | Date): string {
   return new Date(isoOrDate).toLocaleDateString('en-CA', {

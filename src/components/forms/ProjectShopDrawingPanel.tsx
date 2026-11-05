@@ -52,6 +52,7 @@ import ListTable, {
 import {
   MAKE_TYPE_OPTIONS,
   PRODUCTION_ORDER_TYPE_LABELS,
+  PRODUCTION_ORDER_TYPE_TONES,
 } from '#/lib/production'
 import {
   DropdownMenu,
@@ -286,6 +287,8 @@ export default function ProjectShopDrawingPanel({
   const [mockupApproveDateDraft, setMockupApproveDateDraft] = useState('')
   const [makeTypeDraft, setMakeTypeDraft] =
     useState<ProjectShopDrawingItem['makeType']>('inhouse')
+  /** Outsource only: pcs to make (no BOQ holds it). */
+  const [makeQtyDraft, setMakeQtyDraft] = useState('')
   const [groupByCategory, setGroupByCategory] = useState(false)
   const [nameBusy, setNameBusy] = useState(false)
 
@@ -361,6 +364,7 @@ export default function ProjectShopDrawingPanel({
     setCategoryDraft('')
     setMockupApproveDateDraft('')
     setMakeTypeDraft('inhouse')
+    setMakeQtyDraft('')
     setNameDialog({ mode: 'create' })
   }
 
@@ -371,6 +375,7 @@ export default function ProjectShopDrawingPanel({
     setCategoryDraft(item.category ?? '')
     setMockupApproveDateDraft(item.mockupApproveDate ?? '')
     setMakeTypeDraft(item.makeType)
+    setMakeQtyDraft(item.makeQty ?? '')
     setNameDialog({ mode: 'rename', item })
   }
 
@@ -391,6 +396,9 @@ export default function ProjectShopDrawingPanel({
         ? mockupApproveDateDraft.trim()
         : null,
       makeType: makeTypeDraft,
+      ...(makeTypeDraft === 'outsource'
+        ? { makeQty: makeQtyDraft.trim() || null }
+        : {}),
     }
     setNameBusy(true)
     try {
@@ -662,7 +670,7 @@ export default function ProjectShopDrawingPanel({
               />
             ) : null}
             {item.makeType !== 'inhouse' ? (
-              <ListChip dot tone="info" className="mt-0.5">
+              <ListChip dot tone={PRODUCTION_ORDER_TYPE_TONES[item.makeType]} className="mt-0.5">
                 {PRODUCTION_ORDER_TYPE_LABELS[item.makeType]}
               </ListChip>
             ) : null}
@@ -687,6 +695,14 @@ export default function ProjectShopDrawingPanel({
         cellClassName: 'whitespace-nowrap',
         cell: (item) => {
           const current = item.current
+          // Outsource needs no BOQ: its qty is set on the item.
+          if (item.makeType === 'outsource' && !current?.hasBoq) {
+            return item.makeQty ? (
+              <BoqBadge tone="ok" label={`Qty ${item.makeQty}`} />
+            ) : (
+              <BoqBadge tone="warn" label="Set qty" />
+            )
+          }
           if (!current) {
             return (
               <span className={cn('text-xs', hintClassName)}>
@@ -757,23 +773,22 @@ export default function ProjectShopDrawingPanel({
                 onDownload={(f) => void onDownload(f, 'sd')}
                 onHistory={() => openHistory(item, 'sd')}
               />
+              <FileSlot
+                kind="production"
+                file={item.productionCurrent}
+                versionCount={item.productionVersions.length}
+                busy={busy && fileKind === 'production'}
+                canManage={canManage}
+                onUpload={() => openUpload(item, 'production')}
+                onDownload={(f) => void onDownload(f, 'production')}
+                onHistory={() => openHistory(item, 'production')}
+              />
               {item.makeType === 'outsource' &&
               item.productionVersions.length === 0 ? (
                 <p className={cn('mt-1 text-xs', hintClassName)}>
-                  File Produksi not needed (outsource)
+                  Optional for outsource
                 </p>
-              ) : (
-                <FileSlot
-                  kind="production"
-                  file={item.productionCurrent}
-                  versionCount={item.productionVersions.length}
-                  busy={busy && fileKind === 'production'}
-                  canManage={canManage}
-                  onUpload={() => openUpload(item, 'production')}
-                  onDownload={(f) => void onDownload(f, 'production')}
-                  onHistory={() => openHistory(item, 'production')}
-                />
-              )}
+              ) : null}
             </div>
           )
         },
@@ -1027,10 +1042,23 @@ export default function ProjectShopDrawingPanel({
               })}
             </div>
             {makeTypeDraft === 'outsource' ? (
-              <p className={cn('text-xs', hintClassName)}>
-                BOQ needs only the make qty. Add the vendor fee in the RAB as a
-                labour line on this item.
-              </p>
+              <div className="space-y-2">
+                <p className={cn('text-xs', hintClassName)}>
+                  No BOQ needed: set the qty here. Add the vendor fee in the
+                  RAB as a labour line on this item.
+                </p>
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium">Qty (pcs)</span>
+                  <input
+                    inputMode="decimal"
+                    value={makeQtyDraft}
+                    disabled={nameBusy}
+                    onChange={(e) => setMakeQtyDraft(e.target.value)}
+                    placeholder="e.g. 10"
+                    className="w-full rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm tabular-nums"
+                  />
+                </label>
+              </div>
             ) : makeTypeDraft === 'subcon' ? (
               <p className={cn('text-xs', hintClassName)}>
                 Add the vendor fee in the RAB as a labour line on this item.

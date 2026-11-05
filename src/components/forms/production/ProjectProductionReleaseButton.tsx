@@ -140,7 +140,7 @@ export default function ProjectProductionReleaseButton({
             </div>
             <AlertDialogDescription>
               {ready
-                ? 'The RAB and quotation stay locked and production can create SPK for every item.'
+                ? 'The RAB and quotation stay locked and production can create an SPK for each labour line.'
                 : 'Finish the items marked missing, then try again.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -179,6 +179,7 @@ export default function ProjectProductionReleaseButton({
                       <col className="w-14 sm:w-20" />
                       <col className="w-12 sm:w-16" />
                       <col className="w-14 sm:w-20" />
+                      <col className="w-14 sm:w-16" />
                       <col className="w-20 sm:w-24" />
                     </colgroup>
                     <thead className="sticky top-0 bg-(--surface) text-[11px] text-(--muted)">
@@ -194,6 +195,9 @@ export default function ProjectProductionReleaseButton({
                         </th>
                         <th className="px-1 py-2 text-center font-medium leading-tight">
                           File Produksi
+                        </th>
+                        <th className="px-1 py-2 text-center font-medium">
+                          Labour
                         </th>
                         <th className="px-3 py-2 text-right font-medium">
                           Status
@@ -226,12 +230,25 @@ export default function ProjectProductionReleaseButton({
                                     : ''}
                               </p>
                             ) : null}
+                            {!i.labour ? (
+                              <p className="text-xs break-words text-red-700 dark:text-red-300">
+                                {i.labourDetail}
+                              </p>
+                            ) : null}
                           </td>
                           <td className="px-1 py-2 text-center">
                             <Mark ok={i.shopDrawing} label="Shop drawing" />
                           </td>
                           <td className="px-1 py-2 text-center">
-                            <Mark ok={i.boq} label="BOQ" />
+                            <span
+                              title={
+                                i.boqRequired
+                                  ? undefined
+                                  : 'Outsource: no BOQ, qty set on the item'
+                              }
+                            >
+                              <Mark ok={i.boq} label={i.boqRequired ? 'BOQ' : 'Qty'} />
+                            </span>
                           </td>
                           <td className="px-1 py-2 text-center">
                             {i.productionFileRequired || i.productionFile ? (
@@ -239,11 +256,17 @@ export default function ProjectProductionReleaseButton({
                             ) : (
                               <span
                                 className={cn('text-xs', hintClassName)}
-                                title="Outsource: the vendor brings its own production files"
+                                title="Outsource: File Produksi is optional"
                               >
                                 n/a
                               </span>
                             )}
+                          </td>
+                          <td
+                            className="px-1 py-2 text-center"
+                            title={i.labourDetail}
+                          >
+                            <Mark ok={i.labour} label="Labour" />
                           </td>
                           <td className="px-3 py-2 text-right text-xs">
                             {i.ready ? (

@@ -211,11 +211,17 @@ export default function RealizationsForm() {
         cell: (r) => (
           <div className="space-y-0.5">
             <RealizationStatusChip status={r.status} />
-            {r.method === 'staff' && r.status === 'posted' ? (
+            {r.method === 'vendor' && r.status === 'posted' ? (
               <p className="text-xs text-(--muted)">
-                {r.reimbursement
-                  ? `${r.reimbursement.number} · ${PAYMENT_STATUS_LABELS[r.reimbursement.status].toLowerCase()}`
-                  : 'Not reimbursed yet'}
+                {r.invoice
+                  ? `${r.invoice.number}${r.invoice.status === 'draft' ? ' · draft' : ''}`
+                  : 'No invoice yet'}
+              </p>
+            ) : null}
+            {r.payment ? (
+              <p className="text-xs text-(--muted)">
+                {r.payment.number} ·{' '}
+                {PAYMENT_STATUS_LABELS[r.payment.status].toLowerCase()}
               </p>
             ) : r.deliveredTo === 'vendor' ? (
               <p className="text-xs text-(--muted)">Straight to vendor</p>

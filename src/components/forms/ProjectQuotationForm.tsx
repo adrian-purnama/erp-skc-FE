@@ -30,6 +30,7 @@ import {
   AlertDialogTitle,
 } from '#/components/ui/alert-dialog'
 import { Button } from '#/components/ui/button'
+import { Checkbox } from '#/components/ui/checkbox'
 import { Combobox } from '#/components/ui/combobox'
 import { RupiahInput } from '#/components/ui/rupiah-input'
 import {
@@ -42,10 +43,13 @@ import { useAuth } from '#/context/authContext'
 import { apiDownload, apiFetch } from '#/lib/api'
 import { jakartaDateKey } from '#/lib/jakartaDate'
 import {
+  formatSignedRupiah,
   QUOTATION_STATUS_LABELS,
+  chargeLabel,
   formatRupiah,
   quotationPrintRows,
   type Quotation,
+  type QuotationCharge,
   type QuotationDiscountType,
   type QuotationHeaderPatch,
   type QuotationLine,
@@ -55,6 +59,7 @@ import {
 } from '#/lib/quotation'
 import {
   buttonOutlineClassName,
+  cardClassName,
   hintClassName,
   inputClassName,
   inputClassNameCompact,
@@ -86,11 +91,43 @@ type HeaderForm = {
   markupPercent: string
   discountType: QuotationDiscountType
   discountValue: string
-  taxPercent: string
-  notes: string
+  charges: QuotationCharge[]
+  /** One item per printed line; blank items are kept while editing. */
+  notes: string[]
 }
 
 const NO_TOP = '__none__'
+
+/** Subject, term of payment, valid until and notes: saved on their own. */
+const DETAIL_KEYS = ['subject', 'termOfPaymentId', 'validUntil', 'notes'] as const
+
+function pickPatch(
+  patch: QuotationHeaderPatch,
+  details: boolean,
+): QuotationHeaderPatch {
+  const out: QuotationHeaderPatch = {}
+  for (const [k, v] of Object.entries(patch)) {
+    const isDetail = (DETAIL_KEYS as readonly string[]).includes(k)
+    if (isDetail === details) Object.assign(out, { [k]: v })
+  }
+  return out
+}
+
+/** Charges as compared and saved: trimmed, values as typed. */
+function chargesKey(charges: QuotationCharge[]): string {
+  return JSON.stringify(
+    charges.map((c) => ({
+      ...c,
+      label: c.label.trim(),
+      note: c.note.trim(),
+      value: c.value.trim(),
+    })),
+  )
+}
+
+function newChargeKey(): string {
+  return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+}
 
 function headerFromQuotation(q: Quotation): HeaderForm {
   return {
@@ -100,8 +137,8 @@ function headerFromQuotation(q: Quotation): HeaderForm {
     markupPercent: q.markupPercent,
     discountType: q.discountType,
     discountValue: q.discountValue,
-    taxPercent: q.taxPercent,
-    notes: q.notes,
+    charges: q.charges.map((c) => ({ ...c })),
+    notes: notesToList(q.notes),
   }
 }
 
@@ -113,8 +150,8 @@ function notesToList(notes: string): string[] {
   return notes === '' ? [] : notes.split(/\r?\n/)
 }
 
-function cleanNotes(notes: string): string {
-  return notesToList(notes)
+function cleanNotes(notes: string[]): string {
+  return notes
     .map((n) => n.trim())
     .filter(Boolean)
     .join('\n')
@@ -140,9 +177,19 @@ function headerPatch(form: HeaderForm, q: Quotation): QuotationHeaderPatch {
   if (form.discountValue !== base.discountValue) {
     patch.discountValue = form.discountValue
   }
-  if (form.taxPercent !== base.taxPercent) patch.taxPercent = form.taxPercent
+  if (chargesKey(form.charges) !== chargesKey(base.charges)) {
+    patch.charges = form.charges.map((c) => ({
+      ...c,
+      label: c.label.trim(),
+      note: c.note.trim(),
+      value: c.value.trim() || '0',
+    }))
+  }
   const notes = cleanNotes(form.notes)
-  if (notes !== cleanNotes(base.notes)) patch.notes = notes
+  // A blank item being typed counts as a change, so Save/Reset show up.
+  if (notes !== cleanNotes(base.notes) || form.notes.length !== base.notes.length) {
+    patch.notes = notes
+  }
   return patch
 }
 
@@ -974,7 +1021,23 @@ function QuotationDetail({
   }, [q])
 
   const patch = useMemo(() => headerPatch(form, q), [form, q])
-  const dirty = Object.keys(patch).length > 0
+  const detailsPatch = useMemo(() => pickPatch(patch, true), [patch])
+  const pricingPatch = useMemo(() => pickPatch(patch, false), [patch])
+  const detailsDirty = Object.keys(detailsPatch).length > 0
+  const pricingDirty = Object.keys(pricingPatch).length > 0
+  const dirty = detailsDirty || pricingDirty
+  /** Put back only one section's fields. */
+  const resetSection = (details: boolean) => {
+    const base = headerFromQuotation(q)
+    setForm((prev) => {
+      const next = { ...prev }
+      for (const k of Object.keys(base) as Array<keyof HeaderForm>) {
+        const isDetail = (DETAIL_KEYS as readonly string[]).includes(k)
+        if (isDetail === details) Object.assign(next, { [k]: base[k] })
+      }
+      return next
+    })
+  }
   const issueBlocked = dirty
     ? 'Save your changes before issuing.'
     : q.rabOutdated
@@ -1177,12 +1240,13 @@ function QuotationDetail({
       </div>
 
       <form
-        className="space-y-4"
+        className={cn(cardClassName, 'space-y-4 p-4')}
         onSubmit={(e) => {
           e.preventDefault()
-          if (dirty) void onSaveHeader(patch)
+          if (detailsDirty) void onSaveHeader(detailsPatch)
         }}
       >
+        <h3 className="text-sm font-medium">Details</h3>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block space-y-1.5 sm:col-span-2">
             <span className="text-sm font-medium">Subject</span>
@@ -1214,55 +1278,6 @@ function QuotationDetail({
               disabled={!editable}
             />
           </label>
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium">Markup %</span>
-            <input
-              inputMode="decimal"
-              value={form.markupPercent}
-              onChange={(e) => set('markupPercent', e.target.value)}
-              className={cn(inputClassName, 'w-full')}
-              disabled={!editable}
-            />
-            <span className={cn('block text-xs', hintClassName)}>
-              Used on lines without a manual price.
-            </span>
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium">PPN %</span>
-            <input
-              inputMode="decimal"
-              value={form.taxPercent}
-              onChange={(e) => set('taxPercent', e.target.value)}
-              className={cn(inputClassName, 'w-full')}
-              disabled={!editable}
-            />
-          </label>
-          <div className="block space-y-1.5">
-            <span className="text-sm font-medium">Discount</span>
-            <div className="flex gap-2">
-              <Combobox
-                value={form.discountType}
-                onValueChange={(v) =>
-                  set('discountType', v as QuotationDiscountType)
-                }
-                options={[
-                  { value: 'percent', label: 'Percent' },
-                  { value: 'amount', label: 'Amount' },
-                ]}
-                className="w-28"
-                disabled={!editable}
-                aria-label="Discount type"
-              />
-              <input
-                inputMode="decimal"
-                value={form.discountValue}
-                onChange={(e) => set('discountValue', e.target.value)}
-                className={cn(inputClassName, 'min-w-0 flex-1')}
-                disabled={!editable}
-                aria-label="Discount value"
-              />
-            </div>
-          </div>
           <NotesListField
             notes={form.notes}
             editable={editable}
@@ -1270,22 +1285,11 @@ function QuotationDetail({
           />
         </div>
         {editable ? (
-          <div className="flex items-center gap-2">
-            <Button type="submit" size="sm" disabled={busy || !dirty}>
-              Save
-            </Button>
-            {dirty ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() => setForm(headerFromQuotation(q))}
-              >
-                Reset
-              </Button>
-            ) : null}
-          </div>
+          <SectionSaveBar
+            busy={busy}
+            dirty={detailsDirty}
+            onReset={() => resetSection(true)}
+          />
         ) : null}
       </form>
 
@@ -1355,9 +1359,71 @@ function QuotationDetail({
         </div>
       </div>
 
-      <div className="flex flex-col-reverse gap-6 md:flex-row md:items-start md:justify-between">
-        <MarginInsight quotation={q} />
-        <dl className="grid w-full max-w-sm grid-cols-[1fr_auto] gap-x-6 gap-y-1 self-end text-sm md:self-start">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
+        <form
+          className={cn(cardClassName, 'space-y-4 p-4')}
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (pricingDirty) void onSaveHeader(pricingPatch)
+          }}
+        >
+          <h3 className="text-sm font-medium">Pricing</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Markup %</span>
+              <input
+                inputMode="decimal"
+                value={form.markupPercent}
+                onChange={(e) => set('markupPercent', e.target.value)}
+                className={cn(inputClassName, 'w-full')}
+                disabled={!editable}
+              />
+              <span className={cn('block text-xs', hintClassName)}>
+                Used on lines without a manual price.
+              </span>
+            </label>
+            <div className="block space-y-1.5">
+              <span className="text-sm font-medium">Discount</span>
+              <div className="flex gap-2">
+                <Combobox
+                  value={form.discountType}
+                  onValueChange={(v) =>
+                    set('discountType', v as QuotationDiscountType)
+                  }
+                  options={[
+                    { value: 'percent', label: 'Percent' },
+                    { value: 'amount', label: 'Amount' },
+                  ]}
+                  className="w-28"
+                  disabled={!editable}
+                  aria-label="Discount type"
+                />
+                <input
+                  inputMode="decimal"
+                  value={form.discountValue}
+                  onChange={(e) => set('discountValue', e.target.value)}
+                  className={cn(inputClassName, 'min-w-0 flex-1')}
+                  disabled={!editable}
+                  aria-label="Discount value"
+                />
+              </div>
+            </div>
+          </div>
+          <ChargesField
+            charges={form.charges}
+            editable={editable}
+            onChange={(next) => set('charges', next)}
+          />
+          {editable ? (
+            <SectionSaveBar
+              busy={busy}
+              dirty={pricingDirty}
+              onReset={() => resetSection(false)}
+            />
+          ) : null}
+          <MarginInsight quotation={q} />
+        </form>
+        <dl className="grid w-full grid-cols-[1fr_auto] gap-x-6 gap-y-1 self-start text-sm">
           <dt>Subtotal</dt>
           <dd className="text-right tabular-nums">
             {formatRupiah(q.totals.subtotal)}
@@ -1377,10 +1443,16 @@ function QuotationDetail({
               </dd>
             </>
           ) : null}
-          <dt>PPN {q.taxPercent}%</dt>
-          <dd className="text-right tabular-nums">
-            {formatRupiah(q.totals.taxAmount)}
-          </dd>
+          {q.totals.charges
+            .filter((c) => c.enabled)
+            .map((c) => (
+              <div key={c.key} className="contents">
+                <dt>{chargeLabel(c)}</dt>
+                <dd className="text-right tabular-nums">
+                  {formatSignedRupiah(c.amount)}
+                </dd>
+              </div>
+            ))}
           <dt className="border-t border-(--line) pt-1 font-medium">Total</dt>
           <dd className="border-t border-(--line) pt-1 text-right font-medium tabular-nums">
             {formatRupiah(q.totals.grandTotal)}
@@ -1659,12 +1731,12 @@ function NotesListField({
   editable,
   onChange,
 }: {
-  notes: string
+  notes: string[]
   editable: boolean
-  onChange: (notes: string) => void
+  onChange: (notes: string[]) => void
 }) {
-  const items = notesToList(notes)
-  const update = (next: string[]) => onChange(next.join('\n'))
+  const items = notes
+  const update = onChange
   const present = new Set(items.map((n) => n.trim()))
 
   return (
@@ -1744,6 +1816,228 @@ function NotesListField({
           ))}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** Save / Reset for one section of the quotation form. */
+function SectionSaveBar({
+  busy,
+  dirty,
+  onReset,
+}: {
+  busy: boolean
+  dirty: boolean
+  onReset: () => void
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <Button type="submit" size="sm" disabled={busy || !dirty}>
+        Save
+      </Button>
+      {dirty ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          onClick={onReset}
+        >
+          Reset
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Extra charges after the discount, printed in this order (PPN is one).
+ * Percent charges are on the DPP; switched-off ones are kept but not added.
+ */
+function ChargesField({
+  charges,
+  editable,
+  onChange,
+}: {
+  charges: QuotationCharge[]
+  editable: boolean
+  onChange: (next: QuotationCharge[]) => void
+}) {
+  const patch = (key: string, next: Partial<QuotationCharge>) =>
+    onChange(charges.map((c) => (c.key === key ? { ...c, ...next } : c)))
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">Extra charges</span>
+        {editable ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            disabled={charges.length >= 10}
+            onClick={() =>
+              onChange([
+                ...charges,
+                {
+                  key: newChargeKey(),
+                  label: '',
+                  sign: 'add',
+                  note: '',
+                  kind: 'percent',
+                  value: '',
+                  enabled: true,
+                },
+              ])
+            }
+          >
+            <Plus className="size-3.5" aria-hidden />
+            Add charge
+          </Button>
+        ) : null}
+      </div>
+      {charges.length === 0 ? (
+        <p className={cn('text-sm', hintClassName)}>No extra charges.</p>
+      ) : (
+        <ul className="space-y-2">
+          {charges.map((c) => (
+            <li
+              key={c.key}
+              className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_9rem_auto] items-center gap-x-2 gap-y-1"
+            >
+              <Checkbox
+                checked={c.enabled}
+                disabled={!editable}
+                onCheckedChange={(v) => patch(c.key, { enabled: v === true })}
+                aria-label={`Include ${c.label || 'charge'}`}
+              />
+              <input
+                value={c.label}
+                onChange={(e) => patch(c.key, { label: e.target.value })}
+                className={cn(
+                  inputClassNameCompact,
+                  'w-full min-w-0',
+                  !c.enabled && 'opacity-60',
+                )}
+                disabled={!editable}
+                placeholder="e.g. PPN, Ongkir"
+                aria-label="Charge label"
+              />
+              <div
+                className="inline-flex rounded-md border border-(--line) p-0.5"
+                role="radiogroup"
+                aria-label="Add or deduct"
+              >
+                {(['add', 'deduct'] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="radio"
+                    aria-checked={c.sign === k}
+                    aria-label={k === 'add' ? 'Add to total' : 'Deduct from total'}
+                    title={k === 'add' ? 'Add to total' : 'Deduct from total'}
+                    disabled={!editable}
+                    onClick={() => patch(c.key, { sign: k })}
+                    className={cn(
+                      'w-6 rounded py-0.5 text-xs',
+                      c.sign === k
+                        ? k === 'deduct'
+                          ? 'bg-red-500/15 font-medium text-red-700 dark:text-red-300'
+                          : 'bg-accent font-medium'
+                        : 'text-(--muted)',
+                    )}
+                  >
+                    {k === 'add' ? '+' : '−'}
+                  </button>
+                ))}
+              </div>
+              <div
+                className="inline-flex rounded-md border border-(--line) p-0.5"
+                role="radiogroup"
+                aria-label="Charge type"
+              >
+                {(['percent', 'fixed'] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="radio"
+                    aria-checked={c.kind === k}
+                    disabled={!editable}
+                    // The value means something else per type, so it starts empty.
+                    onClick={() =>
+                      c.kind !== k && patch(c.key, { kind: k, value: '' })
+                    }
+                    className={cn(
+                      'rounded px-2 py-0.5 text-xs',
+                      c.kind === k ? 'bg-accent font-medium' : 'text-(--muted)',
+                    )}
+                  >
+                    {k === 'percent' ? '%' : 'Rp'}
+                  </button>
+                ))}
+              </div>
+              {c.kind === 'percent' ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    inputMode="decimal"
+                    value={c.value}
+                    onChange={(e) => patch(c.key, { value: e.target.value })}
+                    className={cn(
+                      inputClassNameCompact,
+                      'w-full min-w-0 text-right tabular-nums',
+                    )}
+                    disabled={!editable}
+                    placeholder="11"
+                    aria-label={`Rate of ${c.label || 'charge'}`}
+                  />
+                  <span className="text-xs text-(--muted)">%</span>
+                </div>
+              ) : (
+                <RupiahInput
+                  value={c.value}
+                  onValueChange={(digits) => patch(c.key, { value: digits })}
+                  disabled={!editable}
+                  aria-label={`Amount of ${c.label || 'charge'}`}
+                  className="h-8 text-right"
+                />
+              )}
+              {editable ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="size-7 p-0"
+                  aria-label={`Remove ${c.label || 'charge'}`}
+                  onClick={() => onChange(charges.filter((x) => x.key !== c.key))}
+                >
+                  <X className="size-3.5" aria-hidden />
+                </Button>
+              ) : (
+                <span aria-hidden />
+              )}
+              {editable || c.note ? (
+                <input
+                  value={c.note}
+                  onChange={(e) => patch(c.key, { note: e.target.value })}
+                  className={cn(
+                    inputClassNameCompact,
+                    'col-span-4 col-start-2 w-full min-w-0 text-xs',
+                  )}
+                  disabled={!editable}
+                  maxLength={120}
+                  placeholder="Reason (optional, printed), e.g. pembayaran tunai"
+                  aria-label={`Reason for ${c.label || 'charge'}`}
+                />
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className={cn('text-xs', hintClassName)}>
+        Ticked lines come after the discount, printed in this order: + adds,
+        − deducts. % is of the DPP; Rp is a fixed amount. The reason prints
+        in brackets after the label.
+      </p>
     </div>
   )
 }

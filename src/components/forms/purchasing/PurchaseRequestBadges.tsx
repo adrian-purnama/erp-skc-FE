@@ -36,7 +36,11 @@ export function PurchaseRequestStatusChip({
   )
 }
 
-export function PurchaseRabStatusChip({ status }: { status: PurchaseRabStatus }) {
+export function PurchaseRabStatusChip({
+  status,
+}: {
+  status: PurchaseRabStatus
+}) {
   return (
     <span
       className={cn(
@@ -152,23 +156,28 @@ export function RabLink({
   projectId,
   label,
   className,
+  newTab = false,
 }: {
   purchaseRabId: string | null
   projectId: string | null
   label: string
   className?: string
+  /** Open in a new tab (e.g. context links on the PO approval page). */
+  newTab?: boolean
 }) {
   const { can } = useAuth()
+  const tab = newTab ? { target: '_blank', rel: 'noreferrer' } : {}
   const linkClass = cn(
     'font-medium tabular-nums underline-offset-4 hover:underline',
     className,
   )
-  if (purchaseRabId) {
+  if (purchaseRabId && can('purchasing.view')) {
     return (
       <Link
         to="/dashboard/purchasing/rabs/$rabId"
         params={{ rabId: purchaseRabId }}
         className={linkClass}
+        {...tab}
       >
         {label}
       </Link>
@@ -176,7 +185,12 @@ export function RabLink({
   }
   if (projectId && can('project.view')) {
     return (
-      <Link to="/dashboard/internal/rab" search={{ projectId }} className={linkClass}>
+      <Link
+        to="/dashboard/internal/rab"
+        search={{ projectId }}
+        className={linkClass}
+        {...tab}
+      >
         {label}
       </Link>
     )

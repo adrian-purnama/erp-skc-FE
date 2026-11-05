@@ -64,6 +64,13 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#/components/ui/select'
+import {
   formatRupiahDigits,
   rupiahDigits,
   RupiahInput,
@@ -79,7 +86,10 @@ import type {
   ProjectRabChangeSummary,
   ProjectRabElaboration,
   ProjectRabElaborationDoc,
+  ProjectRabLabourExecutor,
   ProjectRabLabourItem,
+  ProjectRabLabourProcessRow,
+  ProjectRabLabourRole,
   ProjectShopDrawingItem,
   ProjectRabLine,
   ProjectRabLineChangeKind,
@@ -543,7 +553,7 @@ export default function ProjectRabForm({
   const [changeReason, setChangeReason] = useState('')
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({})
   const [labourItems, setLabourItems] = useState<ProjectRabLabourItem[]>([])
-  /** makeType by shop drawing item id (process UI is inhouse-only). */
+  /** makeType tag by shop drawing item id (shown on the labour stages box). */
   const [makeTypeByDrawingId, setMakeTypeByDrawingId] = useState<
     Map<string, ProjectShopDrawingItem['makeType']>
   >(() => new Map())
@@ -602,9 +612,7 @@ export default function ProjectRabForm({
             `/project/${pid}/shop-drawing/boq/materials`,
           ),
           apiFetch<ItemCategoryOut[]>('/item-categories'),
-          apiFetch<ProjectShopDrawingItem[]>(
-            `/project/${pid}/shop-drawing/items`,
-          ),
+          apiFetch<ProjectShopDrawingItem[]>(`/project/${pid}/shop-drawing`),
         ])
       if (!rabRes.success) {
         toast.error(rabRes.message || 'Failed to load RAB')
@@ -717,6 +725,8 @@ export default function ProjectRabForm({
         priceByTotal: false,
         shopDrawingItemId: null,
         shopDrawingItemName: null,
+        role: null,
+        executor: null,
         sequence: null,
         weightPercent: null,
       }))
@@ -1239,7 +1249,7 @@ export default function ProjectRabForm({
 
   async function saveLabourProcess(
     shopDrawingItemId: string,
-    ordered: Array<{ key: string; weightPercent: number }>,
+    ordered: ProjectRabLabourProcessRow[],
   ) {
     if (!projectId || !canManage) return
     setBusy(true)
@@ -1721,7 +1731,10 @@ export default function ProjectRabForm({
                 <ProjectRabCharges
                   projectId={projectId}
                   rab={rab}
-                  editable={canManage && (rab.status === 'draft' || Boolean(changeDraft))}
+                  editable={
+                    canManage &&
+                    (rab.status === 'draft' || Boolean(changeDraft))
+                  }
                   onSaved={setRab}
                 />
               ) : null}
@@ -1815,19 +1828,18 @@ export default function ProjectRabForm({
                                           name: doc.shopDrawingItemName,
                                         })
                                     : undefined,
-                                process:
-                                  makeTypeByDrawingId.get(
-                                    doc.shopDrawingItemId,
-                                  ) === 'inhouse'
-                                    ? {
-                                        canEdit: canManage && canEdit,
-                                        onSave: (ordered) =>
-                                          saveLabourProcess(
-                                            doc.shopDrawingItemId,
-                                            ordered,
-                                          ),
-                                      }
-                                    : undefined,
+                                process: {
+                                  canEdit: canManage && canEdit,
+                                  makeType:
+                                    makeTypeByDrawingId.get(
+                                      doc.shopDrawingItemId,
+                                    ) ?? null,
+                                  onSave: (ordered) =>
+                                    saveLabourProcess(
+                                      doc.shopDrawingItemId,
+                                      ordered,
+                                    ),
+                                },
                               }
                             : null
                         }
@@ -2089,13 +2101,51 @@ type DrawingLabour = {
   lines: ProjectRabLine[]
   list: LabourListProps
   onAdd?: () => void
-  /** Inhouse drawings: process order + weight % for SPK stages. */
+  /** Stage setup (role, executor, sequence, weight %) for labour SPKs. */
   process?: {
     canEdit: boolean
-    onSave: (
-      ordered: Array<{ key: string; weightPercent: number }>,
-    ) => Promise<void>
+    /** The drawing's make type, shown as a tag only. */
+    makeType: ProjectShopDrawingItem['makeType'] | null
+    onSave: (rows: ProjectRabLabourProcessRow[]) => Promise<void>
   }
+}
+
+const MAKE_TYPE_LABEL: Record<ProjectShopDrawingItem['makeType'], string> = {
+  inhouse: 'Inhouse',
+  subcon: 'Subcon',
+  outsource: 'Outsource',
+}
+
+function processRow(line: ProjectRabLine): ProjectRabLabourProcessRow {
+  return {
+    key: line.key,
+    role: line.role ?? 'making',
+    executor: line.executor ?? 'inhouse',
+    sequence: line.sequence,
+    weightPercent: line.weightPercent,
+  }
+}
+
+/** Making and install rows, each in the given order, get sequence 1..n per track. */
+function numberProcessRows(
+  making: ProjectRabLabourProcessRow[],
+  install: ProjectRabLabourProcessRow[],
+): ProjectRabLabourProcessRow[] {
+  return [
+    ...making.map((r, i) => ({
+      ...r,
+      role: 'making' as const,
+      sequence: i + 1,
+      // Unset weights get 1 so a first edit can save; tune to 100% after.
+      weightPercent: r.weightPercent ?? 1,
+    })),
+    ...install.map((r, i) => ({
+      ...r,
+      role: 'install' as const,
+      sequence: i + 1,
+      weightPercent: r.weightPercent ?? 1,
+    })),
+  ]
 }
 
 function RabDrawingLabour({
@@ -2106,41 +2156,221 @@ function RabDrawingLabour({
   process,
 }: DrawingLabour & { query: string }) {
   const rows = labourRows(lines, list.priceDrafts)
-  const ordered = rows.map((r) => r.line)
-  const weightSum = ordered.reduce((s, l) => s + (l.weightPercent ?? 0), 0)
-  const allWeighted = ordered.every(
-    (l) => l.weightPercent != null && l.weightPercent >= 1,
+  const all = rows.map((r) => processRow(r.line))
+  const nameByKey = new Map(rows.map((r) => [r.line.key, r.line.materialName]))
+  const making = all
+    .filter((r) => r.role === 'making')
+    .sort((a, b) => (a.sequence ?? 9999) - (b.sequence ?? 9999))
+  const install = all
+    .filter((r) => r.role === 'install')
+    .sort((a, b) => (a.sequence ?? 9999) - (b.sequence ?? 9999))
+  const weightSum = making.reduce((s, r) => s + (r.weightPercent ?? 0), 0)
+  const allWeighted = making.every(
+    (r) => r.weightPercent != null && r.weightPercent >= 1,
   )
+  const canEdit = process?.canEdit === true
 
-  async function move(index: number, dir: -1 | 1) {
+  function save(
+    nextMaking: ProjectRabLabourProcessRow[],
+    nextInstall: ProjectRabLabourProcessRow[],
+  ) {
     if (!process?.canEdit) return
-    const next = [...ordered]
-    const j = index + dir
-    if (j < 0 || j >= next.length) return
-    const tmp = next[index]!
-    next[index] = next[j]!
-    next[j] = tmp
-    await process.onSave(
-      next.map((l) => ({
-        key: l.key,
-        weightPercent: l.weightPercent ?? 1,
-      })),
-    )
+    void process.onSave(numberProcessRows(nextMaking, nextInstall))
   }
 
-  async function setWeight(key: string, raw: string) {
-    if (!process?.canEdit) return
+  function patchRow(
+    source: ProjectRabLabourProcessRow[],
+    key: string,
+    patch: Partial<ProjectRabLabourProcessRow>,
+  ) {
+    return source.map((r) => (r.key === key ? { ...r, ...patch } : r))
+  }
+
+  /** Move a making stage to sequence `raw`; the others shift around it. */
+  function setSequence(key: string, raw: string) {
+    const n = Number(raw.trim())
+    if (!Number.isInteger(n) || n < 1 || n > making.length) {
+      toast.error(`Sequence must be a whole number from 1 to ${making.length}`)
+      return
+    }
+    const row = making.find((r) => r.key === key)
+    if (!row) return
+    const rest = making.filter((r) => r.key !== key)
+    rest.splice(n - 1, 0, row)
+    save(rest, install)
+  }
+
+  function move(index: number, dir: -1 | 1) {
+    const j = index + dir
+    if (j < 0 || j >= making.length) return
+    const next = [...making]
+    ;[next[index], next[j]] = [next[j], next[index]]
+    save(next, install)
+  }
+
+  function setWeight(key: string, raw: string) {
     const n = Number(raw.trim())
     if (!Number.isInteger(n) || n < 1 || n > 100) {
       toast.error('Weight must be an integer from 1 to 100')
       return
     }
-    // Unset siblings get 1 so a first weight can save; user then tunes to 100%.
-    await process.onSave(
-      ordered.map((l) => ({
-        key: l.key,
-        weightPercent: l.key === key ? n : (l.weightPercent ?? 1),
-      })),
+    save(
+      patchRow(making, key, { weightPercent: n }),
+      patchRow(install, key, { weightPercent: n }),
+    )
+  }
+
+  function setRole(key: string, role: ProjectRabLabourRole) {
+    const row = all.find((r) => r.key === key)
+    if (!row || row.role === role) return
+    if (role === 'install') {
+      save(
+        making.filter((r) => r.key !== key),
+        [...install, { ...row, weightPercent: null }],
+      )
+    } else {
+      // Back to making: becomes the last stage.
+      save(
+        [...making, { ...row, weightPercent: null }],
+        install.filter((r) => r.key !== key),
+      )
+    }
+  }
+
+  function setExecutor(key: string, executor: ProjectRabLabourExecutor) {
+    save(
+      patchRow(making, key, { executor }),
+      patchRow(install, key, { executor }),
+    )
+  }
+
+  function processLine(row: ProjectRabLabourProcessRow, index: number) {
+    const name = nameByKey.get(row.key) ?? row.key
+    const isMaking = row.role === 'making'
+    return (
+      <li key={row.key} className="flex flex-wrap items-center gap-2 text-xs">
+        {!isMaking ? (
+          <span className="w-12 rounded border border-(--line) py-0.5 text-center text-[10px] tracking-wide text-(--muted) uppercase">
+            Install
+          </span>
+        ) : canEdit ? (
+          <Input
+            type="number"
+            min={1}
+            max={making.length}
+            step={1}
+            className="h-7 w-12 px-1.5 text-center text-xs tabular-nums"
+            defaultValue={row.sequence ?? ''}
+            key={`${row.key}-seq-${row.sequence ?? 'x'}`}
+            disabled={list.busy}
+            aria-label={`Sequence for ${name}`}
+            onBlur={(e) => {
+              const v = e.target.value.trim()
+              if (v === '' || Number(v) === (row.sequence ?? NaN)) return
+              setSequence(row.key, v)
+            }}
+          />
+        ) : (
+          <span className="w-5 tabular-nums text-(--muted)">
+            {row.sequence ?? '—'}.
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+        {canEdit ? (
+          <>
+            {isMaking ? (
+              <>
+                <div className="flex items-center gap-0.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0"
+                    disabled={list.busy || index === 0}
+                    aria-label="Move up"
+                    onClick={() => move(index, -1)}
+                  >
+                    <ArrowUp className="size-3.5" aria-hidden />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0"
+                    disabled={list.busy || index === making.length - 1}
+                    aria-label="Move down"
+                    onClick={() => move(index, 1)}
+                  >
+                    <ArrowDown className="size-3.5" aria-hidden />
+                  </Button>
+                </div>
+              </>
+            ) : null}
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                className="h-7 w-16 text-xs tabular-nums"
+                defaultValue={row.weightPercent ?? ''}
+                key={`${row.key}-w-${row.weightPercent ?? 'x'}`}
+                disabled={list.busy}
+                aria-label={`Weight for ${name}`}
+                onBlur={(e) => {
+                  const v = e.target.value.trim()
+                  if (v === '' || Number(v) === (row.weightPercent ?? NaN)) {
+                    return
+                  }
+                  setWeight(row.key, v)
+                }}
+              />
+              <span className="text-(--muted)">%</span>
+            </div>
+            <Select
+              value={row.role}
+              disabled={list.busy}
+              onValueChange={(v) => setRole(row.key, v as ProjectRabLabourRole)}
+            >
+              <SelectTrigger
+                size="sm"
+                className="h-7 w-24 px-2 text-xs"
+                aria-label={`Role for ${name}`}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="making">Making</SelectItem>
+                <SelectItem value="install">Install</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={row.executor}
+              disabled={list.busy}
+              onValueChange={(v) =>
+                setExecutor(row.key, v as ProjectRabLabourExecutor)
+              }
+            >
+              <SelectTrigger
+                size="sm"
+                className="h-7 w-24 px-2 text-xs"
+                aria-label={`Done by for ${name}`}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="inhouse">Inhouse</SelectItem>
+                <SelectItem value="vendor">Vendor</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        ) : (
+          <span className="tabular-nums text-(--muted)">
+            {`${row.weightPercent != null ? `${row.weightPercent}%` : '—'} · `}
+            {row.executor === 'vendor' ? 'Vendor' : 'Inhouse'}
+          </span>
+        )}
+      </li>
     )
   }
 
@@ -2167,93 +2397,34 @@ function RabDrawingLabour({
           </Button>
         ) : null}
       </div>
-      {process && ordered.length > 0 ? (
+      {process && all.length > 0 ? (
         <div className="mb-2 space-y-1.5 rounded-md border border-(--line) bg-(--surface) px-2 py-2">
-          <p className={cn('text-xs', hintClassName)}>
-            Process stages for inhouse SPK. Weights must total 100% before
-            release
-            {allWeighted ? (
-              <span
-                className={cn(
-                  'ml-1 tabular-nums',
-                  weightSum === 100 ? 'text-emerald-700' : 'text-amber-700',
-                )}
-              >
-                (now {weightSum}%)
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className={cn('min-w-0 flex-1 text-xs', hintClassName)}>
+              Each labour is its own SPK. Making stages run in sequence and
+              their weights must total 100% before SPKs
+              {making.length > 0 && allWeighted ? (
+                <span
+                  className={cn(
+                    'ml-1 tabular-nums',
+                    weightSum === 100 ? 'text-emerald-700' : 'text-amber-700',
+                  )}
+                >
+                  (now {weightSum}%)
+                </span>
+              ) : null}
+              . Install steps run on finished pcs, with their own weights
+              totalling 100%.
+            </p>
+            {process.makeType ? (
+              <span className="shrink-0 rounded-full border border-(--line) px-2 py-0.5 text-[11px] text-(--muted)">
+                {MAKE_TYPE_LABEL[process.makeType]}
               </span>
             ) : null}
-            .
-          </p>
+          </div>
           <ul className="space-y-1">
-            {ordered.map((line, i) => (
-              <li
-                key={line.key}
-                className="flex flex-wrap items-center gap-2 text-xs"
-              >
-                <span className="w-5 tabular-nums text-(--muted)">{i + 1}.</span>
-                <span className="min-w-0 flex-1 truncate font-medium">
-                  {line.materialName}
-                </span>
-                {process.canEdit ? (
-                  <>
-                    <div className="flex items-center gap-0.5">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="size-7 p-0"
-                        disabled={list.busy || i === 0}
-                        aria-label="Move up"
-                        onClick={() => void move(i, -1)}
-                      >
-                        <ArrowUp className="size-3.5" aria-hidden />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="size-7 p-0"
-                        disabled={list.busy || i === ordered.length - 1}
-                        aria-label="Move down"
-                        onClick={() => void move(i, 1)}
-                      >
-                        <ArrowDown className="size-3.5" aria-hidden />
-                      </Button>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={100}
-                        step={1}
-                        className="h-7 w-16 text-xs tabular-nums"
-                        defaultValue={line.weightPercent ?? ''}
-                        key={`${line.key}-${line.weightPercent ?? 'x'}`}
-                        disabled={list.busy}
-                        aria-label={`Weight for ${line.materialName}`}
-                        onBlur={(e) => {
-                          const v = e.target.value.trim()
-                          if (
-                            v === '' ||
-                            Number(v) === (line.weightPercent ?? NaN)
-                          ) {
-                            return
-                          }
-                          void setWeight(line.key, v)
-                        }}
-                      />
-                      <span className="text-(--muted)">%</span>
-                    </div>
-                  </>
-                ) : (
-                  <span className="tabular-nums text-(--muted)">
-                    {line.weightPercent != null
-                      ? `${line.weightPercent}%`
-                      : '—'}
-                  </span>
-                )}
-              </li>
-            ))}
+            {making.map((r, i) => processLine(r, i))}
+            {install.map((r) => processLine(r, -1))}
           </ul>
         </div>
       ) : null}
@@ -2739,6 +2910,7 @@ function RabElaborationDoc({
           lines={filtering ? labourVisible : labour.lines}
           list={labour.list}
           onAdd={labour.onAdd}
+          process={labour.process}
           query={q}
         />
       ) : null}

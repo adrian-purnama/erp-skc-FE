@@ -15,7 +15,6 @@ import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
 import {
   PRODUCTION_ORDER_STATUS_LABELS,
   PRODUCTION_ORDER_STATUSES,
-  PRODUCTION_ORDER_TYPE_LABELS,
 } from '#/lib/production'
 import type { ProductionOrderSummary } from '#/lib/production'
 import { hintClassName, pageTitleClassName } from '#/lib/ui-classes'
@@ -121,19 +120,17 @@ export default function ProductionOrdersForm({
       },
       { header: 'Item', icon: Package, cell: (o) => o.itemLabel },
       {
-        header: 'Type',
+        header: 'Labour',
         icon: Factory,
-        cellClassName: 'w-28',
-        cell: (o) => PRODUCTION_ORDER_TYPE_LABELS[o.type],
+        cellClassName: 'w-40',
+        cell: (o) =>
+          `${o.labourName}${o.role === 'install' ? ' · Install' : o.sequence ? ` · ${o.sequence}` : ''}${o.executor === 'vendor' ? ' · Vendor' : ''}`,
       },
       {
         header: 'Progress',
         icon: ListChecks,
         cellClassName: 'w-28 text-right tabular-nums',
-        cell: (o) =>
-          o.type === 'inhouse' && o.progressPercent != null
-            ? `${o.progressPercent}% · ${o.doneQty}/${o.qty}`
-            : `${o.doneQty} / ${o.qty}`,
+        cell: (o) => `${o.doneQty} / ${o.qty}`,
       },
       {
         header: 'Planned finish',

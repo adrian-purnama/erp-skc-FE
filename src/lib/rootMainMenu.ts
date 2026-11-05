@@ -159,6 +159,13 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
         match: '/dashboard/purchasing/realizations',
         permission: 'purchasing.realize',
       },
+      {
+        id: 'purchasing-invoices',
+        label: 'Vendor invoices',
+        to: '/dashboard/purchasing/invoices',
+        match: '/dashboard/purchasing/invoices',
+        permission: ['purchasing.realize', 'purchasing.pay', 'purchasing.manage'],
+      },
     ],
   },
   {

@@ -23,7 +23,7 @@ function AdminUsersPage() {
       <div>
         <h1 className={pageTitleClassName}>Users</h1>
         <p className={`mt-2 ${hintClassName}`}>
-          Find a user by email, then edit roles and account flags.
+          Find a user by email, then edit roles and account flags. Add or copy a user to create an account without registration.
         </p>
       </div>
 

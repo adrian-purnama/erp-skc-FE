@@ -156,6 +156,9 @@ export type ProjectListItem = {
   isActive: boolean
   /** Set once the project is released to production. */
   productionReleasedAt: string | null
+  /** Planned project dates (YYYY-MM-DD); the S-curve runs from start to finish. */
+  plannedStartDate: string | null
+  plannedFinishDate: string | null
 }
 
 /** List roll-up from `GET /project`. Money is IDR digits. */
@@ -173,8 +176,14 @@ export type ProjectSummary = {
   productionOrderedQty: string
   productionDoneQty: string
   productionPercent: number
+  /** Tender: calendar deadlines. Won: planned finish, else latest SPK planned finish. */
   deadline: string | null
   deadlineTitle: string | null
+  /** Next upcoming calendar deadline. */
+  nextMilestone: string | null
+  nextMilestoneTitle: string | null
+  /** Today's S-curve reading; null without a schedule. */
+  schedule: { plannedPct: number; actualPct: number; deviationPct: number } | null
 }
 
 export type ProjectListRow = ProjectListItem & {
@@ -280,8 +289,10 @@ export type ProjectShopDrawingItem = {
   category: string | null
   /** YYYY-MM-DD when mockup was approved; null if not needed / not yet. */
   mockupApproveDate: string | null
-  /** Who makes it; outsource needs no File Produksi. */
+  /** Who makes it (a tag); outsource needs no BOQ and File Produksi is optional. */
   makeType: 'inhouse' | 'subcon' | 'outsource'
+  /** Outsource make qty (no BOQ); null otherwise or when unset. */
+  makeQty: string | null
   current: ProjectShopDrawingFile | null
   versions: ProjectShopDrawingFile[]
   /** File Produksi (CNC / cutting files), versioned like the drawing. */
@@ -463,9 +474,25 @@ export type ProjectRabLine = {
   /** Labour: shop drawing item it is costed to (null = project-wide). */
   shopDrawingItemId: string | null
   shopDrawingItemName: string | null
-  /** Inhouse process order within the drawing (null if unset). */
+  /** Labour: making stage or install (null on material lines). */
+  role: ProjectRabLabourRole | null
+  /** Labour: inhouse crew or vendor (null on material lines). */
+  executor: ProjectRabLabourExecutor | null
+  /** Making labour: stage order within the drawing (null if unset). */
   sequence: number | null
-  /** Inhouse process weight percent (null if unset). */
+  /** Making labour: stage weight percent (null if unset). */
+  weightPercent: number | null
+}
+
+export type ProjectRabLabourRole = 'making' | 'install'
+export type ProjectRabLabourExecutor = 'inhouse' | 'vendor'
+
+/** One labour line's setup as saved by PUT /rab/labour-process. */
+export type ProjectRabLabourProcessRow = {
+  key: string
+  role: ProjectRabLabourRole
+  executor: ProjectRabLabourExecutor
+  sequence: number | null
   weightPercent: number | null
 }
 
@@ -505,6 +532,8 @@ export type ProjectRabChangeSummary = {
   projectId: string
   reason: string
   status: 'draft' | 'committed' | 'discarded'
+  /** "production": saved from the Production process editor, committed at once. */
+  source: 'manual' | 'production'
   openedAt: string
   openedBy: ProjectRabUserRef
   committedAt: string | null
@@ -523,6 +552,14 @@ export type ProjectRabChangeLineDiff = {
   newTotalQty: string | null
   oldUnitPrice: string | null
   newUnitPrice: string | null
+  /** Labour process fields that changed. */
+  processChanges?: ProjectRabLineProcessChange[]
+}
+
+export type ProjectRabLineProcessChange = {
+  field: 'role' | 'executor' | 'sequence' | 'weightPercent'
+  from: string | null
+  to: string | null
 }
 
 export type ProjectRabChangeBoqDiff = {

@@ -64,12 +64,42 @@ export function quotationPrintRows<L>(
   ])
 }
 
+/** Extra charge after the discount (PPN is one): percent of the DPP, or fixed rupiah. */
+export type QuotationCharge = {
+  key: string
+  label: string
+  /** Added to or deducted from the total. */
+  sign: 'add' | 'deduct'
+  /** Printed reason next to the label ("" = none). */
+  note: string
+  kind: 'percent' | 'fixed'
+  value: string
+  /** Off = kept but not added or printed. */
+  enabled: boolean
+}
+
+/** "PPN 11%" / "Ongkir", then the reason in brackets (as printed). */
+export function chargeLabel(
+  c: Pick<QuotationCharge, 'label' | 'kind' | 'value' | 'note'>,
+): string {
+  const base = c.kind === 'percent' ? `${c.label} ${c.value}%` : c.label
+  const note = c.note.trim()
+  return note ? `${base} (${note})` : base
+}
+
+/** Negative amounts as "−Rp 50.000" (deductions, discount). */
+export function formatSignedRupiah(amount: string): string {
+  const n = Number(amount)
+  return n < 0 ? `−${formatRupiah(String(-n))}` : formatRupiah(amount)
+}
+
 export type QuotationTotals = {
   costTotal: string
   subtotal: string
   discountAmount: string
   taxBase: string
-  taxAmount: string
+  charges: Array<QuotationCharge & { amount: string }>
+  chargesTotal: string
   grandTotal: string
   margin: string
 }
@@ -95,7 +125,7 @@ export type Quotation = QuotationSummary & {
   markupPercent: string
   discountType: QuotationDiscountType
   discountValue: string
-  taxPercent: string
+  charges: QuotationCharge[]
   validUntil: string | null
   notes: string
   termOfPaymentId: string | null
@@ -167,12 +197,12 @@ export type PublicQuotation = {
   issuedByName: string | null
   discountType: QuotationDiscountType
   discountValue: string
-  taxPercent: string
   totals: {
     subtotal: string
     discountAmount: string
     taxBase: string
-    taxAmount: string
+    /** Enabled charges only, in printed order; amount negative when deducted. */
+    charges: Array<Pick<QuotationCharge, 'label' | 'note' | 'kind' | 'value'> & { amount: string }>
     grandTotal: string
   }
   termOfPaymentText: string
@@ -206,7 +236,7 @@ export type QuotationHeaderPatch = Partial<{
   markupPercent: string
   discountType: QuotationDiscountType
   discountValue: string
-  taxPercent: string
+  charges: QuotationCharge[]
   validUntil: string | null
   notes: string
   termOfPaymentId: string | null

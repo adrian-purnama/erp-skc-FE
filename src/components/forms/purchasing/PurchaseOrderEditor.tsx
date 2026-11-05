@@ -18,9 +18,12 @@ import {
 import {
   LineFlagBadge,
   PurchaseOrderStatusChip,
+  PurchaseRequestStatusChip,
   RabLink,
   RealizationStatusChip,
 } from '#/components/forms/purchasing/PurchaseRequestBadges'
+import PoInvoicesSection from '#/components/forms/purchasing/PoInvoicesSection'
+import PurchaseOrderBrief from '#/components/forms/purchasing/PurchaseOrderBrief'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,9 +74,11 @@ import {
   dialogInputClassName,
   hintClassName,
   inputClassName,
+  metaTextClassName,
   pageTitleClassName,
   sectionTitleClassName,
 } from '#/lib/ui-classes'
+import { formatYmdLong } from '#/lib/quotation'
 import { cn } from '#/lib/utils'
 
 type Props = {
@@ -324,11 +329,13 @@ export default function PurchaseOrderEditor({
       sum + (r.ref.rabUnitPrice ? amountOf(r.qty, r.ref.rabUnitPrice) : 0),
     0,
   )
-  const formErrors: string[] = []
-  if (!approver1Id || !approver2Id) formErrors.push('Choose both approvers')
+  // Fixed in the details sheet (approvers); items are fixed on the page.
+  const detailsErrors: string[] = []
+  if (!approver1Id || !approver2Id) detailsErrors.push('Choose both approvers')
   else if (approver1Id === approver2Id) {
-    formErrors.push('Level 1 and level 2 approver must be different people')
+    detailsErrors.push('Level 1 and level 2 approver must be different people')
   }
+  const formErrors: string[] = [...detailsErrors]
   if (rows.length === 0) formErrors.push('Add at least one item')
   const canSave = formErrors.length === 0 && issues.size === 0
   const vendorGroups = [
@@ -383,6 +390,7 @@ export default function PurchaseOrderEditor({
     setShowErrors(true)
     if (!canSave) {
       toast.error('Fix the highlighted fields first')
+      if (detailsErrors.length > 0) setDetailsOpen(true)
       return null
     }
     const body = JSON.stringify({
@@ -641,12 +649,14 @@ export default function PurchaseOrderEditor({
       : status === 'approved'
         ? `Approved ${formatWhen(order!.approvedAt)}`
         : null
-  const detailsNeedAttention = showErrors && formErrors.length > 0
   // Which RAB this PO is checked against: the SPP's Purchasing RAB or its project RAB.
   const budgetRef = rows[0]?.ref ?? order?.lines[0] ?? null
   const budgetLabel = order?.rabLabel ?? budgetRef?.rabLabel ?? null
   const budgetRabId =
-    order?.purchaseRabId ?? budgetRef?.purchaseRabId ?? request?.purchaseRabId ?? null
+    order?.purchaseRabId ??
+    budgetRef?.purchaseRabId ??
+    request?.purchaseRabId ??
+    null
 
   return (
     <div className="space-y-6 pb-24">
@@ -700,13 +710,7 @@ export default function PurchaseOrderEditor({
         ) : null}
       </div>
 
-      <Sheet
-        open={detailsOpen || detailsNeedAttention}
-        onOpenChange={(open) => {
-          if (!open && detailsNeedAttention) return
-          setDetailsOpen(open)
-        }}
-      >
+      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
         <SheetContent
           side="right"
           className="w-full overflow-y-auto sm:max-w-lg"
@@ -714,130 +718,183 @@ export default function PurchaseOrderEditor({
           <SheetHeader>
             <SheetTitle>PO details</SheetTitle>
             <SheetDescription>
-              Material request, budget, delivery date, and approvers.
+              Where this PO comes from, when it arrives, and who approves it.
             </SheetDescription>
           </SheetHeader>
-          <div className="grid gap-4 px-4 pb-4 sm:grid-cols-2">
-            {budgetLabel || budgetRef ? (
-              <Field label="Budget">
-                <RabLink
-                  purchaseRabId={budgetRabId}
-                  projectId={budgetRef?.projectId ?? null}
-                  label={
-                    budgetLabel ??
-                    (budgetRef?.projectId ? 'Project RAB' : 'No RAB')
-                  }
-                />
-                <span className={cn('block text-xs', hintClassName)}>
-                  {budgetRef?.projectId
-                    ? `${budgetRef.projectNumber} · ${budgetRef.projectName}`
-                    : 'No project'}
-                </span>
-              </Field>
-            ) : null}
-            {request ? (
-              <Field label="Material request">
-                <Link
-                  to="/dashboard/purchasing/requests/$requestId"
-                  params={{ requestId: request.id }}
-                  className="font-medium tabular-nums underline-offset-4 hover:underline"
-                >
-                  {request.number}
-                </Link>
-                <span className={cn('block text-xs', hintClassName)}>
-                  {request.projectNumber} · {request.projectName}
-                  {request.productionOrderNumber
-                    ? ` · ${request.productionOrderNumber}`
-                    : request.purchaseRabNumber
-                      ? ` · ${request.purchaseRabNumber}`
-                      : ''}
-                  <br />
-                  Needed by {request.neededDate} ·{' '}
-                  {request.requestedBy?.name ?? 'Unknown'}
-                </span>
-              </Field>
-            ) : null}
-            {order && !editable ? (
-              <Field label="Term of payment">
-                {order.termOfPayment || '—'}
-              </Field>
-            ) : null}
-            <Field label="Delivery date">
-              {editable ? (
-                <input
-                  type="date"
-                  value={expectedDate}
-                  disabled={busy}
-                  aria-label="Delivery date"
-                  onChange={(e) => setExpectedDate(e.target.value)}
-                  className={cn(inputClassName, 'w-full')}
-                />
-              ) : (
-                <span className="tabular-nums">{expectedDate || '—'}</span>
-              )}
-            </Field>
-            {([1, 2] as const).map((level) => {
-              const value = level === 1 ? approver1Id : approver2Id
-              const setValue = level === 1 ? setApprover1Id : setApprover2Id
-              const all = level === 1 ? approvers1 : approvers2
-              // You cannot approve a PO you made, so you are left out of the list.
-              const options = all.filter((o) => o.detail !== user?.email)
-              const onlyYou = all.length > 0 && options.length === 0
-              const chosen = level === 1 ? order?.approver1 : order?.approver2
-              const signedAt =
-                level === 1 ? order?.approved1At : order?.approvedAt
-              return (
-                <Field key={level} label={`Approver level ${level}`}>
-                  {editable ? (
-                    <Combobox
-                      value={value}
-                      onValueChange={setValue}
-                      options={options.map((o) => ({
-                        value: o.id,
-                        label: o.label,
-                      }))}
-                      placeholder="Choose an approver"
-                      emptyText={
-                        onlyYou
-                          ? `Only you can approve level ${level}, and the person who makes a PO cannot approve it. Give another user this approval role.`
-                          : `No one has the level ${level} approval permission.`
-                      }
-                      aria-label={`Approver level ${level}`}
-                      disabled={busy}
-                      className={cn(
-                        'w-full sm:w-full',
-                        showErrors && !value && 'border-red-500',
-                      )}
-                    />
-                  ) : (
-                    <>
-                      {chosen?.name ?? '—'}
-                      <span className={cn('block text-xs', hintClassName)}>
-                        {signedAt
-                          ? `Approved ${formatWhen(signedAt)}`
-                          : status === 'pending_approval' &&
-                              order?.approvalLevel === level
-                            ? 'Waiting'
-                            : status === 'pending_approval'
-                              ? 'After level 1'
-                              : ''}
+          <div className="space-y-6 px-4 pb-6">
+            {request || budgetLabel || budgetRef ? (
+              <DetailSection title="Requested for">
+                {request ? (
+                  <DetailRow label="SPP">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Link
+                        to="/dashboard/purchasing/requests/$requestId"
+                        params={{ requestId: request.id }}
+                        className="font-medium tabular-nums underline-offset-4 hover:underline"
+                      >
+                        {request.number}
+                      </Link>
+                      <PurchaseRequestStatusChip status={request.status} />
+                    </span>
+                  </DetailRow>
+                ) : null}
+                {request?.projectId || budgetRef?.projectId ? (
+                  <DetailRow label="Project">
+                    <span className="tabular-nums">
+                      {request?.projectNumber ?? budgetRef?.projectNumber}
+                    </span>
+                    <span className={cn('block', hintClassName)}>
+                      {request?.projectName ?? budgetRef?.projectName}
+                    </span>
+                  </DetailRow>
+                ) : null}
+                {request?.productionOrderId ? (
+                  <DetailRow label="SPK">
+                    <Link
+                      to="/dashboard/production"
+                      search={{ spk: request.productionOrderId }}
+                      className="tabular-nums underline-offset-4 hover:underline"
+                    >
+                      {request.productionOrderNumber}
+                    </Link>
+                    {request.itemLabel ? (
+                      <span className={cn('block', hintClassName)}>
+                        {request.itemLabel}
                       </span>
-                    </>
-                  )}
-                </Field>
-              )
-            })}
-            {order?.submittedAt ? (
-              <Field label="Sent for approval">
-                {formatWhen(order.submittedAt)}
-                <span className={cn('block text-xs', hintClassName)}>
-                  {order.submittedBy?.name ?? 'Unknown'}
-                </span>
-              </Field>
+                    ) : null}
+                  </DetailRow>
+                ) : null}
+                {budgetLabel || budgetRef ? (
+                  <DetailRow label="Budget">
+                    <RabLink
+                      purchaseRabId={budgetRabId}
+                      projectId={budgetRef?.projectId ?? null}
+                      label={
+                        budgetLabel ??
+                        (budgetRef?.projectId ? 'Project RAB' : 'No RAB')
+                      }
+                    />
+                  </DetailRow>
+                ) : null}
+                {request ? (
+                  <>
+                    <DetailRow label="Needed by">
+                      {formatYmdLong(request.neededDate)}
+                    </DetailRow>
+                    <DetailRow label="Requested by">
+                      {request.requestedBy?.name ?? 'Unknown'}
+                    </DetailRow>
+                  </>
+                ) : null}
+              </DetailSection>
             ) : null}
+
+            <DetailSection title="Delivery">
+              <DetailRow label="Delivery date">
+                {editable ? (
+                  <input
+                    type="date"
+                    value={expectedDate}
+                    disabled={busy}
+                    aria-label="Delivery date"
+                    onChange={(e) => setExpectedDate(e.target.value)}
+                    className={cn(inputClassName, 'w-full')}
+                  />
+                ) : (
+                  formatYmdLong(expectedDate || null)
+                )}
+              </DetailRow>
+              {order && !editable ? (
+                <DetailRow label="Term of payment">
+                  {order.termOfPayment || '—'}
+                </DetailRow>
+              ) : null}
+            </DetailSection>
+
+            <DetailSection title="Approval">
+              {([1, 2] as const).map((level) => {
+                const value = level === 1 ? approver1Id : approver2Id
+                const setValue = level === 1 ? setApprover1Id : setApprover2Id
+                const all = level === 1 ? approvers1 : approvers2
+                // You cannot approve a PO you made, so you are left out of the list.
+                const options = all.filter((o) => o.detail !== user?.email)
+                const onlyYou = all.length > 0 && options.length === 0
+                const chosen = level === 1 ? order?.approver1 : order?.approver2
+                const signedAt =
+                  level === 1 ? order?.approved1At : order?.approvedAt
+                const state = signedAt
+                  ? `Approved ${formatWhen(signedAt)}`
+                  : status === 'pending_approval' &&
+                      order?.approvalLevel === level
+                    ? 'Waiting'
+                    : status === 'pending_approval'
+                      ? 'After level 1'
+                      : ''
+                return (
+                  <DetailRow key={level} label={`Level ${level}`}>
+                    {editable ? (
+                      <Combobox
+                        value={value}
+                        onValueChange={setValue}
+                        options={options.map((o) => ({
+                          value: o.id,
+                          label: o.label,
+                        }))}
+                        placeholder="Choose an approver"
+                        emptyText={
+                          onlyYou
+                            ? `Only you can approve level ${level}, and the person who makes a PO cannot approve it. Give another user this approval role.`
+                            : `No one has the level ${level} approval permission.`
+                        }
+                        aria-label={`Approver level ${level}`}
+                        disabled={busy}
+                        className={cn(
+                          'w-full sm:w-full',
+                          showErrors && !value && 'border-red-500',
+                        )}
+                      />
+                    ) : (
+                      <>
+                        {chosen?.name ?? '—'}
+                        {state ? (
+                          <span
+                            className={cn(
+                              'block',
+                              signedAt ? 'text-emerald-700' : hintClassName,
+                            )}
+                          >
+                            {state}
+                          </span>
+                        ) : null}
+                      </>
+                    )}
+                  </DetailRow>
+                )
+              })}
+              {order?.submittedAt ? (
+                <DetailRow label="Sent">
+                  {formatWhen(order.submittedAt)}
+                  <span className={cn('block', hintClassName)}>
+                    by {order.submittedBy?.name ?? 'Unknown'}
+                  </span>
+                </DetailRow>
+              ) : null}
+            </DetailSection>
           </div>
         </SheetContent>
       </Sheet>
+
+      {!editable && rows.length > 0 ? (
+        <PurchaseOrderBrief
+          request={request}
+          rows={rows}
+          total={total}
+          rabTotal={rabTotal}
+          budgetLabel={budgetLabel}
+          budgetRabId={budgetRabId}
+          projectId={budgetRef?.projectId ?? request?.projectId ?? null}
+        />
+      ) : null}
 
       {/* Lines */}
       <section className="space-y-2">
@@ -870,7 +927,7 @@ export default function PurchaseOrderEditor({
         />
         {rows.length > 0 ? (
           <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 px-3 text-sm">
-            {rabTotal > 0 ? (
+            {rabTotal > 0 && editable ? (
               <span
                 className={cn(
                   'tabular-nums',
@@ -889,8 +946,7 @@ export default function PurchaseOrderEditor({
             </span>
             {withEstimates && order ? (
               <span className="font-semibold tabular-nums">
-                Est. with additional costs{' '}
-                {formatRupiah(order.estimatedTotal)}
+                Est. with additional costs {formatRupiah(order.estimatedTotal)}
               </span>
             ) : null}
           </div>
@@ -980,7 +1036,8 @@ export default function PurchaseOrderEditor({
               </span>
             </summary>
             <div className="space-y-2 px-3">
-              {can('purchasing.realize') && order.realizationStatus !== 'full' ? (
+              {can('purchasing.realize') &&
+              order.realizationStatus !== 'full' ? (
                 <Link
                   to="/dashboard/purchasing/realizations/new"
                   search={{ orderId: order.id }}
@@ -1001,7 +1058,9 @@ export default function PurchaseOrderEditor({
                       params={{ realizationId: n.id }}
                       className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm no-underline hover:bg-accent"
                     >
-                      <span className="font-medium tabular-nums">{n.number}</span>
+                      <span className="font-medium tabular-nums">
+                        {n.number}
+                      </span>
                       <span className={cn('text-xs', hintClassName)}>
                         {REALIZATION_DOC_LABELS[n.method]}
                       </span>
@@ -1018,152 +1077,166 @@ export default function PurchaseOrderEditor({
         )
       ) : null}
 
+      {order && (status === 'approved' || order.closedPartial) ? (
+        <PoInvoicesSection
+          orderId={order.id}
+          hasVendorReceipt={order.realizations.some(
+            (n) => n.method === 'vendor' && n.status === 'posted',
+          )}
+        />
+      ) : null}
+
       {/* Picker — muted one-liner when nothing left */}
       {editable ? (
-        openLines !== null &&
-        available.length === 0 &&
-        !pickQuery.trim() ? (
+        openLines !== null && available.length === 0 && !pickQuery.trim() ? (
           <p className={cn('text-sm', hintClassName)}>
             Every item of this request is on a PO.
           </p>
         ) : (
-        <details
-          className="space-y-3 rounded-md border border-(--line) open:pb-3"
-          open={Boolean(available.length)}
-        >
-          <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
-            Still to order
-            <span className={cn('ml-2 text-xs font-normal', hintClassName)}>
-              Items of {request?.number ?? 'this request'} not on a PO yet
-            </span>
-          </summary>
-          <div className="space-y-3 px-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative">
-                <Search
-                  className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-(--muted)"
-                  aria-hidden
-                />
-                <input
-                  value={pickQuery}
-                  onChange={(e) => setPickQuery(e.target.value)}
-                  placeholder="Filter material…"
-                  aria-label="Filter open requests"
-                  className={cn(inputClassName, 'w-64 pl-7')}
-                />
+          <details
+            className="space-y-3 rounded-md border border-(--line) open:pb-3"
+            open={Boolean(available.length)}
+          >
+            <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              Still to order
+              <span className={cn('ml-2 text-xs font-normal', hintClassName)}>
+                Items of {request?.number ?? 'this request'} not on a PO yet
+              </span>
+            </summary>
+            <div className="space-y-3 px-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-(--muted)"
+                    aria-hidden
+                  />
+                  <input
+                    value={pickQuery}
+                    onChange={(e) => setPickQuery(e.target.value)}
+                    placeholder="Filter material…"
+                    aria-label="Filter open requests"
+                    className={cn(inputClassName, 'w-64 pl-7')}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy || picked.size === 0}
+                  onClick={addPicked}
+                >
+                  Add {picked.size > 0 ? picked.size : ''} to PO
+                </Button>
               </div>
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy || picked.size === 0}
-                onClick={addPicked}
-              >
-                Add {picked.size > 0 ? picked.size : ''} to PO
-              </Button>
-            </div>
-            {openLines === null ? (
-              <p className={cn('text-sm', hintClassName)}>Loading…</p>
-            ) : available.length === 0 ? (
-              <p className={cn('text-sm', hintClassName)}>
-                No open lines match the filter.
-              </p>
-            ) : (
-              <div className="max-h-112 overflow-auto rounded-md border border-(--line)">
-                <table className="w-full min-w-140 text-sm">
-                  <thead className="sticky top-0 bg-(--surface) text-left text-xs text-(--muted)">
-                    <tr className="border-b border-(--line)">
-                      <th className="w-10 px-3 py-2">
-                        <Checkbox
-                          aria-label="Select all"
-                          checked={
-                            available.every((l) => picked.has(l.requestLineId))
-                              ? true
-                              : available.some((l) =>
-                                    picked.has(l.requestLineId),
-                                  )
-                                ? 'indeterminate'
-                                : false
-                          }
-                          onCheckedChange={(v) =>
-                            setPicked(
-                              v === true
-                                ? new Set([
-                                    ...picked,
-                                    ...available.map((l) => l.requestLineId),
-                                  ])
-                                : new Set(),
-                            )
-                          }
-                        />
-                      </th>
-                      <th className="px-3 py-2 font-medium">Material</th>
-                      <th className="w-28 px-3 py-2 text-right font-medium">
-                        To order
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {available.map((l) => {
-                      const checked = picked.has(l.requestLineId)
-                      const toggle = () => {
-                        const next = new Set(picked)
-                        if (checked) next.delete(l.requestLineId)
-                        else next.add(l.requestLineId)
-                        setPicked(next)
-                      }
-                      return (
-                        <tr
-                          key={l.requestLineId}
-                          onClick={toggle}
-                          className={cn(
-                            'cursor-pointer border-b border-(--line) align-top last:border-0 hover:bg-accent',
-                            checked && 'bg-accent',
-                          )}
-                        >
-                          <td
-                            className="px-3 py-2"
-                            onClick={(e) => e.stopPropagation()}
+              {openLines === null ? (
+                <p className={cn('text-sm', hintClassName)}>Loading…</p>
+              ) : available.length === 0 ? (
+                <p className={cn('text-sm', hintClassName)}>
+                  No open lines match the filter.
+                </p>
+              ) : (
+                <div className="max-h-112 overflow-auto rounded-md border border-(--line)">
+                  <table className="w-full min-w-140 text-sm">
+                    <thead className="sticky top-0 bg-(--surface) text-left text-xs text-(--muted)">
+                      <tr className="border-b border-(--line)">
+                        <th className="w-10 px-3 py-2">
+                          <Checkbox
+                            aria-label="Select all"
+                            checked={
+                              available.every((l) =>
+                                picked.has(l.requestLineId),
+                              )
+                                ? true
+                                : available.some((l) =>
+                                      picked.has(l.requestLineId),
+                                    )
+                                  ? 'indeterminate'
+                                  : false
+                            }
+                            onCheckedChange={(v) =>
+                              setPicked(
+                                v === true
+                                  ? new Set([
+                                      ...picked,
+                                      ...available.map((l) => l.requestLineId),
+                                    ])
+                                  : new Set(),
+                              )
+                            }
+                          />
+                        </th>
+                        <th className="px-3 py-2 font-medium">Material</th>
+                        <th className="w-28 px-3 py-2 text-right font-medium">
+                          To order
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {available.map((l) => {
+                        const checked = picked.has(l.requestLineId)
+                        const toggle = () => {
+                          const next = new Set(picked)
+                          if (checked) next.delete(l.requestLineId)
+                          else next.add(l.requestLineId)
+                          setPicked(next)
+                        }
+                        return (
+                          <tr
+                            key={l.requestLineId}
+                            onClick={toggle}
+                            className={cn(
+                              'cursor-pointer border-b border-(--line) align-top last:border-0 hover:bg-accent',
+                              checked && 'bg-accent',
+                            )}
                           >
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={toggle}
-                              aria-label={`Select ${l.materialName} from ${l.requestNumber}`}
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-xs text-(--muted) tabular-nums">
-                                {l.materialCode}
-                              </span>
-                              <span>{l.materialName}</span>
-                              {l.source === 'extra' ? (
-                                <LineFlagBadge flag="extra" />
+                            <td
+                              className="px-3 py-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={toggle}
+                                aria-label={`Select ${l.materialName} from ${l.requestNumber}`}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-(--muted) tabular-nums">
+                                  {l.materialCode}
+                                </span>
+                                <span>{l.materialName}</span>
+                                {l.source === 'extra' ? (
+                                  <LineFlagBadge flag="extra" />
+                                ) : null}
+                                {l.overPlan ? (
+                                  <LineFlagBadge flag="overPlan" />
+                                ) : null}
+                                {!l.inRab ? (
+                                  <LineFlagBadge flag="notInRab" />
+                                ) : null}
+                              </div>
+                              {l.note ? (
+                                <p
+                                  className={cn(
+                                    'mt-0.5 text-xs',
+                                    hintClassName,
+                                  )}
+                                >
+                                  “{l.note}”
+                                </p>
                               ) : null}
-                              {l.overPlan ? (
-                                <LineFlagBadge flag="overPlan" />
-                              ) : null}
-                              {!l.inRab ? (
-                                <LineFlagBadge flag="notInRab" />
-                              ) : null}
-                            </div>
-                            {l.note ? (
-                              <p className={cn('mt-0.5 text-xs', hintClassName)}>
-                                “{l.note}”
-                              </p>
-                            ) : null}
-                          </td>
-                          <td className="px-3 py-2 text-right font-medium tabular-nums">
-                            {l.remainingQty} {l.uomSymbol}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </details>
+                            </td>
+                            <td className="px-3 py-2 text-right font-medium tabular-nums">
+                              {l.remainingQty} {l.uomSymbol}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </details>
         )
       ) : null}
 
@@ -1293,7 +1366,10 @@ export default function PurchaseOrderEditor({
                 onClick={() => {
                   setShowErrors(true)
                   if (canSave) setConfirm('submit')
-                  else toast.error('Fix the highlighted fields first')
+                  else {
+                    toast.error('Fix the highlighted fields first')
+                    if (detailsErrors.length > 0) setDetailsOpen(true)
+                  }
                 }}
               >
                 <Send className="size-3.5" aria-hidden />
@@ -1450,11 +1526,35 @@ export default function PurchaseOrderEditor({
 }
 
 /** Label over a value in the details panel. */
-function Field({ label, children }: { label: string; children: ReactNode }) {
+/** A titled group of label / value rows in the details sheet. */
+function DetailSection({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
   return (
-    <div className="min-w-0 space-y-1 text-sm">
-      <span className={cn('block text-xs', hintClassName)}>{label}</span>
-      {children}
+    <section className="space-y-2">
+      <h3 className={metaTextClassName}>{title}</h3>
+      <dl className="divide-y divide-(--line) rounded-md border border-(--line)">
+        {children}
+      </dl>
+    </section>
+  )
+}
+
+function DetailRow({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-3 px-3 py-2 text-sm">
+      <dt className={cn('pt-0.5 text-xs', hintClassName)}>{label}</dt>
+      <dd className="min-w-0">{children}</dd>
     </div>
   )
 }

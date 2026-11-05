@@ -19,6 +19,7 @@ import { Button } from '#/components/ui/button'
 import { Calendar } from '#/components/ui/calendar'
 import { Combobox } from '#/components/ui/combobox'
 import ProjectGanttChart from '#/components/forms/ProjectGanttChart'
+import ProjectSchedulePanel from '#/components/forms/schedule/ProjectSchedulePanel'
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ import {
   PROJECT_CALENDAR_EVENT_TYPE_LABELS,
   PROJECT_CALENDAR_EVENT_TYPES,
   PROJECT_CALENDAR_TONE_STYLES,
+  PROJECT_CALENDAR_VIEW_LABELS,
   deadlineCountdown,
   eventTone,
   eventsForYmd,
@@ -59,6 +61,7 @@ import {
   type ProjectCalendarEventType,
   type ProjectCalendarView,
 } from '#/lib/projectCalendar'
+import type { ProjectSCurve } from '#/lib/projectSchedule'
 import {
   buttonClassName,
   buttonOutlineClassName,
@@ -75,6 +78,8 @@ type Props = {
 
 type EditorState = {
   id?: string
+  /** From the project schedule: shown, not editable here. */
+  readOnly?: boolean
   type: ProjectCalendarEventType
   title: string
   notes: string
@@ -109,6 +114,7 @@ function emptyEditor(defaults?: Partial<EditorState>): EditorState {
 function eventToEditor(event: ProjectCalendarEvent): EditorState {
   return {
     id: event.id,
+    readOnly: event.source === 'schedule',
     type: event.type,
     title: event.title,
     notes: event.notes,
@@ -171,6 +177,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
   const [loading, setLoading] = useState(true)
   const [events, setEvents] = useState<ProjectCalendarEvent[]>([])
   const [agenda, setAgenda] = useState<ProjectCalendarAgenda | null>(null)
+  const [sCurve, setSCurve] = useState<ProjectSCurve | null>(null)
   const [view, setView] = useState<ProjectCalendarView>('month')
   const [cursorYmd, setCursorYmd] = useState(todayYmdJakarta)
   const [editor, setEditor] = useState<EditorState | null>(null)
@@ -185,12 +192,15 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [listRes, agendaRes] = await Promise.all([
+      const [listRes, agendaRes, curveRes] = await Promise.all([
         apiFetch<ProjectCalendarEvent[]>(`/project/${projectId}/calendar`),
         apiFetch<ProjectCalendarAgenda>(
           `/project/calendar/agenda?projectId=${encodeURIComponent(projectId)}&nearDays=7`,
         ),
+        apiFetch<ProjectSCurve>(`/project/${projectId}/s-curve?period=day`),
       ])
+      // The S-curve is an optional overlay on the Gantt view.
+      setSCurve(curveRes.success && curveRes.data.points.length > 0 ? curveRes.data : null)
       if (!listRes.success || !listRes.data) {
         toast.error(listRes.message || 'Failed to load calendar')
         setEvents([])
@@ -234,8 +244,10 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
     )
   }, [])
 
+  const editable = canManage && !editor?.readOnly
+
   async function saveEditor() {
-    if (!editor || !canManage || saving) return
+    if (!editor || !editable || saving) return
     const title = editor.title.trim()
     if (!title) {
       toast.error('Title is required')
@@ -291,7 +303,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
   }
 
   async function deleteEditor() {
-    if (!editor?.id || !canManage || saving) return
+    if (!editor?.id || !editable || saving) return
     setSaving(true)
     try {
       const response = await apiFetch<null>(
@@ -341,23 +353,28 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex flex-wrap gap-1 rounded-md border border-(--line) p-0.5">
-            {(['month', 'day', 'gantt'] as const).map((mode) => (
+            {(['month', 'day', 'gantt', 'scurve'] as const).map((mode) => (
               <button
                 key={mode}
                 type="button"
                 className={cn(
-                  'rounded px-3 py-1.5 text-sm capitalize transition',
+                  'rounded px-3 py-1.5 text-sm transition',
                   view === mode
                     ? 'bg-(--ink) text-white'
                     : 'text-(--muted) hover:bg-(--surface) hover:text-(--ink)',
                 )}
                 onClick={() => setView(mode)}
               >
-                {mode}
+                {PROJECT_CALENDAR_VIEW_LABELS[mode]}
               </button>
             ))}
           </div>
-          <ul className="flex flex-wrap items-center gap-3 text-[11px] text-(--muted)">
+          <ul
+            className={cn(
+              'flex flex-wrap items-center gap-3 text-[11px] text-(--muted)',
+              view === 'scurve' && 'hidden',
+            )}
+          >
             {LEGEND_TONES.map((tone) => (
               <li key={tone} className="inline-flex items-center gap-1.5">
                 <span
@@ -374,7 +391,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
             ))}
           </ul>
         </div>
-        {canManage ? (
+        {canManage && view !== 'scurve' ? (
           <Button
             type="button"
             className={cn(buttonClassName, 'inline-flex items-center gap-2')}
@@ -560,7 +577,16 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
       {view === 'gantt' ? (
         <ProjectGanttChart
           events={events}
+          sCurve={sCurve}
           onSelectEvent={(event) => setEditor(eventToEditor(event))}
+        />
+      ) : null}
+
+      {view === 'scurve' ? (
+        <ProjectSchedulePanel
+          projectId={projectId}
+          canManage={canManage}
+          onChanged={() => void load()}
         />
       ) : null}
 
@@ -573,15 +599,25 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {editor?.id ? 'Edit event' : 'Add event'}
+              {editor?.readOnly
+                ? 'Schedule'
+                : editor?.id
+                  ? 'Edit event'
+                  : 'Add event'}
             </DialogTitle>
           </DialogHeader>
+          {editor?.readOnly ? (
+            <p className={cn('text-sm', hintClassName)}>
+              From the project schedule. Change it in the S-curve view or Edit project.
+            </p>
+          ) : null}
           {editor ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <p className="text-sm text-(--muted)">Type</p>
                 <Combobox
                   value={editor.type}
+                  disabled={!editable}
                   onValueChange={(value) => {
                     if (
                       !PROJECT_CALENDAR_EVENT_TYPES.includes(
@@ -610,7 +646,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
                     <button
                       key={preset}
                       type="button"
-                      disabled={!canManage}
+                      disabled={!editable}
                       className={cn(
                         buttonOutlineClassName,
                         'px-2 py-1 text-[11px] text-red-700',
@@ -628,7 +664,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
                 <input
                   className={cn(inputClassName, 'w-full')}
                   value={editor.title}
-                  disabled={!canManage}
+                  disabled={!editable}
                   onChange={(e) =>
                     setEditor({ ...editor, title: e.target.value })
                   }
@@ -640,7 +676,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
                 <textarea
                   className={cn(inputClassName, 'min-h-16 w-full')}
                   value={editor.notes}
-                  disabled={!canManage}
+                  disabled={!editable}
                   onChange={(e) =>
                     setEditor({ ...editor, notes: e.target.value })
                   }
@@ -652,7 +688,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
                 ymd={splitLocal(editor.startLocal).ymd}
                 hm={splitLocal(editor.startLocal).hm}
                 showTime={editor.type === 'range'}
-                disabled={!canManage}
+                disabled={!editable}
                 onChange={({ ymd, hm }) =>
                   setEditor({
                     ...editor,
@@ -667,7 +703,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
                   ymd={splitLocal(editor.endLocal).ymd}
                   hm={splitLocal(editor.endLocal).hm}
                   showTime
-                  disabled={!canManage}
+                  disabled={!editable}
                   onChange={({ ymd, hm }) =>
                     setEditor({
                       ...editor,
@@ -679,7 +715,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
             </div>
           ) : null}
           <DialogFooter className="gap-2">
-            {canManage && editor?.id ? (
+            {editable && editor?.id ? (
               <Button
                 type="button"
                 variant="outline"
@@ -699,7 +735,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
             >
               Cancel
             </Button>
-            {canManage ? (
+            {editable ? (
               <Button
                 type="button"
                 disabled={saving}

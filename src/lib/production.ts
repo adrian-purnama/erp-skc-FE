@@ -1,6 +1,17 @@
 import type { ProjectRabUserRef } from '#/lib/project'
 
+/** Shop drawing item make type: a tag only. */
 export type ProductionOrderType = 'inhouse' | 'subcon' | 'outsource'
+export type ProductionLabourRole = 'making' | 'install'
+export type ProductionLabourExecutor = 'inhouse' | 'vendor'
+
+export const PRODUCTION_EXECUTOR_LABELS: Record<
+  ProductionLabourExecutor,
+  string
+> = {
+  inhouse: 'Inhouse',
+  vendor: 'Vendor',
+}
 export type ProductionOrderStatus =
   'draft' | 'released' | 'in_progress' | 'completed' | 'cancelled'
 
@@ -30,6 +41,16 @@ export const PRODUCTION_ORDER_TYPE_LABELS: Record<ProductionOrderType, string> =
     outsource: 'Outsource',
   }
 
+/** Dot colour per make type (ListChip tone): subcon blue, outsource amber. */
+export const PRODUCTION_ORDER_TYPE_TONES: Record<
+  ProductionOrderType,
+  'neutral' | 'info' | 'warning'
+> = {
+  inhouse: 'neutral',
+  subcon: 'info',
+  outsource: 'warning',
+}
+
 export type ProductionReadinessCheck = {
   key: 'quotation' | 'rab' | 'items'
   label: string
@@ -44,11 +65,17 @@ export type ProductionReadinessItem = {
   label: string
   makeType: ProductionOrderType
   shopDrawing: boolean
+  /** BOQ with qty; on outsource, the item's own qty. */
   boq: boolean
+  /** False on outsource: no BOQ, the qty is set on the item. */
+  boqRequired: boolean
   makeQty: string | null
   productionFile: boolean
-  /** False for outsource: the vendor brings its own production files. */
+  /** False for outsource: File Produksi is optional there. */
   productionFileRequired: boolean
+  /** Making labour set: sequences 1..n, weights totalling 100. */
+  labour: boolean
+  labourDetail: string
   ready: boolean
 }
 
@@ -76,19 +103,50 @@ export const PRODUCTION_ITEM_STATUS_LABELS: Record<
   done: 'Done',
 }
 
+/** One RAB labour line of an item: what its SPKs hold and finished. */
+export type ProductionStageProgress = {
+  key: string
+  labourItemId: string
+  labourUomId: string
+  name: string
+  role: ProductionLabourRole
+  executor: ProductionLabourExecutor
+  sequence: number | null
+  weightPercent: number | null
+  orderedQty: string
+  doneQty: string
+  /** Free for a new SPK: makeQty (install: what feeds the step) − orderedQty. */
+  remainingToOrder: string
+  orderCount: number
+}
+
 export type ProductionItemProgress = {
   itemId: string
   code: string
   name: string
   label: string
   category: string | null
+  makeType: ProductionOrderType
   makeQty: string
+  /** Held by first-stage SPKs. */
   orderedQty: string
+  /** Pcs fully made (last making stage). */
   doneQty: string
   remainingToOrder: string
+  /** Weighted making progress 0–100. */
   percent: number
+  /** Pcs fully installed (last install step). */
+  installedQty: string
+  /** Weighted install progress 0–100. */
+  installPercent: number
+  /** Stages and weights are valid, so SPKs can be made. */
+  processReady: boolean
+  /** What is missing, or a short summary when ready. */
+  processDetail: string
   status: ProductionItemProgressStatus
   orderCount: number
+  /** Making stages in sequence, then install steps in sequence. */
+  stages: ProductionStageProgress[]
 }
 
 export type ProductionProjectProgress = {
@@ -101,7 +159,13 @@ export type ProductionProjectProgress = {
 export type ProductionOrderSummary = {
   id: string
   number: string
-  type: ProductionOrderType
+  labourItemId: string
+  labourUomId: string
+  labourName: string
+  role: ProductionLabourRole
+  executor: ProductionLabourExecutor
+  /** Stage order within its track (making or install). */
+  sequence: number | null
   status: ProductionOrderStatus
   projectId: string
   projectNumber: string
@@ -109,9 +173,9 @@ export type ProductionOrderSummary = {
   shopDrawingItemId: string
   itemLabel: string
   qty: string
-  /** Finished pcs (last labour stage, or legacy Σ reports). */
+  /** Σ live reports on this SPK. */
   doneQty: string
-  /** Weighted labour progress 0–100 when staged; else done/qty %. */
+  /** doneQty / qty, 0–100. */
   progressPercent: number
   plannedStart: string | null
   plannedFinish: string | null
@@ -120,15 +184,6 @@ export type ProductionOrderSummary = {
   createdAt: string | null
   releasedAt: string | null
   completedAt: string | null
-}
-
-export type ProductionLabourStage = {
-  sequence: number
-  name: string
-  weightPercent: number
-  materialItemId: string
-  itemUomId: string
-  qtyDone: string
 }
 
 export type ProductionOrderMaterial = {
@@ -150,8 +205,6 @@ export type ProductionReport = {
   /** Set when a vendor handover created it; void the handover instead. */
   handoverId: string | null
   qtyDone: string
-  /** Inhouse staged report; null on legacy / vendor. */
-  stageSequence: number | null
   reportDate: string
   notes: string
   reportedBy: ProjectRabUserRef | null
@@ -184,6 +237,10 @@ export type ProductionOrder = ProductionOrderSummary & {
   shopDrawingFile: ProductionOrderFileRef | null
   productionFile: ProductionOrderFileRef | null
   maxQty: string
+  /** Item-wide qty this stage may still report; null on the first making stage. */
+  reportRoom: string | null
+  /** Where that room comes from (previous stage, or "Fully made"). */
+  reportRoomFrom: string | null
   reports: ProductionReport[]
   /** Subcon / outsource: vendor handovers, newest first. */
   handovers: ProductionHandover[]
@@ -199,8 +256,6 @@ export type ProductionOrder = ProductionOrderSummary & {
   dispatchVendor: { vendorName: string; purchaseOrderNumber: string } | null
   /** POs carrying this SPK's lines; `vendorFee` ones are the subcon / outsource vendor. */
   purchaseOrders: ProductionOrderPurchase[]
-  /** Inhouse staged SPK: frozen labour stepper (empty when legacy / vendor). */
-  labourStages: ProductionLabourStage[]
 }
 
 export type ProductionOrderPurchase = {
@@ -336,7 +391,10 @@ export type MaterialDispatch = {
   voidReason: string
 }
 
-export const MATERIAL_DISPATCH_STATUS_LABELS: Record<MaterialDispatchStatus, string> = {
+export const MATERIAL_DISPATCH_STATUS_LABELS: Record<
+  MaterialDispatchStatus,
+  string
+> = {
   draft: 'Draft',
   pending_approval: 'Waiting approval',
   approved: 'Approved',
@@ -394,3 +452,19 @@ export function productionStatusChipClass(
       return 'border-(--line) text-(--muted)'
   }
 }
+
+/** One stage row sent by the Production process editor. */
+export type ProductionProcessLineInput = {
+  role: ProductionLabourRole
+  executor: ProductionLabourExecutor
+  sequence: number
+  weightPercent: number
+} & (
+  | { key: string }
+  | {
+      labourItemId: string
+      labourUomId: string
+      totalQty: string
+      unitPrice: string
+    }
+)

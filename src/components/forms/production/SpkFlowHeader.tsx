@@ -89,8 +89,11 @@ export default function SpkFlowHeader({ order }: { order: ProductionOrder }) {
   const done = Number(order.doneQty)
   const qty = Number(order.qty)
   const stages: Stage[] = []
+  const vendorWork = order.executor === 'vendor'
+  // The item's BOQ materials ride on its first making stage.
+  const carriesMaterials = order.role === 'making' && order.sequence === 1
 
-  if (order.type !== 'inhouse') {
+  if (vendorWork) {
     stages.push({
       key: 'vendor',
       title: 'Vendor',
@@ -119,7 +122,7 @@ export default function SpkFlowHeader({ order }: { order: ProductionOrder }) {
     })
   }
 
-  if (order.type !== 'outsource') {
+  if (carriesMaterials) {
     const arrived =
       material.approved.length > 0 &&
       material.approved.every((o) => o.receipt === 'full' || o.closedPartial)
@@ -130,7 +133,7 @@ export default function SpkFlowHeader({ order }: { order: ProductionOrder }) {
     )
     stages.push({
       key: 'material',
-      title: order.type === 'subcon' ? 'Material bought' : 'Material',
+      title: vendorWork ? 'Material bought' : 'Material',
       ...(!hasMaterial
         ? {
             tone: 'ok' as const,
@@ -179,7 +182,7 @@ export default function SpkFlowHeader({ order }: { order: ProductionOrder }) {
     })
   }
 
-  if (order.type === 'subcon') {
+  if (vendorWork && carriesMaterials) {
     const mats = order.materialsAtVendor
     const atVendor = mats.filter(
       (m) => Number(m.atVendorQty) >= Number(m.needQty),
@@ -209,23 +212,25 @@ export default function SpkFlowHeader({ order }: { order: ProductionOrder }) {
 
   stages.push({
     key: 'work',
-    title: order.type === 'inhouse' ? 'Production' : 'Handed over',
+    title: vendorWork ? 'Handed over' : order.labourName || 'Production',
     tone: done >= qty ? 'ok' : done > 0 ? 'progress' : 'idle',
     label: `${order.doneQty} of ${order.qty}`,
     detail:
-      order.type === 'inhouse'
-        ? 'Reported done'
+      !vendorWork
+        ? order.reportRoom !== null
+          ? `${order.reportRoom} ready from ${order.reportRoomFrom}`
+          : 'Reported done'
         : `${order.handovers.filter((h) => h.status === 'posted').length} handover(s)`,
     pct: pctOf(done, qty),
     next:
-      order.type === 'inhouse'
+      !vendorWork
         ? 'Production in progress: report output'
         : "Waiting for the vendor's handover",
   })
 
   /** Fee lives in purchasing/finance — text cue only, never PO numbers or amounts. */
   const feeCue =
-    order.type === 'inhouse' || fee.approved.length > 0
+    !vendorWork || fee.approved.length > 0
       ? null
       : fee.pending || fee.live.length > 0
         ? 'Waiting fee PO'

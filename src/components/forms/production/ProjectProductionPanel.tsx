@@ -2,26 +2,23 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import {
   CalendarClock,
-  CircleCheck,
   CircleDot,
   FileText,
-  Gauge,
   Hammer,
   ListChecks,
   LoaderCircle,
   Package,
-  Plus,
   UserRound,
 } from 'lucide-react'
 import ProductionOrderDialog, {
   ProductionStatusChip,
-  ProgressBar,
 } from '#/components/forms/production/ProductionOrderDialog'
+import ProductionItemList from '#/components/forms/production/ProductionItemList'
 import ProductionNotesField from '#/components/forms/production/ProductionNotesField'
 import ProductionPicPicker from '#/components/forms/production/ProductionPicPicker'
-import ListTable, {
-  type ListTableColumn,
-} from '#/components/forms/shared/ListTable'
+import ProductionProcessDialog from '#/components/forms/production/ProductionProcessDialog'
+import ListTable from '#/components/forms/shared/ListTable'
+import type { ListTableColumn } from '#/components/forms/shared/ListTable'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,7 +33,7 @@ import { Button } from '#/components/ui/button'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import {
-  PRODUCTION_ITEM_STATUS_LABELS,
+  PRODUCTION_EXECUTOR_LABELS,
   PRODUCTION_ORDER_STATUS_LABELS,
 } from '#/lib/production'
 import type {
@@ -44,6 +41,7 @@ import type {
   ProductionOrder,
   ProductionOrderSummary,
   ProductionProjectProgress,
+  ProductionStageProgress,
 } from '#/lib/production'
 import {
   dialogInputClassName,
@@ -58,6 +56,7 @@ type Props = {
 
 type CreateForm = {
   item: ProductionItemProgress
+  stage: ProductionStageProgress
   qty: string
   plannedStart: string
   plannedFinish: string
@@ -65,7 +64,18 @@ type CreateForm = {
   notes: string
 }
 
-/** Production phase of a project: per-item progress and its SPKs. */
+/** "Stage 2 · 40%" / "Install 1 · 30%". */
+function stageLabel(stage: {
+  role: ProductionStageProgress['role']
+  sequence: number | null
+  weightPercent?: number | null
+}): string {
+  const weight = stage.weightPercent != null ? ` · ${stage.weightPercent}%` : ''
+  const name = stage.role === 'install' ? 'Install' : 'Stage'
+  return `${name} ${stage.sequence ?? '—'}${weight}`
+}
+
+/** Production phase of a project: per-item stages and their SPKs (one per labour line). */
 export default function ProjectProductionPanel({ projectId }: Props) {
   const { can } = useAuth()
   const canManage = can('production.manage')
@@ -80,6 +90,9 @@ export default function ProjectProductionPanel({ projectId }: Props) {
   const [create, setCreate] = useState<CreateForm | null>(null)
   const [creating, setCreating] = useState(false)
   const [showCancelled, setShowCancelled] = useState(false)
+  const [processItemId, setProcessItemId] = useState<string | null>(null)
+  const processItem =
+    progress?.items.find((i) => i.itemId === processItemId) ?? null
   const cancelledCount = orders.filter((o) => o.status === 'cancelled').length
   const visibleOrders = showCancelled
     ? orders
@@ -127,6 +140,8 @@ export default function ProjectProductionPanel({ projectId }: Props) {
         body: JSON.stringify({
           projectId,
           shopDrawingItemId: create.item.itemId,
+          labourItemId: create.stage.labourItemId,
+          labourUomId: create.stage.labourUomId,
           qty: create.qty,
           plannedStart: create.plannedStart || null,
           plannedFinish: create.plannedFinish || null,
@@ -149,94 +164,20 @@ export default function ProjectProductionPanel({ projectId }: Props) {
     }
   }
 
-  const itemColumns = useMemo<ListTableColumn<ProductionItemProgress>[]>(
-    () => [
-      {
-        header: 'Item',
-        icon: Package,
-        cellClassName: 'font-medium',
-        cell: (i) => (
-          <div className="min-w-0">
-            <p>{i.label}</p>
-            {i.category ? (
-              <p className="text-[10px] font-normal tracking-wide text-(--muted)">
-                {i.category}
-              </p>
-            ) : null}
-          </div>
-        ),
-      },
-      {
-        header: 'Make',
-        icon: Hammer,
-        cellClassName: 'w-16 text-right tabular-nums',
-        cell: (i) => i.makeQty,
-      },
-      {
-        header: 'In SPK',
-        icon: FileText,
-        cellClassName: 'w-16 text-right tabular-nums',
-        cell: (i) => i.orderedQty,
-      },
-      {
-        header: 'Done',
-        icon: CircleCheck,
-        cellClassName: 'w-16 text-right font-medium tabular-nums',
-        cell: (i) => i.doneQty,
-      },
-      {
-        header: 'Progress',
-        icon: Gauge,
-        cellClassName: 'w-40',
-        cell: (i) => (
-          <div className="flex items-center gap-2">
-            <ProgressBar percent={i.percent} />
-            <span className="w-9 text-right text-xs tabular-nums">
-              {i.percent}%
-            </span>
-          </div>
-        ),
-      },
-      {
-        header: 'Status',
-        icon: CircleDot,
-        cellClassName: 'w-28',
-        cell: (i) => (
-          <ProductionStatusChip
-            status={i.status}
-            label={PRODUCTION_ITEM_STATUS_LABELS[i.status]}
-          />
-        ),
-      },
-      {
-        header: '',
-        cellClassName: 'w-28 text-right',
-        cell: (i) =>
-          canManage && Number(i.remainingToOrder) > 0 ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1 px-2 text-xs"
-              onClick={() =>
-                setCreate({
-                  item: i,
-                  qty: i.remainingToOrder,
-                  plannedStart: '',
-                  plannedFinish: '',
-                  picUserId: null,
-                  notes: '',
-                })
-              }
-            >
-              <Plus className="size-3" aria-hidden />
-              New SPK
-            </Button>
-          ) : null,
-      },
-    ],
-    [canManage],
-  )
+  function openCreate(
+    item: ProductionItemProgress,
+    stage: ProductionStageProgress,
+  ) {
+    setCreate({
+      item,
+      stage,
+      qty: stage.remainingToOrder,
+      plannedStart: '',
+      plannedFinish: '',
+      picUserId: null,
+      notes: '',
+    })
+  }
 
   const orderColumns = useMemo<ListTableColumn<ProductionOrderSummary>[]>(
     () => [
@@ -247,6 +188,20 @@ export default function ProjectProductionPanel({ projectId }: Props) {
         cell: (o) => o.number,
       },
       { header: 'Item', icon: Package, cell: (o) => o.itemLabel },
+      {
+        header: 'Labour',
+        icon: Hammer,
+        cellClassName: 'w-44',
+        cell: (o) => (
+          <div className="min-w-0">
+            <p className="truncate">{o.labourName}</p>
+            <p className="text-[10px] tracking-wide text-(--muted)">
+              {stageLabel(o)}
+              {o.executor === 'vendor' ? ' · Vendor' : ''}
+            </p>
+          </div>
+        ),
+      },
       {
         header: 'Done / qty',
         icon: ListChecks,
@@ -312,27 +267,15 @@ export default function ProjectProductionPanel({ projectId }: Props) {
 
   return (
     <div className="space-y-8">
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="space-y-1">
-            <h2 className={sectionTitleClassName}>Progress per item</h2>
-            <p className={hintClassName}>
-              {progress.totals.doneQty} of {progress.totals.makeQty} units done
-              ({progress.totals.percent}%).
-            </p>
-          </div>
-          <div className="w-48">
-            <ProgressBar percent={progress.totals.percent} />
-          </div>
-        </div>
-        <ListTable
-          empty="No shop drawing items."
-          columns={itemColumns}
-          rows={progress.items}
-          rowKey={(i) => i.itemId}
-          minWidthClassName="min-w-[760px]"
-        />
-      </section>
+      <ProductionItemList
+        progress={progress}
+        orders={orders}
+        onOpenOrder={setOpenOrderId}
+        onNew={canManage ? openCreate : undefined}
+        onProcess={
+          canManage ? (item) => setProcessItemId(item.itemId) : undefined
+        }
+      />
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -354,8 +297,8 @@ export default function ProjectProductionPanel({ projectId }: Props) {
         <ListTable
           empty={
             orders.length > 0
-              ? 'No open SPK. Use New SPK on an item above.'
-              : 'No SPK yet. Use New SPK on an item above.'
+              ? 'No open SPK. Use New SPK on a labour line above.'
+              : 'No SPK yet. Use New SPK on a labour line above.'
           }
           columns={orderColumns}
           rows={visibleOrders}
@@ -364,6 +307,19 @@ export default function ProjectProductionPanel({ projectId }: Props) {
           onRowClick={(o) => setOpenOrderId(o.id)}
         />
       </section>
+
+      <ProductionProcessDialog
+        projectId={projectId}
+        item={processItem}
+        onOpenChange={(open) => {
+          if (!open) setProcessItemId(null)
+        }}
+        onSaved={(next) => {
+          setProgress(next)
+          setProcessItemId(null)
+          void load()
+        }}
+      />
 
       <ProductionOrderDialog
         orderId={openOrderId}
@@ -383,10 +339,19 @@ export default function ProjectProductionPanel({ projectId }: Props) {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>New SPK · {create?.item.label}</AlertDialogTitle>
+            <AlertDialogTitle>
+              New SPK · {create?.item.label} · {create?.stage.name}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Inhouse production. {create?.item.remainingToOrder} of{' '}
-              {create?.item.makeQty} still free for this item.
+              {create
+                ? `${stageLabel(create.stage)} · ${PRODUCTION_EXECUTOR_LABELS[create.stage.executor]}. ${create.stage.remainingToOrder} of ${
+                    create.stage.role === 'install'
+                      ? create.stage.sequence === 1
+                        ? `${create.item.doneQty} fully made`
+                        : 'the previous install step'
+                      : create.item.makeQty
+                  } still free on this labour.`
+                : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {create ? (
