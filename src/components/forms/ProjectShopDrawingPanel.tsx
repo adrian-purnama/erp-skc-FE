@@ -1098,9 +1098,14 @@ export default function ProjectShopDrawingPanel({
                   className="w-full rounded-md border border-(--line) bg-transparent px-3 py-2 pr-8 text-sm uppercase placeholder:normal-case"
                   onChange={(e) => setCategoryDraft(e.target.value)}
                   onKeyDown={(e) => {
+                    // Enter picks the category being typed; it never saves the item.
                     if (e.key === 'Enter') {
                       e.preventDefault()
-                      void confirmNameDialog()
+                      const typed = categoryDraft.trim().toUpperCase()
+                      const matches = typed
+                        ? categories.filter((c) => c.startsWith(typed))
+                        : []
+                      if (matches.length === 1) setCategoryDraft(matches[0])
                     }
                   }}
                 />

@@ -256,6 +256,8 @@ export type ProductionOrder = ProductionOrderSummary & {
   dispatchVendor: { vendorName: string; purchaseOrderNumber: string } | null
   /** POs carrying this SPK's lines; `vendorFee` ones are the subcon / outsource vendor. */
   purchaseOrders: ProductionOrderPurchase[]
+  /** Active SPK: materials not fully received; completing then needs a note. */
+  materialsNotArrived: string[]
 }
 
 export type ProductionOrderPurchase = {

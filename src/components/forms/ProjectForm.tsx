@@ -584,13 +584,16 @@ function ProjectEditor({
     return options
   }, [customers, customerId, assignedCustomerName])
 
+  // Win comes from a won quotation; it is only listed when already set.
   const statusOptions = useMemo(
     () =>
-      PROJECT_STATUSES.map((value) => ({
-        value,
-        label: PROJECT_STATUS_LABELS[value],
-      })),
-    [],
+      PROJECT_STATUSES.filter((value) => value !== 'win' || status === 'win').map(
+        (value) => ({
+          value,
+          label: PROJECT_STATUS_LABELS[value],
+        }),
+      ),
+    [status],
   )
 
   const loseReasonOptions = useMemo(

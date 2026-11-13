@@ -124,7 +124,7 @@ export default function ProductionOrdersForm({
         icon: Factory,
         cellClassName: 'w-40',
         cell: (o) =>
-          `${o.labourName}${o.role === 'install' ? ' · Install' : o.sequence ? ` · ${o.sequence}` : ''}${o.executor === 'vendor' ? ' · Vendor' : ''}`,
+          `${o.labourName || '—'}${o.role === 'install' ? ' · Install' : o.sequence ? ` · ${o.sequence}` : ''}${o.executor === 'vendor' ? ' · Vendor' : ''}`,
       },
       {
         header: 'Progress',

@@ -25,6 +25,7 @@ import ListTable, {
 import { Button } from '#/components/ui/button'
 import { Combobox } from '#/components/ui/combobox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
+import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import { DEFAULT_PAGE_SIZE, paginate } from '#/lib/pagination'
 import {
@@ -82,6 +83,7 @@ export default function PurchaseOrdersForm({
   tab: PurchaseOrdersTab
   onTabChange: (tab: PurchaseOrdersTab) => void
 }) {
+  const superAdmin = useAuth().user?.permissions.includes('*') ?? false
   const waiting = useWaitingRequests()
   const reloadWaiting = waiting.load
 
@@ -97,7 +99,7 @@ export default function PurchaseOrdersForm({
         <p className={cn('mt-2', hintClassName)}>
           {tab === 'waiting'
             ? 'Submitted material requests with items still to order. Open one to make its PO.'
-            : 'POs you created. Each orders from one material request.'}
+            : `${superAdmin ? 'Every PO' : 'POs you created'}. Each orders from one material request.`}
         </p>
       </div>
       <Tabs value={tab} onValueChange={(v) => onTabChange(v as PurchaseOrdersTab)}>

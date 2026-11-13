@@ -63,6 +63,17 @@ function stopChipEvent(e: SyntheticEvent) {
   e.stopPropagation()
 }
 
+/**
+ * Every typed word must appear in the label (cmdk's default fuzzy match also
+ * hits scattered letters and the option id). Labels starting with the search rank first.
+ */
+function matchOption(value: string, search: string, keywords?: string[]) {
+  const label = (keywords?.[0] ?? value).toLowerCase()
+  const terms = search.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!terms.every((term) => label.includes(term))) return 0
+  return label.startsWith(terms[0] ?? '') ? 1 : 0.5
+}
+
 /** Max category rows shown at once; search to find the rest. */
 const CATEGORY_VISIBLE_LIMIT = 5
 
@@ -181,7 +192,7 @@ export function Combobox({
         )}
         align="start"
       >
-        <Command shouldFilter>
+        <Command shouldFilter filter={matchOption}>
           <div className="border-b border-(--line)">
             <div className="flex items-center gap-1 px-2">
               <SearchIcon className="ml-1 size-4 shrink-0 opacity-50" />
@@ -302,7 +313,7 @@ export function Combobox({
                 <CommandItem
                   key={option.value}
                   value={`${option.label} ${option.value}`}
-                  keywords={[option.label, option.value]}
+                  keywords={[option.label]}
                   onSelect={() => {
                     onValueChange(option.value)
                     setOpen(false)

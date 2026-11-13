@@ -368,10 +368,11 @@ export default function ProductionOrderDialog({
       ? order.reports.filter((r) => !r.handoverId)
       : order.reports
     : []
+  const materialShort = (order?.materialsNotArrived.length ?? 0) > 0
   const confirmNeedsText =
     confirm?.kind === 'cancel' ||
     confirm?.kind === 'void' ||
-    (confirm?.kind === 'complete' && short)
+    (confirm?.kind === 'complete' && (short || materialShort))
 
   return (
     <>
@@ -968,9 +969,15 @@ export default function ProductionOrderDialog({
                   : confirm?.kind === 'delete'
                     ? 'The draft is removed and its qty is free again.'
                     : confirm?.kind === 'complete'
-                      ? short
-                        ? `Only ${order?.doneQty} of ${order?.qty} finished. The rest is freed for a new SPK.`
-                        : 'All qty is finished. The SPK is closed.'
+                      ? `${
+                          short
+                            ? `Only ${order?.doneQty} of ${order?.qty} finished. The rest is freed for a new SPK.`
+                            : 'All qty is finished. The SPK is closed.'
+                        }${
+                          materialShort
+                            ? ` Material not fully received yet: ${order?.materialsNotArrived.join(', ')}. Note what was used instead (stock, leftovers).`
+                            : ''
+                        }`
                       : confirm?.kind === 'cancel'
                         ? 'No output was reported. Its qty is free again.'
                         : 'The qty no longer counts as done. The report stays in the history.'}

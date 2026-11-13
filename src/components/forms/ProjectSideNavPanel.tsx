@@ -37,13 +37,16 @@ export default function ProjectSideNavPanel({
   statusSaving,
   onSaveStatus,
 }: Props) {
+  // Win comes from a won quotation; it is only listed when already set.
   const statusOptions = useMemo(
     () =>
-      PROJECT_STATUSES.map((value) => ({
+      PROJECT_STATUSES.filter(
+        (value) => value !== 'win' || project.status === 'win',
+      ).map((value) => ({
         value,
         label: PROJECT_STATUS_LABELS[value],
       })),
-    [],
+    [project.status],
   )
 
   const loseReasonOptions = useMemo(
