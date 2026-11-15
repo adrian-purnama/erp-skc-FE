@@ -65,9 +65,18 @@ export default function ProjectListOverview({ rows, loading, filters }: Props) {
         ) : null}
 
         {panels.length > 0 ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(20rem,1fr))] gap-3">
+          // Rows of 3 (2 when that divides evenly); a short last row stretches, so no gaps or ragged heights.
+          <div className="flex flex-wrap gap-3">
             {panels.map((m) => (
-              <div key={m.id} className="min-w-0">
+              <div
+                key={m.id}
+                className={cn(
+                  'min-w-[min(100%,20rem)] flex-1',
+                  panels.length === 4 || panels.length <= 2
+                    ? 'basis-[calc(50%-0.375rem)]'
+                    : 'basis-[calc(33.333%-0.5rem)]',
+                )}
+              >
                 {m.render(ctx)}
               </div>
             ))}
