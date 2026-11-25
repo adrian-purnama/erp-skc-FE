@@ -41,6 +41,8 @@ import { Route as AuthenticatedDashboardProjectsNewRouteImport } from './routes/
 import { Route as AuthenticatedDashboardTermOfPaymentIndexRouteImport } from './routes/_authenticated/dashboard/term-of-payment/index'
 import { Route as AuthenticatedDashboardUomIndexRouteImport } from './routes/_authenticated/dashboard/uom/index'
 import { Route as AuthenticatedDashboardVendorsIndexRouteImport } from './routes/_authenticated/dashboard/vendors/index'
+import { Route as AuthenticatedDashboardWebsiteIndexRouteImport } from './routes/_authenticated/dashboard/website/index'
+import { Route as AuthenticatedDashboardWebsitePostIdRouteImport } from './routes/_authenticated/dashboard/website/$postId'
 import { Route as AuthenticatedDashboardFinancePaymentsIndexRouteImport } from './routes/_authenticated/dashboard/finance/payments/index'
 import { Route as AuthenticatedDashboardInternalProductionIndexRouteImport } from './routes/_authenticated/dashboard/internal/production/index'
 import { Route as AuthenticatedDashboardInternalQuotationIndexRouteImport } from './routes/_authenticated/dashboard/internal/quotation/index'
@@ -238,6 +240,18 @@ const AuthenticatedDashboardVendorsIndexRoute =
     path: '/vendors/',
     getParentRoute: () => AuthenticatedDashboardRouteRoute,
   } as any)
+const AuthenticatedDashboardWebsiteIndexRoute =
+  AuthenticatedDashboardWebsiteIndexRouteImport.update({
+    id: '/website/',
+    path: '/website/',
+    getParentRoute: () => AuthenticatedDashboardRouteRoute,
+  } as any)
+const AuthenticatedDashboardWebsitePostIdRoute =
+  AuthenticatedDashboardWebsitePostIdRouteImport.update({
+    id: '/website/$postId',
+    path: '/website/$postId',
+    getParentRoute: () => AuthenticatedDashboardRouteRoute,
+  } as any)
 const AuthenticatedDashboardFinancePaymentsIndexRoute =
   AuthenticatedDashboardFinancePaymentsIndexRouteImport.update({
     id: '/finance/payments/',
@@ -419,6 +433,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/projects/$projectId': typeof AuthenticatedDashboardProjectsProjectIdRouteRouteWithChildren
   '/dashboard/production/file': typeof AuthenticatedDashboardProductionFileRoute
   '/dashboard/projects/new': typeof AuthenticatedDashboardProjectsNewRoute
+  '/dashboard/website/$postId': typeof AuthenticatedDashboardWebsitePostIdRoute
   '/dashboard/customers/': typeof AuthenticatedDashboardCustomersIndexRoute
   '/dashboard/item-master/': typeof AuthenticatedDashboardItemMasterIndexRoute
   '/dashboard/production/': typeof AuthenticatedDashboardProductionIndexRoute
@@ -426,6 +441,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/term-of-payment/': typeof AuthenticatedDashboardTermOfPaymentIndexRoute
   '/dashboard/uom/': typeof AuthenticatedDashboardUomIndexRoute
   '/dashboard/vendors/': typeof AuthenticatedDashboardVendorsIndexRoute
+  '/dashboard/website/': typeof AuthenticatedDashboardWebsiteIndexRoute
   '/dashboard/projects/$projectId/edit': typeof AuthenticatedDashboardProjectsProjectIdEditRoute
   '/dashboard/purchasing/approvals/$orderId': typeof AuthenticatedDashboardPurchasingApprovalsOrderIdRoute
   '/dashboard/purchasing/invoices/$invoiceId': typeof AuthenticatedDashboardPurchasingInvoicesInvoiceIdRoute
@@ -474,6 +490,7 @@ export interface FileRoutesByTo {
   '/admin/users': typeof AdminUsersIndexRoute
   '/dashboard/production/file': typeof AuthenticatedDashboardProductionFileRoute
   '/dashboard/projects/new': typeof AuthenticatedDashboardProjectsNewRoute
+  '/dashboard/website/$postId': typeof AuthenticatedDashboardWebsitePostIdRoute
   '/dashboard/customers': typeof AuthenticatedDashboardCustomersIndexRoute
   '/dashboard/item-master': typeof AuthenticatedDashboardItemMasterIndexRoute
   '/dashboard/production': typeof AuthenticatedDashboardProductionIndexRoute
@@ -481,6 +498,7 @@ export interface FileRoutesByTo {
   '/dashboard/term-of-payment': typeof AuthenticatedDashboardTermOfPaymentIndexRoute
   '/dashboard/uom': typeof AuthenticatedDashboardUomIndexRoute
   '/dashboard/vendors': typeof AuthenticatedDashboardVendorsIndexRoute
+  '/dashboard/website': typeof AuthenticatedDashboardWebsiteIndexRoute
   '/dashboard/projects/$projectId/edit': typeof AuthenticatedDashboardProjectsProjectIdEditRoute
   '/dashboard/purchasing/approvals/$orderId': typeof AuthenticatedDashboardPurchasingApprovalsOrderIdRoute
   '/dashboard/purchasing/invoices/$invoiceId': typeof AuthenticatedDashboardPurchasingInvoicesInvoiceIdRoute
@@ -535,6 +553,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/projects/$projectId': typeof AuthenticatedDashboardProjectsProjectIdRouteRouteWithChildren
   '/_authenticated/dashboard/production/file': typeof AuthenticatedDashboardProductionFileRoute
   '/_authenticated/dashboard/projects/new': typeof AuthenticatedDashboardProjectsNewRoute
+  '/_authenticated/dashboard/website/$postId': typeof AuthenticatedDashboardWebsitePostIdRoute
   '/_authenticated/dashboard/customers/': typeof AuthenticatedDashboardCustomersIndexRoute
   '/_authenticated/dashboard/item-master/': typeof AuthenticatedDashboardItemMasterIndexRoute
   '/_authenticated/dashboard/production/': typeof AuthenticatedDashboardProductionIndexRoute
@@ -542,6 +561,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/term-of-payment/': typeof AuthenticatedDashboardTermOfPaymentIndexRoute
   '/_authenticated/dashboard/uom/': typeof AuthenticatedDashboardUomIndexRoute
   '/_authenticated/dashboard/vendors/': typeof AuthenticatedDashboardVendorsIndexRoute
+  '/_authenticated/dashboard/website/': typeof AuthenticatedDashboardWebsiteIndexRoute
   '/_authenticated/dashboard/projects/$projectId/edit': typeof AuthenticatedDashboardProjectsProjectIdEditRoute
   '/_authenticated/dashboard/purchasing/approvals/$orderId': typeof AuthenticatedDashboardPurchasingApprovalsOrderIdRoute
   '/_authenticated/dashboard/purchasing/invoices/$invoiceId': typeof AuthenticatedDashboardPurchasingInvoicesInvoiceIdRoute
@@ -595,6 +615,7 @@ export interface FileRouteTypes {
     | '/dashboard/projects/$projectId'
     | '/dashboard/production/file'
     | '/dashboard/projects/new'
+    | '/dashboard/website/$postId'
     | '/dashboard/customers/'
     | '/dashboard/item-master/'
     | '/dashboard/production/'
@@ -602,6 +623,7 @@ export interface FileRouteTypes {
     | '/dashboard/term-of-payment/'
     | '/dashboard/uom/'
     | '/dashboard/vendors/'
+    | '/dashboard/website/'
     | '/dashboard/projects/$projectId/edit'
     | '/dashboard/purchasing/approvals/$orderId'
     | '/dashboard/purchasing/invoices/$invoiceId'
@@ -650,6 +672,7 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/dashboard/production/file'
     | '/dashboard/projects/new'
+    | '/dashboard/website/$postId'
     | '/dashboard/customers'
     | '/dashboard/item-master'
     | '/dashboard/production'
@@ -657,6 +680,7 @@ export interface FileRouteTypes {
     | '/dashboard/term-of-payment'
     | '/dashboard/uom'
     | '/dashboard/vendors'
+    | '/dashboard/website'
     | '/dashboard/projects/$projectId/edit'
     | '/dashboard/purchasing/approvals/$orderId'
     | '/dashboard/purchasing/invoices/$invoiceId'
@@ -710,6 +734,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/projects/$projectId'
     | '/_authenticated/dashboard/production/file'
     | '/_authenticated/dashboard/projects/new'
+    | '/_authenticated/dashboard/website/$postId'
     | '/_authenticated/dashboard/customers/'
     | '/_authenticated/dashboard/item-master/'
     | '/_authenticated/dashboard/production/'
@@ -717,6 +742,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/term-of-payment/'
     | '/_authenticated/dashboard/uom/'
     | '/_authenticated/dashboard/vendors/'
+    | '/_authenticated/dashboard/website/'
     | '/_authenticated/dashboard/projects/$projectId/edit'
     | '/_authenticated/dashboard/purchasing/approvals/$orderId'
     | '/_authenticated/dashboard/purchasing/invoices/$invoiceId'
@@ -979,6 +1005,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardVendorsIndexRouteImport
       parentRoute: typeof AuthenticatedDashboardRouteRoute
     }
+    '/_authenticated/dashboard/website/': {
+      id: '/_authenticated/dashboard/website/'
+      path: '/website'
+      fullPath: '/dashboard/website/'
+      preLoaderRoute: typeof AuthenticatedDashboardWebsiteIndexRouteImport
+      parentRoute: typeof AuthenticatedDashboardRouteRoute
+    }
+    '/_authenticated/dashboard/website/$postId': {
+      id: '/_authenticated/dashboard/website/$postId'
+      path: '/website/$postId'
+      fullPath: '/dashboard/website/$postId'
+      preLoaderRoute: typeof AuthenticatedDashboardWebsitePostIdRouteImport
+      parentRoute: typeof AuthenticatedDashboardRouteRoute
+    }
     '/_authenticated/dashboard/finance/payments/': {
       id: '/_authenticated/dashboard/finance/payments/'
       path: '/finance/payments'
@@ -1205,6 +1245,7 @@ interface AuthenticatedDashboardRouteRouteChildren {
   AuthenticatedDashboardProjectsProjectIdRouteRoute: typeof AuthenticatedDashboardProjectsProjectIdRouteRouteWithChildren
   AuthenticatedDashboardProductionFileRoute: typeof AuthenticatedDashboardProductionFileRoute
   AuthenticatedDashboardProjectsNewRoute: typeof AuthenticatedDashboardProjectsNewRoute
+  AuthenticatedDashboardWebsitePostIdRoute: typeof AuthenticatedDashboardWebsitePostIdRoute
   AuthenticatedDashboardCustomersIndexRoute: typeof AuthenticatedDashboardCustomersIndexRoute
   AuthenticatedDashboardItemMasterIndexRoute: typeof AuthenticatedDashboardItemMasterIndexRoute
   AuthenticatedDashboardProductionIndexRoute: typeof AuthenticatedDashboardProductionIndexRoute
@@ -1212,6 +1253,7 @@ interface AuthenticatedDashboardRouteRouteChildren {
   AuthenticatedDashboardTermOfPaymentIndexRoute: typeof AuthenticatedDashboardTermOfPaymentIndexRoute
   AuthenticatedDashboardUomIndexRoute: typeof AuthenticatedDashboardUomIndexRoute
   AuthenticatedDashboardVendorsIndexRoute: typeof AuthenticatedDashboardVendorsIndexRoute
+  AuthenticatedDashboardWebsiteIndexRoute: typeof AuthenticatedDashboardWebsiteIndexRoute
   AuthenticatedDashboardPurchasingApprovalsOrderIdRoute: typeof AuthenticatedDashboardPurchasingApprovalsOrderIdRoute
   AuthenticatedDashboardPurchasingInvoicesInvoiceIdRoute: typeof AuthenticatedDashboardPurchasingInvoicesInvoiceIdRoute
   AuthenticatedDashboardPurchasingInvoicesNewRoute: typeof AuthenticatedDashboardPurchasingInvoicesNewRoute
@@ -1247,6 +1289,8 @@ const AuthenticatedDashboardRouteRouteChildren: AuthenticatedDashboardRouteRoute
       AuthenticatedDashboardProductionFileRoute,
     AuthenticatedDashboardProjectsNewRoute:
       AuthenticatedDashboardProjectsNewRoute,
+    AuthenticatedDashboardWebsitePostIdRoute:
+      AuthenticatedDashboardWebsitePostIdRoute,
     AuthenticatedDashboardCustomersIndexRoute:
       AuthenticatedDashboardCustomersIndexRoute,
     AuthenticatedDashboardItemMasterIndexRoute:
@@ -1260,6 +1304,8 @@ const AuthenticatedDashboardRouteRouteChildren: AuthenticatedDashboardRouteRoute
     AuthenticatedDashboardUomIndexRoute: AuthenticatedDashboardUomIndexRoute,
     AuthenticatedDashboardVendorsIndexRoute:
       AuthenticatedDashboardVendorsIndexRoute,
+    AuthenticatedDashboardWebsiteIndexRoute:
+      AuthenticatedDashboardWebsiteIndexRoute,
     AuthenticatedDashboardPurchasingApprovalsOrderIdRoute:
       AuthenticatedDashboardPurchasingApprovalsOrderIdRoute,
     AuthenticatedDashboardPurchasingInvoicesInvoiceIdRoute:

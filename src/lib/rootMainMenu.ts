@@ -223,6 +223,19 @@ export const ROOT_MAIN_MENU: RootMenuNode[] = [
     ],
   },
   {
+    id: 'website',
+    label: 'Website',
+    children: [
+      {
+        id: 'website-content',
+        label: 'Landing Page',
+        to: '/dashboard/website',
+        match: '/dashboard/website',
+        permission: 'landing.view',
+      },
+    ],
+  },
+  {
     id: 'admin',
     label: 'Admin',
     children: [
