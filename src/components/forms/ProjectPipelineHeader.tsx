@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState  } from 'react'
-import type {ReactNode} from 'react';
+import { useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -16,15 +16,14 @@ import { Button } from '#/components/ui/button'
 import { useAuth } from '#/context/authContext'
 import { apiFetch } from '#/lib/api'
 import type { ProjectRab, ProjectShopDrawingItem } from '#/lib/project'
-import {
-  buildPipelineInsight
-  
-  
-  
+import { buildPipelineInsight } from '#/lib/projectPipeline'
+import type {
+  PipelineInsight,
+  PipelineStage,
+  PipelineTone,
 } from '#/lib/projectPipeline'
-import type {PipelineInsight, PipelineStage, PipelineTone} from '#/lib/projectPipeline';
-import { formatRupiah  } from '#/lib/quotation'
-import type {QuotationOverview} from '#/lib/quotation';
+import { formatRupiah } from '#/lib/quotation'
+import type { QuotationOverview } from '#/lib/quotation'
 import { hintClassName } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -34,6 +33,8 @@ type Props = {
   refreshKey: number
   active: PipelineStage
   onSelect: (stage: PipelineStage) => void
+  /** Once released, the "next step" advice no longer applies. */
+  released?: boolean
 }
 
 const TONE_BADGE: Record<PipelineTone, string> = {
@@ -70,7 +71,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ring-1 ring-inset',
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ring-1 ring-inset',
         TONE_BADGE[tone],
       )}
     >
@@ -95,6 +96,7 @@ export default function ProjectPipelineHeader({
   refreshKey,
   active,
   onSelect,
+  released = false,
 }: Props) {
   const { can } = useAuth()
   const canQuote = can('quotation.view')
@@ -174,41 +176,41 @@ export default function ProjectPipelineHeader({
   return (
     <section
       aria-label="BOQ, RAB and quotation status"
-      className="rounded-md border border-(--line) bg-white"
+      className="overflow-hidden rounded-lg border border-(--line) bg-white"
     >
-      <div
-        className={cn(
-          'flex flex-wrap items-center justify-between gap-2 border-b border-(--line) px-4 py-2.5',
-          next.tone === 'warn' && 'bg-amber-50/60',
-        )}
-      >
-        <div className="flex min-w-0 items-center gap-2 text-sm">
-        {/* <span className={metaTextClassName}>
-            Next
-          </span> */}
-          <button
-            type="button"
-            onClick={() => onSelect(next.stage)}
-            className="min-w-0 truncate text-left font-medium underline-offset-4 hover:underline"
-          >
-            {next.text}
-          </button>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => void load()}
-          disabled={loading}
-          aria-label="Refresh status"
-          title="Refresh status"
+      {released ? null : (
+        <div
+          className={cn(
+            'flex flex-wrap items-center justify-between gap-2 border-b border-(--line) px-4 py-2',
+            next.tone === 'warn' && 'bg-amber-50/60',
+          )}
         >
-          <RefreshCw
-            className={cn('size-3.5', loading && 'animate-spin')}
-            aria-hidden
-          />
-        </Button>
-      </div>
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <span className={cn('shrink-0', hintClassName)}>Next:</span>
+            <button
+              type="button"
+              onClick={() => onSelect(next.stage)}
+              className="min-w-0 truncate text-left font-medium underline-offset-4 hover:underline"
+            >
+              {next.text}
+            </button>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => void load()}
+            disabled={loading}
+            aria-label="Refresh status"
+            title="Refresh status"
+          >
+            <RefreshCw
+              className={cn('size-3.5', loading && 'animate-spin')}
+              aria-hidden
+            />
+          </Button>
+        </div>
+      )}
 
       <ol
         className={cn(
@@ -217,9 +219,8 @@ export default function ProjectPipelineHeader({
         )}
       >
         <Stage
-          index={1}
-          title="Shop Drawing BOQ"
-          icon={<Ruler className="size-3.5" aria-hidden />}
+          title="Shop Drawing"
+          icon={<Ruler className="size-4 text-(--muted)" aria-hidden />}
           tone={boq.tone}
           badge={boq.label}
           active={active === 'boq'}
@@ -245,15 +246,14 @@ export default function ProjectPipelineHeader({
             <p className={hintClassName}>
               In change: +{boq.changeAdded} / −{boq.changeRemoved} BOQ
             </p>
-          ) : boq.frozen ? (
-            <p className={hintClassName}>Open a RAB change to edit</p>
           ) : null}
         </Stage>
 
         <Stage
-          index={2}
           title="RAB"
-          icon={<FileSpreadsheet className="size-3.5" aria-hidden />}
+          icon={
+            <FileSpreadsheet className="size-4 text-(--muted)" aria-hidden />
+          }
           tone={rab.tone}
           badge={rab.label}
           active={active === 'rab'}
@@ -294,9 +294,8 @@ export default function ProjectPipelineHeader({
 
         {q ? (
           <Stage
-            index={3}
             title="Quotation"
-            icon={<Receipt className="size-3.5" aria-hidden />}
+            icon={<Receipt className="size-4 text-(--muted)" aria-hidden />}
             tone={q.tone}
             badge={q.label}
             active={active === 'quotation'}
@@ -339,7 +338,6 @@ export default function ProjectPipelineHeader({
 }
 
 function Stage({
-  index,
   title,
   icon,
   tone,
@@ -349,7 +347,6 @@ function Stage({
   progress,
   children,
 }: {
-  index: number
   title: string
   icon: ReactNode
   tone: PipelineTone
@@ -373,22 +370,19 @@ function Stage({
         }}
         aria-current={active ? 'step' : undefined}
         className={cn(
-          'group relative flex h-full w-full cursor-pointer flex-col gap-2 px-4 py-3 text-left text-xs transition-colors outline-none hover:bg-(--surface) focus-visible:ring-2 focus-visible:ring-(--ink)/30',
+          'group relative flex h-full w-full cursor-pointer flex-col gap-2 px-4 py-3.5 text-left text-sm transition-colors outline-none hover:bg-(--surface) focus-visible:ring-2 focus-visible:ring-(--ink)/30',
           active && 'bg-(--surface)',
         )}
       >
         <span
           className={cn(
-            'absolute inset-x-0 top-0 h-0.5',
+            'absolute inset-x-0 bottom-0 h-0.5',
             active ? 'bg-(--ink)' : 'bg-transparent',
           )}
           aria-hidden
         />
         <span className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-(--line) text-[10px] tabular-nums">
-              {index}
-            </span>
+          <span className="flex min-w-0 items-center gap-2 text-base font-semibold">
             {icon}
             <span className="truncate">{title}</span>
           </span>

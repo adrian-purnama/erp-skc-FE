@@ -35,17 +35,26 @@ type Props = {
 
 const MAX_LINKS = 3
 
-/** A document link in a stage; the page's own document is bold and not a link. */
+/** An SPP only tracks its goods: no invoice or payment stages, no amounts. */
+const REQUEST_STAGES: PurchaseFlowStage[] = ['request', 'order', 'receive']
+
+/**
+ * A document link in a stage; the page's own document is bold and not a link,
+ * and documents the viewer can't open (`linked` false) are plain text.
+ */
 function DocLink({
   current,
+  linked = true,
   children,
   to,
 }: {
   current: boolean
+  linked?: boolean
   children: ReactNode
   to: ReactNode
 }) {
   if (current) return <span className="font-medium">{children} (this)</span>
+  if (!linked) return <>{children}</>
   return <>{to}</>
 }
 
@@ -88,10 +97,14 @@ export default function PurchaseFlowHeader({
   }, [load, refreshKey])
 
   if (!flow) return null
-  const insight = buildPurchaseFlowInsight(flow)
-  const shows = (stage: PurchaseFlowStage) => flow.stages.includes(stage)
-  // Requesters can't open POs: show the number without a link.
-  const linkOrders = shows('pay')
+  const isRequest = kind === 'request'
+  const insight = buildPurchaseFlowInsight(flow, { hideMoney: isRequest })
+  const stages = isRequest
+    ? flow.stages.filter((stage) => REQUEST_STAGES.includes(stage))
+    : flow.stages
+  const shows = (stage: PurchaseFlowStage) => stages.includes(stage)
+  // Requesters can't open POs or receipts: show the number without a link.
+  const linkOrders = flow.stages.includes('pay')
   const is = (k: PurchaseFlowKind, docId: string) =>
     flow.focus.kind === k && flow.focus.id === docId
   const more = (n: number) =>
@@ -154,9 +167,11 @@ export default function PurchaseFlowHeader({
       <ol
         className={cn(
           'grid gap-px bg-(--line)',
-          flow.stages.length <= 2
+          stages.length <= 2
             ? 'sm:grid-cols-2'
-            : 'sm:grid-cols-3 xl:grid-cols-5',
+            : stages.length === 3
+              ? 'sm:grid-cols-3'
+              : 'sm:grid-cols-3 xl:grid-cols-5',
         )}
       >
         <FlowStage
@@ -200,7 +215,8 @@ export default function PurchaseFlowHeader({
               title={o.vendorName}
             >
               <DocLink
-                current={is('order', o.id) || !linkOrders}
+                current={is('order', o.id)}
+                linked={linkOrders}
                 to={
                   <Link
                     to="/dashboard/purchasing/orders/$orderId"
@@ -239,6 +255,7 @@ export default function PurchaseFlowHeader({
               >
                 <DocLink
                   current={is('realization', r.id)}
+                  linked={linkOrders}
                   to={
                     <Link
                       to="/dashboard/purchasing/realizations/$realizationId"
@@ -378,7 +395,7 @@ function FlowStage({
       />
       <span className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
-          <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-(--line) text-[10px] tabular-nums">
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-(--line) text-xs tabular-nums">
             {index}
           </span>
           {icon}

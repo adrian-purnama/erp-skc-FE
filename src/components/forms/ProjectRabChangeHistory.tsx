@@ -136,7 +136,7 @@ function UserAvatar({
   size?: 'sm' | 'md'
 }) {
   const src = toAbsoluteMediaUrl(user.profilePicture ?? null)
-  const dim = size === 'sm' ? 'size-6 text-[10px]' : 'size-8 text-xs'
+  const dim = size === 'sm' ? 'size-6 text-xs' : 'size-8 text-xs'
   if (src) {
     return (
       <img
@@ -354,7 +354,7 @@ export default function ProjectRabChangeHistory({
                         statusBadge={
                           <span
                             className={cn(
-                              'rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+                              'rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset',
                               STATUS_CLASS[change.status],
                             )}
                           >
@@ -397,7 +397,7 @@ export default function ProjectRabChangeHistory({
                       lockOrigin ? relativeWhen(lockOrigin.lockedAt) : ''
                     }
                     statusBadge={
-                      <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-900 ring-1 ring-inset ring-sky-200">
+                      <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-900 ring-1 ring-inset ring-sky-200">
                         First creation
                       </span>
                     }
@@ -698,7 +698,7 @@ function KindBadge({ kind }: { kind: 'added' | 'removed' | 'changed' }) {
   return (
     <span
       className={cn(
-        'inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+        'inline-flex rounded px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset',
         changeKindBadgeClass(kind),
       )}
     >

@@ -135,7 +135,7 @@ export default function SCurveChart({ period, points, today }: Props) {
                 y={y(t)}
                 textAnchor="end"
                 dominantBaseline="middle"
-                className="fill-(--muted) text-[11px] tabular-nums"
+                className="fill-(--muted) text-xs tabular-nums"
               >
                 {t}%
               </text>
@@ -149,7 +149,7 @@ export default function SCurveChart({ period, points, today }: Props) {
                 x={x(i + 0.5)}
                 y={HEIGHT - 8}
                 textAnchor="middle"
-                className="fill-(--muted) text-[11px]"
+                className="fill-(--muted) text-xs"
               >
                 {periodLabel(period, p.periodIndex)}
               </text>
@@ -170,7 +170,7 @@ export default function SCurveChart({ period, points, today }: Props) {
               <text
                 x={x(todayPos) + 4}
                 y={PAD.top + 10}
-                className="fill-(--ink) text-[11px]"
+                className="fill-(--ink) text-xs"
               >
                 Today
               </text>
@@ -194,7 +194,7 @@ export default function SCurveChart({ period, points, today }: Props) {
               x={x(n) + 6}
               y={y(planned[n - 1] ?? 0)}
               dominantBaseline="middle"
-              className="fill-(--ink) text-[11px]"
+              className="fill-(--ink) text-xs"
             >
               Plan
             </text>
@@ -211,7 +211,7 @@ export default function SCurveChart({ period, points, today }: Props) {
               <text
                 x={x(actualPos(lastActualIdx)) + 8}
                 y={y(actual[lastActualIdx] ?? 0) + 12}
-                className="fill-(--ink) text-[11px]"
+                className="fill-(--ink) text-xs"
               >
                 Actual
               </text>

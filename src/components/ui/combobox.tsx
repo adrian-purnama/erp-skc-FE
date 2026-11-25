@@ -4,6 +4,7 @@ import {
   Check,
   ChevronsUpDown,
   ListFilter,
+  Plus,
   SearchIcon,
   X,
 } from 'lucide-react'
@@ -51,6 +52,14 @@ type ComboboxProps = {
    * Options are filtered by `option.categoryIds` (OR match).
    */
   categories?: ComboboxCategory[]
+  /**
+   * When set, the dropdown shows a "+ Add" entry that closes the dropdown and
+   * calls this with the current search text (trimmed), e.g. to open a
+   * quick-create dialog. Leave unset when the user may not create options.
+   */
+  onCreate?: (search: string) => void
+  /** Label for the create entry. Defaults to "Add new". */
+  createLabel?: string
 }
 
 /** Keep focus in the filter UI without blocking native control clicks. */
@@ -89,8 +98,11 @@ export function Combobox({
   disabled = false,
   'aria-label': ariaLabel,
   categories,
+  onCreate,
+  createLabel = 'Add new',
 }: ComboboxProps) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [categoryQuery, setCategoryQuery] = useState('')
@@ -160,7 +172,10 @@ export function Combobox({
       onOpenChange={(next) => {
         if (!disabled) {
           setOpen(next)
-          if (!next) resetFilters()
+          if (!next) {
+            resetFilters()
+            setSearch('')
+          }
         }
       }}
     >
@@ -197,6 +212,8 @@ export function Combobox({
             <div className="flex items-center gap-1 px-2">
               <SearchIcon className="ml-1 size-4 shrink-0 opacity-50" />
               <CommandPrimitive.Input
+                value={search}
+                onValueChange={setSearch}
                 placeholder={searchPlaceholder}
                 className="flex h-9 w-full min-w-0 bg-transparent py-2 text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
               />
@@ -251,7 +268,7 @@ export function Combobox({
                 className="space-y-1.5 border-t border-(--line) px-2 py-2"
                 onPointerDown={stopBubble}
               >
-                <p className="text-[11px] font-medium tracking-wide text-(--muted)">
+                <p className="text-xs font-medium tracking-wide text-(--muted)">
                   Categories
                 </p>
                 {availableCategories.length === 0 ? (
@@ -294,7 +311,7 @@ export function Combobox({
                           </button>
                         ))}
                         {categoryHiddenCount > 0 ? (
-                          <p className="border-t border-(--line) px-2.5 py-1 text-[11px] text-(--muted)">
+                          <p className="border-t border-(--line) px-2.5 py-1 text-xs text-(--muted)">
                             +{categoryHiddenCount} more — search to find
                           </p>
                         ) : null}
@@ -331,6 +348,29 @@ export function Combobox({
                 </CommandItem>
               ))}
             </CommandGroup>
+            {onCreate ? (
+              <CommandGroup forceMount className="border-t border-(--line)">
+                <CommandItem
+                  forceMount
+                  value="__combobox_create__"
+                  onSelect={() => {
+                    const term = search.trim()
+                    setOpen(false)
+                    resetFilters()
+                    setSearch('')
+                    onCreate(term)
+                  }}
+                  className="font-medium text-(--accent)"
+                >
+                  <Plus className="size-4 shrink-0 text-(--accent)" aria-hidden />
+                  <span className="min-w-0 truncate">
+                    {search.trim()
+                      ? `${createLabel} “${search.trim()}”`
+                      : createLabel}
+                  </span>
+                </CommandItem>
+              </CommandGroup>
+            ) : null}
           </CommandList>
         </Command>
       </PopoverContent>

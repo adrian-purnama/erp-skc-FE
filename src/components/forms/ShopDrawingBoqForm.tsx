@@ -14,6 +14,7 @@ import ProjectCostingStatusStrip from '#/components/forms/ProjectCostingStatusSt
 import ProjectShopDrawingPanel from '#/components/forms/ProjectShopDrawingPanel'
 import TenderProjectPicker from '#/components/forms/TenderProjectPicker'
 import ShopDrawingBoqLinesEditor, {
+  BoqStackHeader,
   emptyLine,
   isLineComplete,
   newLineKey,
@@ -35,14 +36,6 @@ import UploadProgress from '#/components/forms/shared/UploadProgress'
 import { Button } from '#/components/ui/button'
 import { Checkbox } from '#/components/ui/checkbox'
 import { Combobox } from '#/components/ui/combobox'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { useAuth } from '#/context/authContext'
@@ -58,14 +51,8 @@ import type {
   ProjectShopDrawingBoqMaterial,
   ProjectShopDrawingBoqMountingType,
   ProjectShopDrawingFile,
-  ProjectShopDrawingItem,
 } from '#/lib/project'
-import {
-  buttonOutlineClassName,
-  hintClassName,
-  pageTitleClassName,
-  sectionTitleClassName,
-} from '#/lib/ui-classes'
+import { hintClassName, pageTitleClassName } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
 type Props = {
@@ -235,9 +222,6 @@ export default function ShopDrawingBoqForm({
   const [mountingLines, setMountingLines] = useState<DraftLine[]>([])
   const [otherLines, setOtherLines] = useState<DraftLine[]>([])
 
-  const [addItemOpen, setAddItemOpen] = useState(false)
-  const [itemNameDraft, setItemNameDraft] = useState('')
-  const [itemNameBusy, setItemNameBusy] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [forceDifferent, setForceDifferent] = useState(false)
@@ -290,7 +274,6 @@ export default function ShopDrawingBoqForm({
     resetBoqDraft()
     setItemId(itemIdProp ?? '')
     setFileId(fileIdProp ?? '')
-    setAddItemOpen(false)
     setUploadOpen(false)
     setPendingFile(null)
   }, [projectId])
@@ -420,7 +403,6 @@ export default function ShopDrawingBoqForm({
     [summary, itemId],
   )
   const versions = selectedItem?.versions ?? []
-  const selectedVersion = versions.find((v) => v.fileId === fileId) ?? null
 
   useEffect(() => {
     if (!summary.length) return
@@ -595,53 +577,12 @@ export default function ShopDrawingBoqForm({
     return `${(n / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  function openAddItem() {
-    setItemNameDraft('')
-    setAddItemOpen(true)
-  }
-
   function openUpload() {
     if (!itemId) return
     setPendingFile(null)
     setForceDifferent(false)
     setShowHashInfo(false)
     setUploadOpen(true)
-  }
-
-  async function confirmAddItem() {
-    if (!canManage || !projectId) return
-    const name = itemNameDraft.trim()
-    if (!name) {
-      toast.error('Name is required')
-      return
-    }
-    setItemNameBusy(true)
-    try {
-      const response = await apiFetch<ProjectShopDrawingItem>(
-        `/project/${projectId}/shop-drawing/items`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name }),
-        },
-      )
-      if (!response.success || !response.data) {
-        toast.error(response.message || 'Failed to create item')
-        return
-      }
-      toast.success('Item created')
-      setAddItemOpen(false)
-      await reloadSummary()
-      selectItem(response.data.id)
-      setPendingFile(null)
-      setForceDifferent(false)
-      setShowHashInfo(false)
-      setUploadOpen(true)
-    } catch {
-      toast.error('Unable to reach the server')
-    } finally {
-      setItemNameBusy(false)
-    }
   }
 
   async function confirmUpload() {
@@ -919,42 +860,20 @@ export default function ShopDrawingBoqForm({
     base: DraftBase,
     finishing: DraftFinishing,
     zoneLabel: string,
-    removeLabel: string,
   ) {
     return (
-      <div
-        key={finishing.key}
-        className="space-y-1 rounded-sm border border-(--line)/80 bg-(--surface) p-2"
-      >
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[11px] font-medium text-(--muted)">{zoneLabel}</p>
-          {canManage && !contentFrozen ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 shrink-0 px-1.5"
-              disabled={loadingBoq}
-              aria-label={removeLabel}
-              onClick={() =>
-                updateBase(partKey, base.key, {
-                  finishings: base.finishings.filter(
-                    (f) => f.key !== finishing.key,
-                  ),
-                })
-              }
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-            </Button>
-          ) : null}
-        </div>
+      <div key={finishing.key} className="border-b border-(--line)">
         <ShopDrawingBoqLinesEditor
           lines={finishing.lines}
           onChange={(lines) =>
             updateBase(partKey, base.key, {
-              finishings: base.finishings.map((f) =>
-                f.key === finishing.key ? { ...f, lines } : f,
-              ),
+              // Removing the only material removes the finishing layer.
+              finishings:
+                lines.length === 0
+                  ? base.finishings.filter((f) => f.key !== finishing.key)
+                  : base.finishings.map((f) =>
+                      f.key === finishing.key ? { ...f, lines } : f,
+                    ),
             })
           }
           materials={materials}
@@ -962,49 +881,40 @@ export default function ShopDrawingBoqForm({
           makeQty={makeQty}
           canManage={canManage && !contentFrozen}
           disabled={loadingBoq}
-          allowEmpty={false}
           maxLines={1}
           compact
+          headless
+          rowLabel={zoneLabel}
         />
       </div>
     )
   }
 
-  const sheetTitle = selectedItem
-    ? selectedVersion
-      ? `${selectedItem.name} · v${selectedVersion.version} · ${selectedVersion.originalFilename}`
-      : selectedItem.name
-    : 'Select a Shop Drawing item and file version'
-
   return (
     <div className="min-w-0 space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <h1 className={pageTitleClassName}>Shop Drawing BOQ</h1>
-        </div>
+      <div className="space-y-3">
         {projectId ? (
           <Link
             to="/dashboard/projects/$projectId"
             params={{ projectId }}
             className={cn(
-              buttonOutlineClassName,
-              'inline-flex h-8 items-center gap-1.5 no-underline',
+              'inline-flex items-center gap-1 text-sm no-underline hover:text-(--ink)',
+              hintClassName,
             )}
           >
-            <ArrowLeft className="size-3.5" aria-hidden />
-            Back to project
+            <ArrowLeft className="size-4" aria-hidden />
+            Project
           </Link>
         ) : null}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <span className={cn('text-sm', hintClassName)}>Project</span>
-        <div className="min-w-[16rem] flex-1 max-w-md">
-          <TenderProjectPicker
-            projectId={projectId ?? ''}
-            onProjectIdChange={(next) => onProjectIdChange(next || undefined)}
-            ariaLabel="Shop Drawing BOQ project"
-          />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className={pageTitleClassName}>Shop Drawing BOQ</h1>
+          <div className="w-full max-w-md min-w-[16rem] sm:w-auto sm:flex-1">
+            <TenderProjectPicker
+              projectId={projectId ?? ''}
+              onProjectIdChange={(next) => onProjectIdChange(next || undefined)}
+              ariaLabel="Shop Drawing BOQ project"
+            />
+          </div>
         </div>
       </div>
 
@@ -1036,60 +946,33 @@ export default function ShopDrawingBoqForm({
         </p>
       ) : (
         <div className="grid w-full min-w-0 overflow-hidden border border-(--line)">
-          <div className="space-y-3 border-b border-(--line) px-4 py-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5"
-                  onClick={backToItems}
-                >
-                  <ArrowLeft className="size-3.5" aria-hidden />
-                  Back to items
-                </Button>
-                <h2
-                  className={cn(
-                    'min-w-0 inline-flex flex-wrap items-center gap-2',
-                    sectionTitleClassName,
-                  )}
-                >
-                  <span>{sheetTitle}</span>
-                  {selectedAddedInChange ? (
-                    <span
-                      className={cn(
-                        'inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
-                        changeKindBadgeClass('added'),
-                      )}
-                    >
-                      Added in change
-                    </span>
-                  ) : null}
-                </h2>
-              </div>
-              {loadingBoq ? (
+          <div className="space-y-4 border-b border-(--line) px-4 py-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 px-2"
+                onClick={backToItems}
+              >
+                <ArrowLeft className="size-4" aria-hidden />
+                All items
+              </Button>
+              {selectedAddedInChange ? (
                 <span
                   className={cn(
-                    'inline-flex items-center gap-1.5 text-xs',
-                    hintClassName,
+                    'inline-flex rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset',
+                    changeKindBadgeClass('added'),
                   )}
                 >
-                  <LoaderCircle className="size-3 animate-spin" aria-hidden />
-                  Loading…
-                </span>
-              ) : boqId ? (
-                <span className="text-xs text-(--muted)">Saved BOQ</span>
-              ) : itemId && fileId ? (
-                <span className="text-xs text-(--muted)">
-                  Draft · not saved
+                  Added in change
                 </span>
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[12rem] flex-1 space-y-1">
-                <p className="text-[11px] text-(--muted)">Item</p>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_7rem_10rem]">
+              <label className="min-w-0 space-y-1.5">
+                <span className="text-sm font-medium">Item</span>
                 <Combobox
                   value={itemId}
                   onValueChange={selectItem}
@@ -1100,24 +983,45 @@ export default function ShopDrawingBoqForm({
                   className="w-full sm:w-full"
                   aria-label="Shop Drawing item"
                 />
+              </label>
+              <div className="min-w-0 space-y-1.5">
+                <span className="text-sm font-medium">Drawing version</span>
+                <div className="flex gap-2">
+                  <Combobox
+                    value={fileId}
+                    onValueChange={selectFile}
+                    options={versionOptions}
+                    placeholder={
+                      itemId ? 'Select version' : 'Select an item first'
+                    }
+                    searchPlaceholder="Search versions…"
+                    emptyText="No versions."
+                    className="min-w-0 flex-1 sm:w-auto"
+                    aria-label="Shop Drawing file version"
+                  />
+                  {canManage ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="size-9 shrink-0"
+                      disabled={!itemId || uploading}
+                      onClick={openUpload}
+                      title="Upload a new drawing version"
+                      aria-label="Upload a new drawing version"
+                    >
+                      <Upload className="size-4" aria-hidden />
+                    </Button>
+                  ) : null}
+                </div>
               </div>
-              <div className="min-w-[14rem] flex-1 space-y-1">
-                <p className="text-[11px] text-(--muted)">Version</p>
-                <Combobox
-                  value={fileId}
-                  onValueChange={selectFile}
-                  options={versionOptions}
-                  placeholder={
-                    itemId ? 'Select version' : 'Select an item first'
-                  }
-                  searchPlaceholder="Search versions…"
-                  emptyText="No versions."
-                  className="w-full sm:w-full"
-                  aria-label="Shop Drawing file version"
-                />
-              </div>
-              <div className="w-28 space-y-1">
-                <p className="text-[11px] text-(--muted)">Make qty</p>
+              <label className="space-y-1.5">
+                <span
+                  className="text-sm font-medium"
+                  title="How many finished units to make. Totals are qty per unit × this."
+                >
+                  Make qty
+                </span>
                 <Input
                   id="shop-drawing-boq-make-qty"
                   value={makeQty}
@@ -1129,11 +1033,9 @@ export default function ShopDrawingBoqForm({
                   placeholder="1"
                   className="h-9"
                 />
-              </div>
-              <div className="w-40 space-y-1">
-                <p className="text-[11px] text-(--muted)">
-                  Mockup approve date
-                </p>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-medium">Mockup approved</span>
                 <Input
                   id="shop-drawing-boq-mockup-approve-date"
                   type="date"
@@ -1145,43 +1047,17 @@ export default function ShopDrawingBoqForm({
                   className="h-9"
                   aria-label="Mockup approve date"
                 />
-              </div>
-              {canManage ? (
-                <div className="flex flex-wrap items-center gap-2 pb-0.5">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-9 gap-1.5"
-                    onClick={openAddItem}
-                  >
-                    <Plus className="size-3.5" aria-hidden />
-                    Add item
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-9 gap-1.5"
-                    disabled={!itemId || uploading}
-                    onClick={openUpload}
-                  >
-                    <Upload className="size-3.5" aria-hidden />
-                    Upload
-                  </Button>
-                </div>
-              ) : null}
+              </label>
             </div>
             {contentFrozen ? (
-              <p className={cn('text-xs', hintClassName)}>
-                Frozen while RAB is locked. Use Open RAB above to start a
-                change, then return here to edit. New shop drawing uploads are
-                still allowed (empty BOQ).
+              <p className={cn('text-sm', hintClassName)}>
+                Read-only while the RAB is locked. Open a change on the RAB to
+                edit.
               </p>
             ) : rab?.changeDraft ? (
-              <p className={cn('text-xs', hintClassName)}>
-                Change in progress — edits save into the draft. When materials
-                need prices, open RAB to price and commit.
+              <p className="text-sm text-amber-800">
+                Change in progress: edits go into the draft. Price new materials
+                on the RAB, then commit.
               </p>
             ) : null}
           </div>
@@ -1193,11 +1069,23 @@ export default function ShopDrawingBoqForm({
           >
             <div className="border-b border-(--line) px-4 py-2">
               <TabsList variant="line">
-                <TabsTrigger value="main">Main</TabsTrigger>
-                <TabsTrigger value="lighting">Lighting</TabsTrigger>
-                <TabsTrigger value="mounting">Mounting</TabsTrigger>
-                <TabsTrigger value="other">Other</TabsTrigger>
-                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="main">
+                  Base &amp; finishing
+                  <TabCount n={flatBases.length + assemblyLines.length} />
+                </TabsTrigger>
+                <TabsTrigger value="lighting">
+                  Lighting
+                  <TabCount n={lightingLines.length} />
+                </TabsTrigger>
+                <TabsTrigger value="mounting">
+                  Mounting
+                  <TabCount n={mountingLines.length} />
+                </TabsTrigger>
+                <TabsTrigger value="other">
+                  Other
+                  <TabCount n={otherLines.length} />
+                </TabsTrigger>
+                <TabsTrigger value="overview">All items</TabsTrigger>
               </TabsList>
             </div>
 
@@ -1227,222 +1115,205 @@ export default function ShopDrawingBoqForm({
                 </p>
               ) : (
                 <>
-                  <div className="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)_minmax(12rem,16rem)]">
-                    <aside className="min-w-0 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-1">
-                        <p className="text-sm font-medium">Cores</p>
-                        {canManage ? (
+                  <div className="space-y-4">
+                    {flatBases.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="mr-1 text-sm font-medium">
+                          Base materials
+                        </span>
+                        {flatBases.map(({ base }, index) => {
+                          const selected = base.key === activeBaseKey
+                          const layerCount = base.finishings.length
+                          return (
+                            <button
+                              key={base.key}
+                              type="button"
+                              className={cn(
+                                'max-w-[18rem] rounded-md border px-3 py-1.5 text-left text-sm transition-colors',
+                                selected
+                                  ? 'border-(--ink) bg-(--surface) font-medium'
+                                  : 'border-(--line) hover:border-(--ink)/40',
+                              )}
+                              aria-pressed={selected}
+                              onClick={() => setActiveBaseKey(base.key)}
+                              title={
+                                layerCount === 0
+                                  ? 'No finishing'
+                                  : `${layerCount} finishing ${layerCount === 1 ? 'layer' : 'layers'}`
+                              }
+                            >
+                              <span className="block truncate">
+                                {baseListLabel(base, index)}
+                              </span>
+                            </button>
+                          )
+                        })}
+                        {canManage && !contentFrozen ? (
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-7 gap-1 px-2"
-                            disabled={loadingBoq || contentFrozen}
+                            className="h-8 gap-1 px-2"
+                            disabled={loadingBoq}
                             onClick={addBase}
                           >
-                            <Plus className="size-3.5" aria-hidden />
-                            Add
+                            <Plus className="size-4" aria-hidden />
+                            Add base
                           </Button>
                         ) : null}
                       </div>
-                      {flatBases.length === 0 ? (
-                        <div className="space-y-2">
-                          <p className={cn('text-sm', hintClassName)}>
-                            No cores yet
-                          </p>
-                          {canManage ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1.5"
-                              disabled={loadingBoq || contentFrozen}
-                              onClick={addBase}
-                            >
-                              <Plus className="size-3.5" aria-hidden />
-                              Add core
-                            </Button>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <ul className="space-y-0.5">
-                          {flatBases.map(({ base }, index) => {
-                            const selected = base.key === activeBaseKey
-                            const layerCount = base.finishings.length
-                            return (
-                              <li key={base.key}>
-                                <button
+                    ) : null}
+
+                    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_14rem]">
+                      <div className="min-w-0">
+                        {!activeSandwich ? (
+                          flatBases.length === 0 ? (
+                            <div className="rounded-lg border border-dashed border-(--line) px-4 py-10 text-center">
+                              <p className="text-sm font-medium">
+                                Start with the base material
+                              </p>
+                              <p className={cn('mt-1 text-sm', hintClassName)}>
+                                The sheet or panel the sign is built on. Add
+                                finishing layers on top of it after.
+                              </p>
+                              {canManage && !contentFrozen ? (
+                                <Button
                                   type="button"
-                                  className={cn(
-                                    'w-full rounded-sm px-2 py-1.5 text-left text-sm transition-colors',
-                                    selected
-                                      ? 'bg-(--ink)/8 font-medium'
-                                      : 'hover:bg-(--ink)/4',
-                                  )}
-                                  onClick={() => setActiveBaseKey(base.key)}
+                                  variant="outline"
+                                  size="sm"
+                                  className="mt-4 h-9 gap-1.5"
+                                  disabled={loadingBoq}
+                                  onClick={addBase}
                                 >
-                                  <span className="block truncate">
-                                    {baseListLabel(base, index)}
-                                  </span>
-                                  <span
-                                    className={cn(
-                                      'block text-[11px]',
-                                      hintClassName,
-                                    )}
-                                  >
-                                    {layerCount}{' '}
-                                    {layerCount === 1 ? 'layer' : 'layers'}
-                                  </span>
-                                </button>
-                              </li>
-                            )
-                          })}
-                        </ul>
-                      )}
-                      {canManage && activeBaseEntry && !contentFrozen ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-full justify-start gap-1.5 px-2 text-(--muted)"
-                          disabled={loadingBoq}
-                          onClick={() =>
-                            removeBase(
-                              activeBaseEntry.partKey,
-                              activeBaseEntry.base.key,
-                            )
-                          }
-                        >
-                          <Trash2 className="size-3.5" aria-hidden />
-                          Delete selected
-                        </Button>
-                      ) : null}
-                    </aside>
-
-                    <div className="min-w-0">
-                      {!activeSandwich ? (
-                        <p className={cn('text-sm', hintClassName)}>
-                          {flatBases.length === 0
-                            ? 'Add a core to start the sandwich.'
-                            : 'Select a core'}
-                        </p>
-                      ) : (
-                        <div className="space-y-3">
-                          <p className={cn('text-sm', hintClassName)}>
-                            Stack reads outside → core → outside (matches
-                            preview).
-                          </p>
-
-                          <div className="space-y-2 rounded-sm border border-(--line) p-3">
-                            <p className="text-[11px] font-medium tracking-wide text-(--muted)">
-                              Above core
+                                  <Plus className="size-4" aria-hidden />
+                                  Add base material
+                                </Button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <p className={cn('text-sm', hintClassName)}>
+                              Select a base material.
                             </p>
-                            {canManage ? (
-                              <button
-                                type="button"
-                                className="text-xs text-(--muted) hover:text-(--ink)"
-                                disabled={loadingBoq}
-                                onClick={() =>
-                                  addFinishing(
-                                    activeSandwich.partKey,
-                                    activeSandwich.base.key,
-                                    'top',
-                                  )
-                                }
-                              >
-                                + Add layer above
-                              </button>
-                            ) : null}
-                            {activeSandwich.topFinishings.map((finishing) =>
-                              renderFinishingRow(
-                                activeSandwich.partKey,
-                                activeSandwich.base,
-                                finishing,
-                                `Layer above · ${finishing.finishingOrder}`,
-                                'Remove layer above',
-                              ),
-                            )}
-                            {activeSandwich.topFinishings.length === 0 ? (
-                              <p className={cn('text-xs', hintClassName)}>
-                                No layers above this core.
+                          )
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className={cn('text-sm', hintClassName)}>
+                                Layers from the front face to the back face.
                               </p>
-                            ) : null}
-                          </div>
+                              {canManage && !contentFrozen ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 gap-1.5 text-red-700 hover:bg-red-50 hover:text-red-800"
+                                  disabled={loadingBoq}
+                                  onClick={() =>
+                                    removeBase(
+                                      activeSandwich.partKey,
+                                      activeSandwich.base.key,
+                                    )
+                                  }
+                                >
+                                  <Trash2 className="size-4" aria-hidden />
+                                  Remove base
+                                </Button>
+                              ) : null}
+                            </div>
 
-                          <div className="space-y-1 rounded-sm border border-(--ink)/20 bg-(--surface) p-3">
-                            <p className="text-[11px] font-medium tracking-wide text-(--muted)">
-                              Core material
-                            </p>
-                            <ShopDrawingBoqLinesEditor
-                              lines={[activeSandwich.base.line]}
-                              onChange={(lines) =>
-                                updateBase(
+                            <div className="overflow-hidden rounded-lg border border-(--line)">
+                              <BoqStackHeader
+                                makeQty={makeQty}
+                                canManage={canManage && !contentFrozen}
+                              />
+                              {canManage && !contentFrozen ? (
+                                <AddLayerButton
+                                  label="Add finishing in front"
+                                  disabled={loadingBoq}
+                                  onClick={() =>
+                                    addFinishing(
+                                      activeSandwich.partKey,
+                                      activeSandwich.base.key,
+                                      'top',
+                                    )
+                                  }
+                                />
+                              ) : null}
+                              {activeSandwich.topFinishings.map((finishing) =>
+                                renderFinishingRow(
                                   activeSandwich.partKey,
-                                  activeSandwich.base.key,
-                                  { line: lines[0] ?? emptyLine() },
-                                )
-                              }
-                              materials={materials}
-                              categories={categories}
-                              makeQty={makeQty}
-                              canManage={canManage}
-                              disabled={loadingBoq}
-                              allowEmpty={false}
-                              maxLines={1}
-                              compact
-                            />
-                          </div>
-
-                          <div className="space-y-2 rounded-sm border border-(--line) p-3">
-                            <p className="text-[11px] font-medium tracking-wide text-(--muted)">
-                              Below core
-                            </p>
-                            {activeSandwich.bottomFinishings.map((finishing) =>
-                              renderFinishingRow(
-                                activeSandwich.partKey,
-                                activeSandwich.base,
-                                finishing,
-                                `Layer below · ${finishing.finishingOrder}`,
-                                'Remove layer below',
-                              ),
-                            )}
-                            {activeSandwich.bottomFinishings.length === 0 ? (
-                              <p className={cn('text-xs', hintClassName)}>
-                                No layers below this core.
-                              </p>
-                            ) : null}
-                            {canManage ? (
-                              <button
-                                type="button"
-                                className="text-xs text-(--muted) hover:text-(--ink)"
-                                disabled={loadingBoq}
-                                onClick={() =>
-                                  addFinishing(
+                                  activeSandwich.base,
+                                  finishing,
+                                  `Front ${finishing.finishingOrder}`,
+                                ),
+                              )}
+                              <div className="border-b border-(--line) bg-(--surface)">
+                                <ShopDrawingBoqLinesEditor
+                                  lines={[activeSandwich.base.line]}
+                                  onChange={(lines) =>
+                                    updateBase(
+                                      activeSandwich.partKey,
+                                      activeSandwich.base.key,
+                                      { line: lines[0] ?? emptyLine() },
+                                    )
+                                  }
+                                  materials={materials}
+                                  categories={categories}
+                                  makeQty={makeQty}
+                                  canManage={canManage && !contentFrozen}
+                                  disabled={loadingBoq}
+                                  allowEmpty={false}
+                                  maxLines={1}
+                                  compact
+                                  headless
+                                  rowLabel="Base"
+                                />
+                              </div>
+                              {activeSandwich.bottomFinishings.map(
+                                (finishing) =>
+                                  renderFinishingRow(
                                     activeSandwich.partKey,
-                                    activeSandwich.base.key,
-                                    'bottom',
-                                  )
-                                }
-                              >
-                                + Add layer below
-                              </button>
-                            ) : null}
+                                    activeSandwich.base,
+                                    finishing,
+                                    `Back ${finishing.finishingOrder}`,
+                                  ),
+                              )}
+                              {canManage && !contentFrozen ? (
+                                <AddLayerButton
+                                  label="Add finishing at the back"
+                                  disabled={loadingBoq}
+                                  onClick={() =>
+                                    addFinishing(
+                                      activeSandwich.partKey,
+                                      activeSandwich.base.key,
+                                      'bottom',
+                                    )
+                                  }
+                                />
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
+                      {flatBases.length > 0 ? (
+                        <aside className="h-fit rounded-lg border border-(--line) p-3">
+                          <ShopDrawingBoqSandwichPreview
+                            parts={parts}
+                            materials={materials}
+                            activeBaseKey={activeBaseKey}
+                          />
+                        </aside>
+                      ) : null}
                     </div>
-
-                    <aside className="h-fit border border-(--line) p-3 lg:sticky lg:top-4">
-                      <ShopDrawingBoqSandwichPreview
-                        parts={parts}
-                        materials={materials}
-                        activeBaseKey={activeBaseKey}
-                      />
-                    </aside>
                   </div>
 
                   <div className="space-y-2 border-t border-(--line) pt-4">
-                    <p className="text-sm font-medium">Assembly materials</p>
+                    <div>
+                      <p className="text-sm font-medium">Assembly materials</p>
+                      <p className={cn('text-sm', hintClassName)}>
+                        Glue, screws and other parts used once per unit.
+                      </p>
+                    </div>
                     <ShopDrawingBoqLinesEditor
                       lines={assemblyLines}
                       onChange={setAssemblyLines}
@@ -1483,7 +1354,7 @@ export default function ShopDrawingBoqForm({
               ) : (
                 <>
                   <div className="max-w-xs space-y-1">
-                    <p className="text-[11px] text-(--muted)">How mounted</p>
+                    <p className="text-sm font-medium">How it is mounted</p>
                     <Combobox
                       value={mountingType}
                       onValueChange={(value) =>
@@ -1505,7 +1376,7 @@ export default function ShopDrawingBoqForm({
                     materials={materials}
                     categories={categories}
                     makeQty={makeQty}
-                    canManage={canManage}
+                    canManage={canManage && !contentFrozen}
                     disabled={loadingBoq}
                   />
                 </>
@@ -1544,11 +1415,15 @@ export default function ShopDrawingBoqForm({
           </Tabs>
 
           {fileId && section !== 'overview' ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-(--line) px-4 py-2.5">
+            <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 border-t border-(--line) bg-white px-4 py-3">
               {canManage ? (
                 <>
-                  <p className={cn('text-xs', hintClassName)}>
-                    Totals = qty/unit × make qty · save writes all sections
+                  <p className={cn('text-sm', hintClassName)}>
+                    {loadingBoq
+                      ? 'Loading…'
+                      : boqId
+                        ? 'Saved. Save again after changes; it saves every tab.'
+                        : 'Not saved yet. Save keeps every tab at once.'}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     {boqId && !contentFrozen ? (
@@ -1566,7 +1441,7 @@ export default function ShopDrawingBoqForm({
                     <Button
                       type="button"
                       size="sm"
-                      className="h-8"
+                      className="h-9 px-4"
                       disabled={saving || loadingBoq || contentFrozen}
                       onClick={() => void onSave()}
                     >
@@ -1614,56 +1489,6 @@ export default function ShopDrawingBoqForm({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <Dialog
-        open={addItemOpen}
-        onOpenChange={(next) => {
-          if (!next && !itemNameBusy) setAddItemOpen(false)
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add item</DialogTitle>
-            <DialogDescription>
-              Give this Shop Drawing item a short name (e.g. item1).
-            </DialogDescription>
-          </DialogHeader>
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium">Name</span>
-            <input
-              type="text"
-              value={itemNameDraft}
-              maxLength={120}
-              disabled={itemNameBusy}
-              className="w-full rounded-md border border-(--line) bg-transparent px-3 py-2 text-sm"
-              onChange={(e) => setItemNameDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  void confirmAddItem()
-                }
-              }}
-            />
-          </label>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={itemNameBusy}
-              onClick={() => setAddItemOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={itemNameBusy || !itemNameDraft.trim()}
-              onClick={() => void confirmAddItem()}
-            >
-              {itemNameBusy ? 'Saving…' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog
         open={uploadOpen}
@@ -1772,5 +1597,36 @@ export default function ShopDrawingBoqForm({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+function TabCount({ n }: { n: number }) {
+  if (n === 0) return null
+  return (
+    <span className="ml-1.5 rounded-full bg-(--surface) px-1.5 text-xs text-(--muted) tabular-nums ring-1 ring-(--line)">
+      {n}
+    </span>
+  )
+}
+
+function AddLayerButton({
+  label,
+  disabled,
+  onClick,
+}: {
+  label: string
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex w-full items-center gap-1.5 border-b border-(--line) px-3 py-2 text-left text-sm text-(--muted) transition-colors last:border-b-0 hover:bg-(--surface) hover:text-(--ink) disabled:opacity-50"
+    >
+      <Plus className="size-4" aria-hidden />
+      {label}
+    </button>
   )
 }

@@ -182,7 +182,7 @@ export default function ProjectProductionReleaseButton({
                       <col className="w-14 sm:w-16" />
                       <col className="w-20 sm:w-24" />
                     </colgroup>
-                    <thead className="sticky top-0 bg-(--surface) text-[11px] text-(--muted)">
+                    <thead className="sticky top-0 bg-(--surface) text-xs text-(--muted)">
                       <tr className="border-b border-(--line)">
                         <th className="px-3 py-2 text-left font-medium">
                           Item

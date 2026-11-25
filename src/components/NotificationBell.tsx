@@ -186,7 +186,7 @@ export default function NotificationBell({
                       <p className="mt-0.5 line-clamp-2 text-xs text-[var(--muted)]">
                         {item.body}
                       </p>
-                      <p className="mt-1 text-[11px] text-[var(--muted)]">
+                      <p className="mt-1 text-xs text-[var(--muted)]">
                         {formatNotificationTime(item.createdAt)}
                       </p>
                     </button>

@@ -39,7 +39,7 @@ export default function ProjectCostingStatusStrip({
   return (
     <div
       className={cn(
-        'flex flex-wrap items-center justify-between gap-2 rounded-sm border border-(--line) bg-(--surface) px-3 py-2',
+        'flex flex-wrap items-center justify-between gap-3 rounded-lg border border-(--line) bg-(--surface) px-4 py-3',
         className,
       )}
     >
@@ -49,12 +49,12 @@ export default function ProjectCostingStatusStrip({
           title={state === 'locked' ? 'Locked' : 'Unlocked — editable'}
         >
           {state === 'locked' ? (
-            <Lock className="size-7" aria-hidden />
+            <Lock className="size-5" aria-hidden />
           ) : (
-            <LockOpen className="size-7" aria-hidden />
+            <LockOpen className="size-5" aria-hidden />
           )}
         </span>
-        <div className="min-w-0 flex flex-col gap-0.5 text-xs">
+        <div className="flex min-w-0 flex-col gap-0.5 text-sm">
           <span
             className={cn(
               'inline-flex items-center gap-1 text-sm font-semibold',
@@ -74,10 +74,6 @@ export default function ProjectCostingStatusStrip({
           ) : state === 'draft' ? (
             <span className={hintClassName}>
               Fill Shop Drawing BOQ and RAB prices, then lock on RAB.
-            </span>
-          ) : state === 'locked' ? (
-            <span className={hintClassName}>
-              BOQ and RAB are frozen. Open a change on RAB to edit.
             </span>
           ) : null}
         </div>

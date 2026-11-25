@@ -23,6 +23,7 @@ import ListTable, {
   type ListTableColumn,
 } from '#/components/forms/shared/ListTable'
 import ProjectListOverview from '#/components/forms/ProjectListOverview'
+import CustomerQuickCreateDialog from '#/components/forms/CustomerQuickCreateDialog'
 import PeriodFilter, {
   ALL_TIME,
   periodRange,
@@ -99,6 +100,7 @@ function rowsToContactRecord(rows: ContactRow[]): Record<string, string> {
 export default function ProjectForm(props: Props) {
   const { can } = useAuth()
   const canManage = can('project.manage')
+  const canCreateCustomer = can('customer.manage')
 
   if (props.mode === 'list') {
     return <ProjectList canManage={canManage} />
@@ -109,6 +111,7 @@ export default function ProjectForm(props: Props) {
       mode={props.mode}
       projectId={props.mode === 'edit' ? props.projectId : undefined}
       canManage={canManage}
+      canCreateCustomer={canCreateCustomer}
     />
   )
 }
@@ -487,10 +490,12 @@ function ProjectEditor({
   mode,
   projectId,
   canManage,
+  canCreateCustomer,
 }: {
   mode: 'create' | 'edit'
   projectId?: string
   canManage: boolean
+  canCreateCustomer: boolean
 }) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(mode === 'edit')
@@ -500,6 +505,9 @@ function ProjectEditor({
   const [projectNumber, setProjectNumber] = useState('')
   const [customerId, setCustomerId] = useState('')
   const [customers, setCustomers] = useState<CustomerListItem[]>([])
+  const [customerDialogName, setCustomerDialogName] = useState<string | null>(
+    null,
+  )
   const [assignedCustomerName, setAssignedCustomerName] = useState('')
   const [contactName, setContactName] = useState('')
   const [gender, setGender] = useState<ProjectGender>('male')
@@ -778,7 +786,27 @@ function ProjectEditor({
             emptyText="No customers found."
             aria-label="Customer"
             className="sm:w-full"
+            onCreate={
+              canManage && canCreateCustomer
+                ? (search) => setCustomerDialogName(search)
+                : undefined
+            }
+            createLabel="Add customer"
           />
+          {canManage && canCreateCustomer ? (
+            <CustomerQuickCreateDialog
+              open={customerDialogName !== null}
+              onOpenChange={(open) => {
+                if (!open) setCustomerDialogName(null)
+              }}
+              initialName={customerDialogName ?? ''}
+              onCreated={(customer) => {
+                setCustomers((list) => [...list, customer])
+                setCustomerId(customer.id)
+                setAssignedCustomerName(customer.name)
+              }}
+            />
+          ) : null}
         </div>
 
         <div className="space-y-1.5">

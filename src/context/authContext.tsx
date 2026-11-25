@@ -49,6 +49,20 @@ function clearToken(): void {
   invalidateAuthCache()
 }
 
+/**
+ * The server rejected our token (expired, revoked or blocked): drop it and
+ * send the user to the login page, coming back here after signing in.
+ */
+export function handleSessionExpired(): void {
+  if (typeof window === 'undefined') return
+  clearToken()
+  setCachedUser(null)
+  const { pathname, search, hash } = window.location
+  if (pathname === '/login') return
+  const redirect = encodeURIComponent(`${pathname}${search}${hash}`)
+  window.location.assign(`/login?redirect=${redirect}`)
+}
+
 function invalidateAuthCache(): void {
   cachedUser = undefined
   bootstrapPromise = null

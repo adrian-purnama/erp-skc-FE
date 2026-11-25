@@ -1,7 +1,11 @@
 import { Check, Copy, Plus, Search } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from 'react'
 import toast from 'react-hot-toast'
 import ListPagination from '#/components/forms/shared/ListPagination'
 import { Badge } from '#/components/ui/badge'
@@ -371,8 +375,7 @@ export default function ListTable<T>({
   } | null>(null)
 
   const columnKey = useCallback(
-    (col: ListTableColumn<T>, index: number) =>
-      col.resizeKey ?? String(index),
+    (col: ListTableColumn<T>, index: number) => col.resizeKey ?? String(index),
     [],
   )
 
@@ -394,7 +397,9 @@ export default function ListTable<T>({
       event.preventDefault()
       event.stopPropagation()
       const startWidth =
-        colWidths[key] ?? th?.getBoundingClientRect().width ?? COLUMN_RESIZE_MIN_PX
+        colWidths[key] ??
+        th?.getBoundingClientRect().width ??
+        COLUMN_RESIZE_MIN_PX
       dragRef.current = { key, startX: event.clientX, startWidth }
       event.currentTarget.setPointerCapture(event.pointerId)
       document.body.style.cursor = 'col-resize'
@@ -565,7 +570,8 @@ export default function ListTable<T>({
                           onResizePointerDown(
                             event,
                             key,
-                            event.currentTarget.parentElement as HTMLTableCellElement | null,
+                            event.currentTarget
+                              .parentElement as HTMLTableCellElement | null,
                           )
                         }
                         onPointerMove={onResizePointerMove}
@@ -629,7 +635,7 @@ export default function ListTable<T>({
                       ) : null}
                       <tr
                         className={cn(
-                          'border-b border-(--line) transition-colors last:border-b-0 hover:bg-(--surface)',
+                          'group/row border-b border-(--line) transition-colors last:border-b-0 hover:bg-(--surface)',
                           (isSelected || expanded !== null) && 'bg-(--surface)',
                           muted && 'text-(--muted) [&>td]:opacity-60',
                           onRowClick && 'cursor-pointer',

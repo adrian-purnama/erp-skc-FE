@@ -472,7 +472,7 @@ export default function ProjectLooseFilesPanel({
             <p className="truncate text-xs font-medium">
               {latest.originalFilename}
             </p>
-            <div className="space-y-0.5 text-[10px] leading-snug text-(--muted)">
+            <div className="space-y-0.5 text-xs leading-snug text-(--muted)">
               <p>{formatBytes(latest.sizeBytes)}</p>
               <p>{auditUploadedLine(latest)}</p>
             </div>
@@ -613,7 +613,7 @@ export default function ProjectLooseFilesPanel({
                             {file.originalFilename}
                             {file.isDeleted ? ' · deleted' : ''}
                           </p>
-                          <div className="mt-0.5 space-y-0.5 text-[10px] leading-snug text-(--muted)">
+                          <div className="mt-0.5 space-y-0.5 text-xs leading-snug text-(--muted)">
                             <p>{formatBytes(file.sizeBytes)}</p>
                             <p>{auditUploadedLine(file)}</p>
                             {deletedLine ? <p>{deletedLine}</p> : null}
@@ -847,7 +847,7 @@ export default function ProjectLooseFilesPanel({
                       />
                       <p
                         className={cn(
-                          'text-[11px]',
+                          'text-xs',
                           file.size > PROJECT_LOOSE_FILE_MAX_BYTES
                             ? 'text-red-600'
                             : hintClassName,

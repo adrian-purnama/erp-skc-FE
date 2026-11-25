@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import toast from 'react-hot-toast'
-import { LoaderCircle } from 'lucide-react'
+import { Info, LoaderCircle, Lock } from 'lucide-react'
 import ProjectCalendarPanel from '#/components/forms/ProjectCalendarPanel'
 import ProjectDocumentsPanel from '#/components/forms/ProjectDocumentsPanel'
 import ProjectPhaseSteps from '#/components/forms/ProjectPhaseSteps'
@@ -12,14 +12,18 @@ import ProjectQuotationForm from '#/components/forms/ProjectQuotationForm'
 import ProjectRabForm from '#/components/forms/ProjectRabForm'
 import ProjectShopDrawingPanel from '#/components/forms/ProjectShopDrawingPanel'
 import ProjectSideNavPanel from '#/components/forms/ProjectSideNavPanel'
-import ProjectStatusChip from '#/components/forms/ProjectStatusChip'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
+import ProjectHeader from '#/components/forms/ProjectHeader'
+import { Tabs, TabsContent } from '#/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '#/components/ui/tooltip'
 import { useAuth } from '#/context/authContext'
 import { useSideNav } from '#/context/sideNavContext'
 import { apiFetch } from '#/lib/api'
 import {
-  PROJECT_CLOSE_REASON_LABELS,
-  PROJECT_LOSE_REASON_LABELS,
   PROJECT_PHASE_LABELS,
   phaseForStatus,
   type ProjectCloseReason,
@@ -105,11 +109,11 @@ export default function ProjectDashboard({ projectId }: Props) {
         if (!cancelled) {
           setProject(response.data)
           setActivePhase(
-          phaseForStatus(
-            response.data.status,
-            response.data.productionReleasedAt,
-          ),
-        )
+            phaseForStatus(
+              response.data.status,
+              response.data.productionReleasedAt,
+            ),
+          )
         }
       } catch {
         if (!cancelled) toast.error('Unable to reach the server')
@@ -194,41 +198,17 @@ export default function ProjectDashboard({ projectId }: Props) {
 
   return (
     <div className="space-y-8">
-      <div className="space-y-4">
-        <p className={cn('text-sm', hintClassName)}>
-          <Link
-            to="/dashboard/projects"
-            className="underline-offset-4 hover:underline"
-          >
-            Project Dashboard
-          </Link>
-          {' / '}
-          <span className="tabular-nums">{project.projectNumber}</span>
-        </p>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <ProjectPhaseSteps
-            value={activePhase}
-            onValueChange={setActivePhase}
-            statusPhase={statusPhase}
-          />
-          <ProjectStatusChip status={project.status} />
-        </div>
-
-        {project.status === 'lose' && project.loseReason ? (
-          <p className={cn('text-sm', hintClassName)}>
-            Lose reason:{' '}
-            {PROJECT_LOSE_REASON_LABELS[project.loseReason] ??
-              project.loseReason}
-          </p>
-        ) : null}
-        {project.status === 'close' && project.closeReason ? (
-          <p className={cn('text-sm', hintClassName)}>
-            Close reason:{' '}
-            {PROJECT_CLOSE_REASON_LABELS[project.closeReason] ??
-              project.closeReason}
-          </p>
-        ) : null}
+      <div className="space-y-6">
+        <ProjectHeader
+          project={project}
+          canManage={canManage}
+          refreshKey={pipelineKey}
+        />
+        <ProjectPhaseSteps
+          value={activePhase}
+          onValueChange={setActivePhase}
+          statusPhase={statusPhase}
+        />
       </div>
 
       <div
@@ -255,10 +235,16 @@ export default function ProjectDashboard({ projectId }: Props) {
             </section>
           </div>
         ) : activePhase === 'internal' ? (
-          <div className="space-y-5">
+          <div className="space-y-6">
             {project.productionReleasedAt ? (
-              <p className={cn('text-sm', hintClassName)}>
-                Released to production on{' '}
+              <p
+                className={cn(
+                  'inline-flex items-center gap-1.5 text-sm',
+                  hintClassName,
+                )}
+              >
+                <Lock className="size-4" aria-hidden />
+                Released to production{' '}
                 {new Date(project.productionReleasedAt).toLocaleDateString(
                   'en-GB',
                   {
@@ -268,13 +254,29 @@ export default function ProjectDashboard({ projectId }: Props) {
                     year: 'numeric',
                   },
                 )}
-                . RAB and quotation are locked.
+                {' · RAB and quotation locked'}
               </p>
             ) : can('production.manage') ? (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className={cn('text-sm', hintClassName)}>
-                  Needs a won quotation, locked RAB, and shop drawing, BOQ and
-                  File Produksi on every item.
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-(--surface) px-4 py-3">
+                <p className="inline-flex items-center gap-1.5 text-sm">
+                  Ready for production?
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="text-(--muted) hover:text-(--ink)"
+                          aria-label="What is needed to release"
+                        >
+                          <Info className="size-4" aria-hidden />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        Needs a won quotation, a locked RAB, and a shop drawing,
+                        BOQ and File Produksi on every item.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </p>
                 <ProjectProductionReleaseButton
                   projectId={project.id}
@@ -287,26 +289,20 @@ export default function ProjectDashboard({ projectId }: Props) {
               refreshKey={pipelineKey}
               active={internalTab}
               onSelect={setInternalTab}
+              released={Boolean(project.productionReleasedAt)}
             />
             <Tabs
               value={internalTab}
               onValueChange={(v) => setInternalTab(v as PipelineStage)}
             >
-              <TabsList>
-                <TabsTrigger value="boq">Shop Drawing &amp; BOQ</TabsTrigger>
-                <TabsTrigger value="rab">RAB</TabsTrigger>
-                {can('quotation.view') ? (
-                  <TabsTrigger value="quotation">Quotation</TabsTrigger>
-                ) : null}
-              </TabsList>
-              <TabsContent value="boq" className="pt-3">
+              <TabsContent value="boq">
                 <ProjectShopDrawingPanel
                   projectId={project.id}
                   canManage={canManage}
                   onChanged={bumpPipeline}
                 />
               </TabsContent>
-              <TabsContent value="rab" className="pt-3">
+              <TabsContent value="rab">
                 <ProjectRabForm
                   projectId={project.id}
                   embedded
@@ -314,7 +310,7 @@ export default function ProjectDashboard({ projectId }: Props) {
                 />
               </TabsContent>
               {can('quotation.view') ? (
-                <TabsContent value="quotation" className="pt-3">
+                <TabsContent value="quotation">
                   <ProjectQuotationForm
                     projectId={project.id}
                     embedded

@@ -368,7 +368,7 @@ export default function PurchaseOrderQuotationPanel({
                 <p className="truncate text-sm font-medium">
                   {versionLabel(current)} · {current.originalFilename}
                 </p>
-                <p className="text-[11px] text-(--muted)">
+                <p className="text-xs text-(--muted)">
                   {formatBytes(current.sizeBytes)} · Uploaded{' '}
                   {formatWhen(current.uploadedAt)} by{' '}
                   {current.uploadedByName || 'Unknown'}
@@ -430,7 +430,7 @@ export default function PurchaseOrderQuotationPanel({
                       >
                         {versionLabel(q)} · {q.originalFilename}
                       </span>
-                      <span className={cn('block text-[11px]', hintClassName)}>
+                      <span className={cn('block text-xs', hintClassName)}>
                         {formatBytes(q.sizeBytes)}
                       </span>
                     </span>
@@ -444,12 +444,12 @@ export default function PurchaseOrderQuotationPanel({
                   </button>
                   {open ? (
                     <div className="space-y-2 border-t border-(--line) px-3 py-2">
-                      <p className={cn('text-[11px]', hintClassName)}>
+                      <p className={cn('text-xs', hintClassName)}>
                         Uploaded at {formatWhen(q.uploadedAt)} by{' '}
                         {q.uploadedByName || 'Unknown'}
                       </p>
                       {q.isDeleted ? (
-                        <p className="text-[11px] text-(--muted)">
+                        <p className="text-xs text-(--muted)">
                           Deleted at {formatWhen(q.deletedAt)} by{' '}
                           {q.deletedByName || 'Unknown'}
                         </p>

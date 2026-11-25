@@ -11,6 +11,7 @@ import {
 import { Link } from '@tanstack/react-router'
 import {
   ArrowDown,
+  AlertTriangle,
   ArrowLeft,
   ArrowUp,
   Check,
@@ -516,7 +517,7 @@ function ChangeProvenanceNote({
   }
 
   return (
-    <div className={cn('mt-1 space-y-0.5 text-[11px]', hintClassName)}>
+    <div className={cn('mt-1 space-y-0.5 text-xs', hintClassName)}>
       {meta ? <p>{meta}</p> : null}
       {provenance.because ? (
         <p className="text-(--ink)">Because: {provenance.because}</p>
@@ -1337,7 +1338,7 @@ export default function ProjectRabForm({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-8 gap-1.5 border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800"
+                        className="h-8 gap-1.5"
                         disabled={busy || exportBusy}
                       >
                         <Download className="size-3.5" aria-hidden />
@@ -1369,7 +1370,6 @@ export default function ProjectRabForm({
                 {canManage && hasLines && !isLocked ? (
                   <Button
                     type="button"
-                    variant="outline"
                     size="sm"
                     className="h-8 gap-1.5"
                     disabled={busy}
@@ -1384,7 +1384,7 @@ export default function ProjectRabForm({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-50 hover:text-amber-900"
+                    className="h-8 gap-1.5"
                     disabled={busy}
                     onClick={() => {
                       setChangeReason('')
@@ -1399,9 +1399,9 @@ export default function ProjectRabForm({
                   <>
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className="h-8 gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      className="h-8 gap-1.5 text-red-700 hover:bg-red-50 hover:text-red-800"
                       disabled={busy}
                       onClick={() => void discardChange()}
                     >
@@ -1411,7 +1411,7 @@ export default function ProjectRabForm({
                     <Button
                       type="button"
                       size="sm"
-                      className="h-8 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                      className="h-8 gap-1.5"
                       disabled={busy}
                       onClick={() => void commitChange()}
                     >
@@ -1498,40 +1498,39 @@ export default function ProjectRabForm({
           ) : null}
 
           {hasLines ? (
-            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-sm border border-(--line) bg-(--line) sm:grid-cols-3 lg:grid-cols-5">
-              <RabStat
-                label="Materials"
-                value={formatRupiahAmount(totals.material)}
-              />
-              <RabStat
-                label="Labour"
-                value={formatRupiahAmount(totals.labour)}
-              />
-              <RabStat
-                label="Additional"
-                value={formatRupiahAmount(rab?.chargesTotal)}
-              />
-              <RabStat
-                label="Grand total"
-                value={formatRupiahAmount(rab?.grandTotal)}
-                emphasis
-                hint={
-                  changeDraft && rab?.baselineGrandTotal != null
-                    ? `${formatDelta(rab.baselineGrandTotal, rab.grandTotal)} vs ${formatRupiahAmount(rab.baselineGrandTotal)}`
-                    : undefined
-                }
-              />
-              <RabStat
-                label="Unpriced lines"
-                value={String(totals.unpriced)}
-                tone={totals.unpriced > 0 ? 'warn' : 'ok'}
-                hint={
-                  totals.unpriced > 0
-                    ? 'Price all lines to lock'
-                    : 'All lines priced'
-                }
-              />
-            </dl>
+            <div className="space-y-2">
+              <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-(--line) bg-(--line) lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+                <RabStat
+                  label="Grand total"
+                  value={formatRupiahAmount(rab?.grandTotal)}
+                  emphasis
+                  hint={
+                    changeDraft && rab?.baselineGrandTotal != null
+                      ? `${formatDelta(rab.baselineGrandTotal, rab.grandTotal)} vs ${formatRupiahAmount(rab.baselineGrandTotal)}`
+                      : undefined
+                  }
+                />
+                <RabStat
+                  label="Materials"
+                  value={formatRupiahAmount(totals.material)}
+                />
+                <RabStat
+                  label="Labour"
+                  value={formatRupiahAmount(totals.labour)}
+                />
+                <RabStat
+                  label="Additional"
+                  value={formatRupiahAmount(rab?.chargesTotal)}
+                />
+              </dl>
+              {totals.unpriced > 0 ? (
+                <p className="inline-flex items-center gap-1.5 text-sm text-amber-800">
+                  <AlertTriangle className="size-4" aria-hidden />
+                  {totals.unpriced} line{totals.unpriced === 1 ? '' : 's'}{' '}
+                  without a price. Price every line before locking.
+                </p>
+              ) : null}
+            </div>
           ) : null}
 
           <Tabs value={tab} onValueChange={setTab} className="gap-0">
@@ -1680,7 +1679,7 @@ export default function ProjectRabForm({
                                 <span>{line.materialName}</span>
                                 <span
                                   className={cn(
-                                    'inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+                                    'inline-flex rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset',
                                     changeKindBadgeClass('added'),
                                   )}
                                 >
@@ -1688,7 +1687,7 @@ export default function ProjectRabForm({
                                 </span>
                                 {line.origin === 'labour' ? (
                                   <span
-                                    className={cn('text-[11px]', hintClassName)}
+                                    className={cn('text-xs', hintClassName)}
                                   >
                                     labour
                                     {line.shopDrawingItemName
@@ -1699,7 +1698,7 @@ export default function ProjectRabForm({
                               </p>
                               <p
                                 className={cn(
-                                  'font-mono text-[11px]',
+                                  'font-mono text-xs',
                                   hintClassName,
                                 )}
                               >
@@ -2053,31 +2052,25 @@ function RabStat({
   value,
   hint,
   emphasis = false,
-  tone,
 }: {
   label: string
   value: string
   hint?: string
   emphasis?: boolean
-  tone?: 'ok' | 'warn'
 }) {
   return (
-    <div className="min-w-0 bg-(--surface) px-3 py-2.5">
-      <dt className={metaTextClassName}>{label}</dt>
+    <div className="min-w-0 bg-white px-4 py-3">
+      <dt className={cn('truncate text-sm', hintClassName)}>{label}</dt>
       <dd
         className={cn(
-          'mt-1 truncate tabular-nums',
-          emphasis ? 'text-base font-semibold' : 'text-sm font-medium',
-          tone === 'warn' && 'text-amber-700',
-          tone === 'ok' && 'text-emerald-700',
+          'mt-0.5 truncate tabular-nums',
+          emphasis ? 'text-2xl font-semibold' : 'text-lg font-medium',
         )}
       >
         {value}
       </dd>
       {hint ? (
-        <dd className={cn('mt-0.5 truncate text-[11px]', hintClassName)}>
-          {hint}
-        </dd>
+        <dd className={cn('mt-0.5 truncate text-sm', hintClassName)}>{hint}</dd>
       ) : null}
     </div>
   )
@@ -2155,9 +2148,12 @@ function RabDrawingLabour({
   query,
   process,
 }: DrawingLabour & { query: string }) {
-  const rows = labourRows(lines, list.priceDrafts)
-  const all = rows.map((r) => processRow(r.line))
-  const nameByKey = new Map(rows.map((r) => [r.line.key, r.line.materialName]))
+  const [editingSteps, setEditingSteps] = useState(false)
+  const unordered = labourRows(lines, list.priceDrafts)
+  const all = unordered.map((r) => processRow(r.line))
+  const nameByKey = new Map(
+    unordered.map((r) => [r.line.key, r.line.materialName]),
+  )
   const making = all
     .filter((r) => r.role === 'making')
     .sort((a, b) => (a.sequence ?? 9999) - (b.sequence ?? 9999))
@@ -2165,6 +2161,15 @@ function RabDrawingLabour({
     .filter((r) => r.role === 'install')
     .sort((a, b) => (a.sequence ?? 9999) - (b.sequence ?? 9999))
   const weightSum = making.reduce((s, r) => s + (r.weightPercent ?? 0), 0)
+  const installSum = install.reduce((s, r) => s + (r.weightPercent ?? 0), 0)
+  // Price lines follow the process: making stages in order, then install.
+  const stepOrder = new Map(
+    [...making, ...install].map((r, i) => [r.key, i] as const),
+  )
+  const rows = [...unordered].sort(
+    (a, b) =>
+      (stepOrder.get(a.line.key) ?? 9999) - (stepOrder.get(b.line.key) ?? 9999),
+  )
   const allWeighted = making.every(
     (r) => r.weightPercent != null && r.weightPercent >= 1,
   )
@@ -2248,9 +2253,9 @@ function RabDrawingLabour({
     const name = nameByKey.get(row.key) ?? row.key
     const isMaking = row.role === 'making'
     return (
-      <li key={row.key} className="flex flex-wrap items-center gap-2 text-xs">
+      <li key={row.key} className="flex flex-wrap items-center gap-2 text-sm">
         {!isMaking ? (
-          <span className="w-12 rounded border border-(--line) py-0.5 text-center text-[10px] tracking-wide text-(--muted) uppercase">
+          <span className="w-14 rounded border border-(--line) py-0.5 text-center text-xs text-(--muted)">
             Install
           </span>
         ) : canEdit ? (
@@ -2388,7 +2393,7 @@ function RabDrawingLabour({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 gap-1 px-2 text-xs"
+            className="h-7 gap-1 px-2"
             disabled={list.busy}
             onClick={onAdd}
           >
@@ -2398,42 +2403,101 @@ function RabDrawingLabour({
         ) : null}
       </div>
       {process && all.length > 0 ? (
-        <div className="mb-2 space-y-1.5 rounded-md border border-(--line) bg-(--surface) px-2 py-2">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <p className={cn('min-w-0 flex-1 text-xs', hintClassName)}>
-              Each labour is its own SPK. Making stages run in sequence and
-              their weights must total 100% before SPKs
-              {making.length > 0 && allWeighted ? (
-                <span
-                  className={cn(
-                    'ml-1 tabular-nums',
-                    weightSum === 100 ? 'text-emerald-700' : 'text-amber-700',
-                  )}
-                >
-                  (now {weightSum}%)
+        <div className="mb-2 space-y-2 rounded-md bg-(--surface) px-3 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="min-w-0 flex-1 text-sm">
+              {making.map((r, i) => (
+                <span key={r.key}>
+                  {i > 0 ? (
+                    <span className="mx-1.5 text-(--muted)">→</span>
+                  ) : null}
+                  {nameByKey.get(r.key) ?? r.key}
+                  <span className={cn('ml-1 tabular-nums', hintClassName)}>
+                    {r.weightPercent != null ? `${r.weightPercent}%` : '—'}
+                  </span>
+                </span>
+              ))}
+              {install.length > 0 ? (
+                <span className={hintClassName}>
+                  {making.length > 0 ? ' · then install: ' : 'Install: '}
+                  {install.map((r) => nameByKey.get(r.key) ?? r.key).join(', ')}
                 </span>
               ) : null}
-              . Install steps run on finished pcs, with their own weights
-              totalling 100%.
             </p>
-            {process.makeType ? (
-              <span className="shrink-0 rounded-full border border-(--line) px-2 py-0.5 text-[11px] text-(--muted)">
-                {MAKE_TYPE_LABEL[process.makeType]}
-              </span>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-2">
+              {process.makeType ? (
+                <span className="rounded-full border border-(--line) px-2 py-0.5 text-xs text-(--muted)">
+                  {MAKE_TYPE_LABEL[process.makeType]}
+                </span>
+              ) : null}
+              {canEdit ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  aria-expanded={editingSteps}
+                  onClick={() => setEditingSteps((v) => !v)}
+                >
+                  {editingSteps ? 'Done' : 'Edit steps'}
+                </Button>
+              ) : null}
+            </div>
           </div>
-          <ul className="space-y-1">
-            {making.map((r, i) => processLine(r, i))}
-            {install.map((r) => processLine(r, -1))}
-          </ul>
+          <WeightCheck
+            making={making.length > 0 && allWeighted ? weightSum : null}
+            install={
+              install.length > 0 &&
+              install.every((r) => r.weightPercent != null)
+                ? installSum
+                : null
+            }
+          />
+          {editingSteps && canEdit ? (
+            <ul className="space-y-1.5 border-t border-(--line) pt-2">
+              {making.map((r, i) => processLine(r, i))}
+              {install.map((r) => processLine(r, -1))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
       {rows.length === 0 ? (
-        <p className={cn('text-xs', hintClassName)}>No labour yet.</p>
+        <p className={cn('text-sm', hintClassName)}>No labour yet.</p>
       ) : (
         <RabLineList rows={rows} section="labour" query={query} {...list} />
       )}
     </div>
+  )
+}
+
+/** Weights must total 100% per track before SPKs can be made. */
+function WeightCheck({
+  making,
+  install,
+}: {
+  making: number | null
+  install: number | null
+}) {
+  const parts: { label: string; sum: number }[] = []
+  if (making !== null) parts.push({ label: 'Making', sum: making })
+  if (install !== null) parts.push({ label: 'Install', sum: install })
+  if (parts.length === 0) return null
+  const ok = parts.every((p) => p.sum === 100)
+  return (
+    <p
+      className={cn(
+        'text-sm tabular-nums',
+        ok ? 'text-emerald-700' : 'text-amber-800',
+      )}
+      title="Each labour line becomes its own SPK. Making steps run in order; install steps run on finished pcs. Each track's weights must add up to 100% before SPKs can be made."
+    >
+      {ok
+        ? 'Weights add up to 100%'
+        : parts
+            .filter((p) => p.sum !== 100)
+            .map((p) => `${p.label} weights total ${p.sum}%, need 100%`)
+            .join(' · ')}
+    </p>
   )
 }
 
@@ -2752,7 +2816,7 @@ function RabElaborationDoc({
             {addedInChange ? (
               <span
                 className={cn(
-                  'inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+                  'inline-flex rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset',
                   changeKindBadgeClass('added'),
                 )}
               >
@@ -2769,7 +2833,7 @@ function RabElaborationDoc({
           {highlightText(doc.originalFilename, q)}
         </p>
         {addedInChange && changeDraft ? (
-          <div className={cn('pt-1 text-[11px]', hintClassName)}>
+          <div className={cn('pt-1 text-xs', hintClassName)}>
             <p>
               Open change · {formatWhen(changeDraft.openedAt)} ·{' '}
               {changeDraft.openedBy.name}
@@ -2850,7 +2914,7 @@ function RabElaborationDoc({
                       {kind ? (
                         <span
                           className={cn(
-                            'inline-flex shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+                            'inline-flex shrink-0 rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset',
                             changeKindBadgeClass(kind),
                           )}
                         >
@@ -2858,7 +2922,7 @@ function RabElaborationDoc({
                         </span>
                       ) : null}
                     </p>
-                    <p className={cn('font-mono text-[11px]', hintClassName)}>
+                    <p className={cn('font-mono text-xs', hintClassName)}>
                       {line.materialCode
                         ? highlightText(line.materialCode, q)
                         : '—'}
@@ -2873,10 +2937,7 @@ function RabElaborationDoc({
                     </p>
                     {bought !== line.totalQty ? (
                       <p
-                        className={cn(
-                          'text-[11px] tabular-nums',
-                          hintClassName,
-                        )}
+                        className={cn('text-xs tabular-nums', hintClassName)}
                         title={
                           est
                             ? `RAB buys ${est.totalQty} ${est.uomSymbol} for a need of ${est.exactQty ?? est.totalQty}; this drawing carries its share.`
@@ -2886,7 +2947,7 @@ function RabElaborationDoc({
                         Buy {bought} {line.uomSymbol} · need {line.totalQty}
                       </p>
                     ) : null}
-                    <p className={cn('text-[11px]', hintClassName)}>
+                    <p className={cn('text-xs', hintClassName)}>
                       {highlightText(source, q)}
                     </p>
                     {provenance ? (
@@ -2916,6 +2977,37 @@ function RabElaborationDoc({
       ) : null}
     </section>
   )
+}
+
+/** "37.24138" -> "37.24"; integers stay as they are. */
+function trimQty(qty: string): string {
+  const n = Number(qty)
+  if (!Number.isFinite(n)) return qty
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(n)
+}
+
+/** Hover text for a line's quantity: BOQ need vs bought, and why. */
+function qtyBreakdown(
+  line: ProjectRabLine,
+  contributionQty: string,
+): string | undefined {
+  const parts: string[] = []
+  if (contributionQty !== line.totalQty) {
+    parts.push(`RAB total ${line.totalQty} ${line.uomSymbol}`)
+  }
+  if (line.exactQty !== null && line.exactQty !== line.totalQty) {
+    parts.push(
+      `BOQ needs ${trimQty(line.exactQty)}, buying ${line.totalQty} ${line.uomSymbol}`,
+    )
+    const waste = Number(line.wasteQty)
+    if (waste > 0) parts.push(`waste ${trimQty(String(waste))}`)
+    if (line.rounding) {
+      parts.push(
+        `rounded ${line.rounding.mode === 'nearest' ? 'to nearest' : line.rounding.mode} step ${line.rounding.step}`,
+      )
+    }
+  }
+  return parts.length > 0 ? parts.join(' · ') : undefined
 }
 
 function RabLineList({
@@ -2999,7 +3091,7 @@ function RabLineList({
             <li
               key={rowKey}
               className={cn(
-                'border-b border-(--line) py-2.5 last:border-b-0',
+                'group border-b border-(--line) py-3 last:border-b-0',
                 kind === 'added' && 'bg-emerald-50/80',
                 kind === 'changed' && 'bg-amber-50/80',
                 kind === 'removed' && 'bg-red-50/60',
@@ -3019,7 +3111,7 @@ function RabLineList({
                     {kind ? (
                       <span
                         className={cn(
-                          'inline-flex shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+                          'inline-flex shrink-0 rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset',
                           changeKindBadgeClass(kind),
                         )}
                       >
@@ -3027,46 +3119,40 @@ function RabLineList({
                       </span>
                     ) : null}
                   </p>
-                  <p className={cn('font-mono text-[11px]', hintClassName)}>
-                    {line.materialCode
-                      ? highlightText(line.materialCode, q)
-                      : '—'}
-                    <span className="mx-1.5 text-(--line)">·</span>
-                    <span className="tabular-nums">
+                  <p className={cn('text-sm', hintClassName)}>
+                    {line.materialCode ? (
+                      <>
+                        <span className="font-mono text-xs">
+                          {highlightText(line.materialCode, q)}
+                        </span>
+                        <span className="mx-1.5 text-(--line)">·</span>
+                      </>
+                    ) : null}
+                    <span
+                      className={cn(
+                        'tabular-nums',
+                        line.exactQty !== null &&
+                          line.exactQty !== line.totalQty &&
+                          'cursor-help underline decoration-dotted underline-offset-4',
+                      )}
+                      title={qtyBreakdown(line, contributionQty)}
+                    >
                       {contributionQty} {highlightText(line.uomSymbol, q)}
                     </span>
                   </p>
-                  {line.exactQty !== null && line.exactQty !== line.totalQty ? (
-                    <p
-                      className={cn(
-                        'text-[11px]',
-                        Number(line.wasteQty) < 0
-                          ? 'text-amber-600'
-                          : hintClassName,
-                      )}
-                      title={
-                        line.rounding
-                          ? `BOQ need ${line.exactQty}, bought ${line.totalQty}: rounded ${line.rounding.mode === 'nearest' ? 'to nearest' : line.rounding.mode} to steps of ${line.rounding.step} ${line.uomSymbol}${line.rounding.source === 'unit' ? ' (unit default)' : ''}`
-                          : undefined
-                      }
-                    >
-                      RAB total {line.totalQty} · need {line.exactQty}
-                      {Number(line.wasteQty) < 0
-                        ? ` · short ${line.wasteQty?.replace('-', '')}`
-                        : ` · waste ${line.wasteQty}`}
-                    </p>
-                  ) : contributionQty !== line.totalQty ? (
-                    <p className={cn('text-[11px]', hintClassName)}>
-                      RAB total {line.totalQty} {line.uomSymbol}
+                  {line.exactQty !== null && Number(line.wasteQty) < 0 ? (
+                    <p className="text-sm text-amber-700">
+                      Short {trimQty((line.wasteQty ?? '').replace('-', ''))}{' '}
+                      {line.uomSymbol} against the BOQ
                     </p>
                   ) : null}
                   {alsoIn.length > 0 ? (
-                    <p className={cn('text-[11px]', hintClassName)}>
+                    <p className={cn('text-xs', hintClassName)}>
                       Also in {alsoIn.map((s) => SECTION_LABELS[s]).join(', ')}
                     </p>
                   ) : null}
                   {line.origin === 'append' && line.addedBy && line.addedAt ? (
-                    <p className={cn('text-[11px]', hintClassName)}>
+                    <p className={cn('text-xs', hintClassName)}>
                       Added {line.addedBy.name} {formatWhen(line.addedAt)}
                       {line.addReason?.trim()
                         ? ` · ${line.addReason.trim()}`
@@ -3081,7 +3167,11 @@ function RabLineList({
                       <div
                         role="radiogroup"
                         aria-label={`Price entry for ${line.materialName}`}
-                        className="flex h-8 shrink-0 items-center rounded-md border border-(--line) p-0.5 text-xs"
+                        className={cn(
+                          'flex h-8 shrink-0 items-center rounded-md border border-(--line) p-0.5 text-xs transition-opacity',
+                          !byTotal &&
+                            'sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100',
+                        )}
                       >
                         {(['unit', 'total'] as const).map((mode) => {
                           const active = (mode === 'total') === byTotal
@@ -3192,26 +3282,17 @@ function RabLineList({
                   )}
                 </div>
 
-                <p className="text-sm font-medium tabular-nums sm:text-right">
+                <p className="text-base font-medium tabular-nums sm:text-right">
                   {formatRupiahAmount(amount)}
                   {byTotal && totalDirty && unitFromTotal ? (
                     <span
                       className={cn(
-                        'mt-0.5 block text-[11px] font-normal',
+                        'mt-0.5 block text-xs font-normal',
                         hintClassName,
                       )}
                     >
                       ≈ Rp {formatRupiahDigits(unitFromTotal)} /{' '}
                       {line.uomSymbol}
-                    </span>
-                  ) : hasPrice ? (
-                    <span
-                      className={cn(
-                        'mt-0.5 block text-[11px] font-normal',
-                        hintClassName,
-                      )}
-                    >
-                      {contributionQty} × {formatRupiahDigits(draftDigits)}
                     </span>
                   ) : null}
                 </p>

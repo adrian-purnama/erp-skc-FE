@@ -539,7 +539,7 @@ export default function ShopDrawingBoqStackViewer({
       >
         <table className="w-max border-collapse border border-(--line) text-left text-sm">
           <thead className="sticky top-0 z-20">
-            <tr className="text-[11px] tracking-wide text-(--muted)">
+            <tr className="text-xs tracking-wide text-(--muted)">
               <th
                 className={cn(stickyShop, 'z-30 bg-(--surface) font-medium')}
                 rowSpan={2}
@@ -574,7 +574,7 @@ export default function ShopDrawingBoqStackViewer({
                 Other
               </th>
             </tr>
-            <tr className="text-[11px] tracking-wide text-(--muted)">
+            <tr className="text-xs tracking-wide text-(--muted)">
               {maxBases === 0 ? (
                 <th className={cn(headCell, 'min-w-[10rem]')}>—</th>
               ) : (

@@ -44,7 +44,7 @@ export function RabSdMaterialChanges({
         >
           <span
             className={cn(
-              'inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+              'inline-flex rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset',
               changeKindBadgeClass(d.kind),
             )}
           >

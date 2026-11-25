@@ -80,7 +80,7 @@ function expandPart(
   materials: SandwichPreviewMaterial[],
   tone: number,
 ): StackRow[] {
-  const partLabel = part.label.trim() || 'Core'
+  const partLabel = part.label.trim() || 'Base'
   const rows: StackRow[] = []
   part.bases.forEach((base, baseIndex) => {
     const top = [...base.finishings]
@@ -102,9 +102,7 @@ function expandPart(
       kind: 'base',
       key: base.key,
       partLabel:
-        part.bases.length > 1
-          ? `${partLabel} · ${baseIndex + 1}`
-          : partLabel,
+        part.bases.length > 1 ? `${partLabel} · ${baseIndex + 1}` : partLabel,
       materialLabel: materialName(materials, base.line.materialItemId),
       tone,
     })
@@ -148,16 +146,14 @@ export default function ShopDrawingBoqSandwichPreview({
   if (!hasBases) {
     return (
       <p className={cn('text-sm', hintClassName, className)}>
-        Add a core to see the stack preview.
+        Add a base material to see the stack.
       </p>
     )
   }
 
   return (
     <div className={cn('space-y-1', className)} aria-label="BOQ stack preview">
-      <p className="mb-3 text-[11px] tracking-wide text-(--muted)">
-        Preview · outside → core → outside
-      </p>
+      <p className="mb-3 text-sm text-(--muted)">Stack, front to back</p>
       <div className="space-y-1.5">
         {rows.map((row) => {
           const active =
@@ -170,7 +166,7 @@ export default function ShopDrawingBoqSandwichPreview({
               <div key={row.key} className="flex items-stretch gap-3">
                 <div
                   className={cn(
-                    'w-[45%] min-w-[5rem] rounded-sm border border-[#e0b8a8] bg-[#f3ddd2] px-2 py-1.5',
+                    'w-10 shrink-0 rounded-sm border border-[#e0b8a8] bg-[#f3ddd2] px-2 py-1.5',
                     active && 'ring-1 ring-(--ink)/25',
                   )}
                 />
@@ -189,7 +185,7 @@ export default function ShopDrawingBoqSandwichPreview({
             <div key={row.key} className="flex items-stretch gap-3">
               <div
                 className={cn(
-                  'w-[45%] min-w-[5rem] rounded-sm border px-2 py-4',
+                  'w-10 shrink-0 rounded-sm border px-2 py-4',
                   BASE_TONES[row.tone] ?? BASE_TONES[0],
                   active && 'ring-1 ring-(--ink)/35',
                 )}

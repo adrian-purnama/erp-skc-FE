@@ -1,4 +1,11 @@
-import { getToken } from '#/context/authContext'
+import { getToken, handleSessionExpired } from '#/context/authContext'
+
+/** A 401 on a request that carried our token means the session is over. */
+function checkSessionExpired(status: number, sentToken: boolean, path: string) {
+  if (status === 401 && sentToken && path !== '/auth/login') {
+    handleSessionExpired()
+  }
+}
 
 export interface ApiResponseDto<T = null> {
   success: boolean
@@ -29,6 +36,7 @@ export async function apiFetch<T>(
     ...options,
     headers,
   })
+  checkSessionExpired(response.status, Boolean(token), path)
 
   let body: ApiResponseDto<T>
   try {
@@ -80,6 +88,7 @@ export function apiUploadWithProgress<T>(
     }
 
     xhr.onload = () => {
+      checkSessionExpired(xhr.status, Boolean(token), path)
       try {
         const body = JSON.parse(xhr.responseText) as ApiResponseDto<T>
         resolve(body)
@@ -109,6 +118,7 @@ export async function apiDownload(path: string, fallbackFilename: string) {
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   const response = await fetch(`${API_BASE_URL}${path}`, { headers })
+  checkSessionExpired(response.status, Boolean(token), path)
   if (!response.ok) {
     let message = 'Download failed'
     try {
@@ -140,6 +150,7 @@ export async function apiBlobUrl(path: string): Promise<string> {
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
   const response = await fetch(`${API_BASE_URL}${path}`, { headers })
+  checkSessionExpired(response.status, Boolean(token), path)
   if (!response.ok) throw new Error('Could not load file')
   return URL.createObjectURL(await response.blob())
 }

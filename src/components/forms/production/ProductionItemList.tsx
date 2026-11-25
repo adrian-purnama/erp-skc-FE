@@ -1,8 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
   CircleDot,
-  FileText,
-  Hammer,
   Footprints,
   MoreHorizontal,
   Package,
@@ -41,14 +39,6 @@ import type {
 } from '#/lib/production'
 import { hintClassName, sectionTitleClassName } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
-
-/** SPK statuses counted on an item, in lifecycle order. */
-const COUNTED: ProductionOrderStatus[] = [
-  'draft',
-  'released',
-  'in_progress',
-  'completed',
-]
 
 const STATUS_TONE: Record<ProductionOrderStatus, ListChipTone> = {
   draft: 'warning',
@@ -129,41 +119,14 @@ export default function ProductionItemList({
       {
         header: 'Current step',
         icon: Footprints,
-        widthClassName: 'w-64',
+        widthClassName: 'w-80',
         cell: (item) => <CurrentStepCell item={item} />,
       },
       {
-        header: 'SPK',
-        icon: FileText,
-        widthClassName: 'w-56',
-        cell: (item) => (
-          <SpkCountCell orders={ordersByItem.get(item.itemId) ?? []} />
-        ),
-      },
-      {
-        header: 'Making',
+        header: 'Progress',
         icon: TrendingUp,
-        widthClassName: 'w-48',
-        cell: (item) => (
-          <TrackCell
-            percent={item.percent}
-            caption={`${item.doneQty}/${item.makeQty} made`}
-          />
-        ),
-      },
-      {
-        header: 'Install',
-        icon: Hammer,
-        widthClassName: 'w-48',
-        cell: (item) =>
-          item.stages.some((st) => st.role === 'install') ? (
-            <TrackCell
-              percent={item.installPercent}
-              caption={`${item.installedQty}/${item.makeQty} installed`}
-            />
-          ) : (
-            <span className={hintClassName}>No install</span>
-          ),
+        widthClassName: 'w-64',
+        cell: (item) => <ProgressCell item={item} />,
       },
       ...(onNew || onProcess
         ? [
@@ -202,7 +165,7 @@ export default function ProductionItemList({
         columns={columns}
         rows={progress.items}
         rowKey={(item) => item.itemId}
-        minWidthClassName="min-w-[980px]"
+        minWidthClassName="min-w-[760px]"
         onRowClick={(item) =>
           setOpenId((id) => (id === item.itemId ? null : item.itemId))
         }
@@ -221,15 +184,19 @@ export default function ProductionItemList({
   )
 }
 
-/** Weighted % bar with the pcs count under it. */
-function TrackCell({ percent, caption }: { percent: number; caption: string }) {
+/** One bar for making; install progress as a line of text under it. */
+function ProgressCell({ item }: { item: ProductionItemProgress }) {
+  const hasInstall = item.stages.some((st) => st.role === 'install')
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 space-y-0.5">
       <ListProgress
-        percent={percent}
-        tone={percent >= 100 ? 'success' : 'neutral'}
+        percent={item.percent}
+        tone={item.percent >= 100 ? 'success' : 'neutral'}
       />
-      <p className={cn('text-xs tabular-nums', hintClassName)}>{caption}</p>
+      <p className={cn('text-sm tabular-nums', hintClassName)}>
+        {item.doneQty}/{item.makeQty} made
+        {hasInstall ? ` · ${item.installedQty}/${item.makeQty} installed` : ''}
+      </p>
     </div>
   )
 }
@@ -251,37 +218,20 @@ function CurrentStepCell({ item }: { item: ProductionItemProgress }) {
     )
   }
   const track = item.stages.filter((s) => s.role === st.role)
-  const spkPcs = Number(st.orderedQty)
+  const needsSpk = Number(st.orderedQty) === 0
   return (
     <div className="min-w-0">
-      <p className="truncate">{st.name}</p>
-      <p className={cn('text-xs tabular-nums', hintClassName)}>
+      <p className="truncate font-medium">{st.name}</p>
+      <p className={cn('text-sm tabular-nums', hintClassName)}>
         {st.role === 'install' ? 'Install' : 'Making'} {st.sequence} of{' '}
-        {track.length} ·{' '}
-        {spkPcs > 0
-          ? `${st.orderedQty}/${stageCapacity(st)} in SPK`
-          : 'no SPK yet'}
+        {track.length}
+        {' · '}
+        {needsSpk ? (
+          <span className="text-amber-700">needs an SPK</span>
+        ) : (
+          `${st.orderedQty}/${stageCapacity(st)} in SPK`
+        )}
       </p>
-    </div>
-  )
-}
-
-/** "1 Draft · 2 Released": the item's SPKs by status. */
-function SpkCountCell({ orders }: { orders: ProductionOrderSummary[] }) {
-  if (orders.length === 0) {
-    return <span className={hintClassName}>None yet</span>
-  }
-  return (
-    <div className="flex flex-wrap gap-1">
-      {COUNTED.map((status) => {
-        const n = orders.filter((o) => o.status === status).length
-        if (n === 0) return null
-        return (
-          <ListChip key={status} tone={STATUS_TONE[status]}>
-            {n} {PRODUCTION_ORDER_STATUS_LABELS[status]}
-          </ListChip>
-        )
-      })}
     </div>
   )
 }
@@ -359,7 +309,7 @@ function StageBreakdown({
   const current = currentStage(item)?.key
   if (!item.processReady) {
     return (
-      <p className="px-4 py-3 text-xs text-amber-700">{item.processDetail}</p>
+      <p className="px-4 py-3 text-sm text-amber-700">{item.processDetail}</p>
     )
   }
   return (
@@ -387,14 +337,14 @@ function StageBreakdown({
               />
               <div className="min-w-0">
                 <p className="truncate">{st.name}</p>
-                <p className={cn('text-xs', hintClassName)}>
+                <p className={cn('text-sm', hintClassName)}>
                   {st.role === 'install' ? 'Install' : 'Making'} {st.sequence} ·
                   weight {st.weightPercent ?? '—'}%
                   {st.executor === 'vendor' ? ' · Vendor' : ''}
                 </p>
               </div>
             </div>
-            <span className="text-xs tabular-nums">
+            <span className="tabular-nums">
               {st.doneQty}/{item.makeQty} done
             </span>
             <div className="flex min-w-0 flex-wrap gap-1">

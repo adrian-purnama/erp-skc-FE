@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Download,
   FilePlus2,
+  Info,
   LoaderCircle,
   RefreshCw,
   Repeat2,
@@ -34,6 +35,12 @@ import { Checkbox } from '#/components/ui/checkbox'
 import { Combobox } from '#/components/ui/combobox'
 import { RupiahInput } from '#/components/ui/rupiah-input'
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '#/components/ui/tooltip'
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -47,6 +54,7 @@ import {
   QUOTATION_STATUS_LABELS,
   chargeLabel,
   formatRupiah,
+  formatYmdLong,
   quotationPrintRows,
   type Quotation,
   type QuotationCharge,
@@ -64,6 +72,7 @@ import {
   inputClassName,
   inputClassNameCompact,
   pageTitleClassName,
+  sectionTitleClassName,
 } from '#/lib/ui-classes'
 import { cn } from '#/lib/utils'
 
@@ -99,7 +108,12 @@ type HeaderForm = {
 const NO_TOP = '__none__'
 
 /** Subject, term of payment, valid until and notes: saved on their own. */
-const DETAIL_KEYS = ['subject', 'termOfPaymentId', 'validUntil', 'notes'] as const
+const DETAIL_KEYS = [
+  'subject',
+  'termOfPaymentId',
+  'validUntil',
+  'notes',
+] as const
 
 function pickPatch(
   patch: QuotationHeaderPatch,
@@ -187,7 +201,10 @@ function headerPatch(form: HeaderForm, q: Quotation): QuotationHeaderPatch {
   }
   const notes = cleanNotes(form.notes)
   // A blank item being typed counts as a change, so Save/Reset show up.
-  if (notes !== cleanNotes(base.notes) || form.notes.length !== base.notes.length) {
+  if (
+    notes !== cleanNotes(base.notes) ||
+    form.notes.length !== base.notes.length
+  ) {
     patch.notes = notes
   }
   return patch
@@ -505,7 +522,9 @@ export default function ProjectQuotationForm({
         return
       }
       applyQuotation(response.data)
-      toast.success(won ? 'Quotation marked as won' : 'Quotation set back to issued')
+      toast.success(
+        won ? 'Quotation marked as won' : 'Quotation set back to issued',
+      )
       setWonOpen(false)
       setUndoWonOpen(false)
       await loadOverview(projectId, response.data.id)
@@ -629,7 +648,7 @@ export default function ProjectQuotationForm({
         <div className="grid gap-6 lg:grid-cols-[16rem_minmax(0,1fr)]">
           <aside className="space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-medium">Revisions</h2>
+              <h2 className={sectionTitleClassName}>Revisions</h2>
               {canManage && !hasDraft ? (
                 <Button
                   type="button"
@@ -644,17 +663,10 @@ export default function ProjectQuotationForm({
                 </Button>
               ) : null}
             </div>
-            <p className={cn('text-xs', hintClassName)}>
-              RAB{' '}
-              {overview.rabStatus === 'locked'
-                ? `locked · rev ${overview.currentRabRevision}`
-                : overview.rabStatus === 'draft'
-                  ? 'draft'
-                  : 'not started'}
-              {overview.rabChangeDraftOpen ? ' · change open' : ''}
-            </p>
-            {overview.createBlockedReason && !hasDraft ? (
-              <p className="text-xs text-amber-700 dark:text-amber-300">
+            {overview.createBlockedReason &&
+            !hasDraft &&
+            overview.revisions.length === 0 ? (
+              <p className="text-sm text-amber-700 dark:text-amber-300">
                 {overview.createBlockedReason}
               </p>
             ) : null}
@@ -679,12 +691,14 @@ export default function ProjectQuotationForm({
                         <span className="font-medium">R{rev.revision}</span>
                         <StatusChip status={rev.status} />
                       </span>
-                      <span className={cn('block text-xs', hintClassName)}>
+                      <span className="mt-0.5 block tabular-nums">
                         {formatRupiah(rev.grandTotal)}
-                        {rev.issuedAt
-                          ? ` · ${formatCostingWhen(rev.issuedAt)}`
-                          : ''}
                       </span>
+                      {rev.issuedAt ? (
+                        <span className={cn('block text-xs', hintClassName)}>
+                          {formatCostingWhen(rev.issuedAt)}
+                        </span>
+                      ) : null}
                     </button>
                   </li>
                 ))}
@@ -894,8 +908,8 @@ export default function ProjectQuotationForm({
               Mark {quotation?.quotationNumber} as won?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              The client accepted this revision. Quotations for this project
-              are locked and the project status becomes Win.
+              The client accepted this revision. Quotations for this project are
+              locked and the project status becomes Win.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1069,15 +1083,26 @@ function QuotationDetail({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-medium">{q.quotationNumber}</h2>
+            <h2 className="text-lg font-semibold break-all">
+              {q.quotationNumber}
+            </h2>
             <StatusChip status={q.status} />
           </div>
-          <p className={cn('text-xs', hintClassName)}>
-            From RAB rev {q.rabRevision}
-            {q.createdBy ? ` · created by ${q.createdBy.name}` : ''}
-            {q.issuedAt && q.issuedBy
-              ? ` · issued ${formatCostingWhen(q.issuedAt)} by ${q.issuedBy.name}`
-              : ''}
+          <p
+            className={cn('text-sm', hintClassName)}
+            title={
+              [
+                q.createdBy ? `Created by ${q.createdBy.name}` : null,
+                q.issuedBy ? `Issued by ${q.issuedBy.name}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ') || undefined
+            }
+          >
+            {q.issuedAt
+              ? `Issued ${formatCostingWhen(q.issuedAt)}`
+              : 'Not issued yet'}
+            {` · from RAB rev ${q.rabRevision}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1199,6 +1224,8 @@ function QuotationDetail({
         </p>
       ) : null}
 
+      <QuotationKeyNumbers quotation={q} />
+
       <div className="grid gap-4 text-sm sm:grid-cols-2">
         <div className="space-y-0.5">
           <p className={cn('text-xs', hintClassName)}>To</p>
@@ -1218,18 +1245,24 @@ function QuotationDetail({
           <p className={cn('text-xs', hintClassName)}>From</p>
           {q.company.name ? (
             <>
-              <p className="font-medium">{q.company.name}</p>
-              {q.company.address ? (
-                <p className="whitespace-pre-line">{q.company.address}</p>
-              ) : null}
-              {q.company.npwp ? <p>NPWP {q.company.npwp}</p> : null}
-              <p className={cn('text-xs', hintClassName)}>
-                {q.company.hasLogo
-                  ? q.status === 'draft'
-                    ? 'Company profile logo will be printed'
-                    : 'Company profile logo captured at issue'
-                  : 'No company profile logo — upload one in Admin › Config'}
+              <p
+                className="font-medium"
+                title={
+                  [
+                    q.company.address,
+                    q.company.npwp ? `NPWP ${q.company.npwp}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join('\n') || undefined
+                }
+              >
+                {q.company.name}
               </p>
+              {q.company.hasLogo ? null : (
+                <p className="text-amber-700 dark:text-amber-300">
+                  No company logo. Upload one in Admin › Config.
+                </p>
+              )}
             </>
           ) : (
             <p className="text-amber-700 dark:text-amber-300">
@@ -1246,7 +1279,7 @@ function QuotationDetail({
           if (detailsDirty) void onSaveHeader(detailsPatch)
         }}
       >
-        <h3 className="text-sm font-medium">Details</h3>
+        <h3 className={sectionTitleClassName}>Details</h3>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block space-y-1.5 sm:col-span-2">
             <span className="text-sm font-medium">Subject</span>
@@ -1294,7 +1327,7 @@ function QuotationDetail({
       </form>
 
       <div className="space-y-2">
-        <h3 className="text-sm font-medium">Lines</h3>
+        <h3 className={sectionTitleClassName}>Lines</h3>
         <div className="overflow-x-auto rounded-md border border-(--line)">
           <table className="w-full min-w-[60rem] text-sm">
             <thead className="bg-(--surface) text-left text-xs">
@@ -1367,7 +1400,7 @@ function QuotationDetail({
             if (pricingDirty) void onSaveHeader(pricingPatch)
           }}
         >
-          <h3 className="text-sm font-medium">Pricing</h3>
+          <h3 className={sectionTitleClassName}>Pricing</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block space-y-1.5">
               <span className="text-sm font-medium">Markup %</span>
@@ -1453,8 +1486,10 @@ function QuotationDetail({
                 </dd>
               </div>
             ))}
-          <dt className="border-t border-(--line) pt-1 font-medium">Total</dt>
-          <dd className="border-t border-(--line) pt-1 text-right font-medium tabular-nums">
+          <dt className="mt-1 border-t border-(--line) pt-2 text-base font-semibold">
+            Total
+          </dt>
+          <dd className="mt-1 border-t border-(--line) pt-2 text-right text-base font-semibold tabular-nums">
             {formatRupiah(q.totals.grandTotal)}
           </dd>
         </dl>
@@ -1513,6 +1548,46 @@ function MarginBar({
   )
 }
 
+/** The three numbers people look for first: total, margin, validity. */
+function QuotationKeyNumbers({ quotation: q }: { quotation: Quotation }) {
+  const sell = Number(q.totals.taxBase)
+  const margin = Number(q.totals.margin)
+  const marginPercent = sell > 0 ? (margin / sell) * 100 : 0
+  const tone = marginTone(marginPercent)
+  return (
+    <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-(--line) bg-(--line) sm:grid-cols-[1.4fr_1fr_1fr]">
+      <div className="min-w-0 bg-white px-4 py-3">
+        <dt className={cn('text-sm', hintClassName)}>Total (incl. tax)</dt>
+        <dd className="mt-0.5 text-xl font-semibold break-words tabular-nums">
+          {formatRupiah(q.totals.grandTotal)}
+        </dd>
+      </div>
+      <div className="min-w-0 bg-white px-4 py-3">
+        <dt className={cn('text-sm', hintClassName)}>
+          {margin < 0 ? 'Loss' : 'Margin'} · internal
+        </dt>
+        <dd
+          className={cn(
+            'mt-0.5 truncate text-xl font-semibold tabular-nums',
+            tone.text,
+          )}
+        >
+          {formatPercent(marginPercent)}
+        </dd>
+        <dd className={cn('truncate text-sm', hintClassName)}>
+          {formatRupiah(q.totals.margin)}
+        </dd>
+      </div>
+      <div className="min-w-0 bg-white px-4 py-3">
+        <dt className={cn('text-sm', hintClassName)}>Valid until</dt>
+        <dd className="mt-0.5 text-lg font-medium break-words">
+          {q.validUntil ? formatYmdLong(q.validUntil) : '—'}
+        </dd>
+      </div>
+    </dl>
+  )
+}
+
 /** Internal only: how much of the price is RAB cost vs margin (never printed). */
 function MarginInsight({ quotation: q }: { quotation: Quotation }) {
   const cost = Number(q.totals.costTotal)
@@ -1543,14 +1618,9 @@ function MarginInsight({ quotation: q }: { quotation: Quotation }) {
       className="w-full max-w-md space-y-3 rounded-md border border-(--line) p-4 text-sm"
       aria-label="Margin insight"
     >
-      <div>
-        <p className={cn('text-xs', hintClassName)}>
-          {margin < 0 ? 'Loss' : 'Margin'} (before PPN) · internal
-        </p>
-        <p className={cn('text-2xl font-semibold tabular-nums', tone.text)}>
-          {formatPercent(marginPercent)}
-        </p>
-      </div>
+      <p className={cn('text-sm', hintClassName)}>
+        Cost vs price (before PPN) · internal
+      </p>
 
       <MarginBar cost={cost} sell={sell} />
 
@@ -1934,7 +2004,9 @@ function ChargesField({
                     type="button"
                     role="radio"
                     aria-checked={c.sign === k}
-                    aria-label={k === 'add' ? 'Add to total' : 'Deduct from total'}
+                    aria-label={
+                      k === 'add' ? 'Add to total' : 'Deduct from total'
+                    }
                     title={k === 'add' ? 'Add to total' : 'Deduct from total'}
                     disabled={!editable}
                     onClick={() => patch(c.key, { sign: k })}
@@ -2008,7 +2080,9 @@ function ChargesField({
                   size="sm"
                   className="size-7 p-0"
                   aria-label={`Remove ${c.label || 'charge'}`}
-                  onClick={() => onChange(charges.filter((x) => x.key !== c.key))}
+                  onClick={() =>
+                    onChange(charges.filter((x) => x.key !== c.key))
+                  }
                 >
                   <X className="size-3.5" aria-hidden />
                 </Button>
@@ -2033,11 +2107,31 @@ function ChargesField({
           ))}
         </ul>
       )}
-      <p className={cn('text-xs', hintClassName)}>
-        Ticked lines come after the discount, printed in this order: + adds,
-        − deducts. % is of the DPP; Rp is a fixed amount. The reason prints
-        in brackets after the label.
-      </p>
+      <TooltipProvider delayDuration={150}>
+        <p
+          className={cn(
+            'inline-flex items-center gap-1.5 text-sm',
+            hintClassName,
+          )}
+        >
+          Ticked charges apply after the discount.
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="hover:text-(--ink)"
+                aria-label="How charges are printed"
+              >
+                <Info className="size-4" aria-hidden />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              Printed in this order: + adds, − deducts. % is of the DPP; Rp is a
+              fixed amount. The reason prints in brackets after the label.
+            </TooltipContent>
+          </Tooltip>
+        </p>
+      </TooltipProvider>
     </div>
   )
 }

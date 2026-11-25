@@ -371,7 +371,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
           </div>
           <ul
             className={cn(
-              'flex flex-wrap items-center gap-3 text-[11px] text-(--muted)',
+              'flex flex-wrap items-center gap-3 text-xs text-(--muted)',
               view === 'scurve' && 'hidden',
             )}
           >
@@ -442,7 +442,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
               <ChevronRight className="size-4" />
             </button>
           </div>
-          <div className="grid grid-cols-7 gap-px rounded-md border border-(--line) bg-(--line) text-center text-[11px]">
+          <div className="grid grid-cols-7 gap-px rounded-md border border-(--line) bg-(--line) text-center text-xs">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
               <div key={d} className="bg-(--surface) px-1 py-2 font-medium text-(--muted)">
                 {d}
@@ -477,7 +477,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
                       <span
                         key={event.id}
                         className={cn(
-                          'block truncate rounded px-1 py-0.5 text-[10px] leading-tight',
+                          'block truncate rounded px-1 py-0.5 text-xs leading-tight',
                           PROJECT_CALENDAR_TONE_STYLES[eventTone(event, now)].chip,
                         )}
                       >
@@ -485,7 +485,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
                       </span>
                     ))}
                     {extra > 0 ? (
-                      <span className={cn('block text-[10px]', hintClassName)}>
+                      <span className={cn('block text-xs', hintClassName)}>
                         +{extra} more
                       </span>
                     ) : null}
@@ -649,7 +649,7 @@ export default function ProjectCalendarPanel({ projectId, canManage }: Props) {
                       disabled={!editable}
                       className={cn(
                         buttonOutlineClassName,
-                        'px-2 py-1 text-[11px] text-red-700',
+                        'px-2 py-1 text-xs text-red-700',
                       )}
                       onClick={() => setEditor({ ...editor, title: preset })}
                     >
@@ -847,13 +847,13 @@ function ReminderCard({
             {label}
           </h3>
           {count > 0 ? (
-            <span className="rounded-full bg-(--surface) px-1.5 text-[10px] tabular-nums text-(--muted)">
+            <span className="rounded-full bg-(--surface) px-1.5 text-xs tabular-nums text-(--muted)">
               {count}
             </span>
           ) : null}
         </div>
         {meta ? (
-          <span className="text-[11px] tabular-nums text-(--muted)">{meta}</span>
+          <span className="text-xs tabular-nums text-(--muted)">{meta}</span>
         ) : null}
       </header>
       {count === 0 ? (
@@ -864,7 +864,7 @@ function ReminderCard({
           {needsExpand ? (
             <button
               type="button"
-              className="border-t border-(--line) px-3 py-2 text-left text-[11px] text-(--muted) underline-offset-4 hover:text-(--ink) hover:underline"
+              className="border-t border-(--line) px-3 py-2 text-left text-xs text-(--muted) underline-offset-4 hover:text-(--ink) hover:underline"
               onClick={() => setExpanded((v) => !v)}
             >
               {expanded
@@ -912,7 +912,7 @@ function ReminderRow({
               {event.title}
             </span>
           </span>
-          <span className={cn('block text-[11px]', hintClassName)}>
+          <span className={cn('block text-xs', hintClassName)}>
             {secondary}
           </span>
         </span>

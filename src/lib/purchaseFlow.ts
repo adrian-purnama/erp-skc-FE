@@ -114,9 +114,13 @@ function pct(part: number, whole: number): number {
   return whole > 0 ? Math.min(100, Math.round((part / whole) * 100)) : 0
 }
 
-/** Where a purchase stands, stage by stage, and what to do next. */
+/**
+ * Where a purchase stands, stage by stage, and what to do next.
+ * `hideMoney` (e.g. on an SPP) describes stages by counts, never amounts.
+ */
 export function buildPurchaseFlowInsight(
   flow: PurchaseFlow,
+  options: { hideMoney?: boolean } = {},
 ): PurchaseFlowInsight {
   const liveRequests = flow.requests.filter(
     (r) => r.status === 'draft' || r.status === 'submitted',
@@ -156,6 +160,7 @@ export function buildPurchaseFlowInsight(
   )
   const ordered = Number(flow.totals.ordered)
   const requesterOnly = !flow.stages.includes('pay')
+  const noMoney = requesterOnly || Boolean(options.hideMoney)
   const order: FlowStageInsight =
     live.length === 0
       ? { tone: 'idle', label: 'Not ordered', pct: null, detail: 'No PO yet' }
@@ -184,7 +189,7 @@ export function buildPurchaseFlowInsight(
                 tone: 'ok',
                 label: 'Approved',
                 pct: null,
-                detail: requesterOnly
+                detail: noMoney
                   ? `${live.length} PO approved`
                   : rp(ordered),
               }
@@ -193,8 +198,40 @@ export function buildPurchaseFlowInsight(
   const allFull =
     approved.length > 0 &&
     approved.every((o) => o.receipt === 'full' || o.closedPartial)
+  const fullyReceived = approved.filter(
+    (o) => o.receipt === 'full' || o.closedPartial,
+  ).length
+  const anyReceived = approved.some((o) => o.receipt !== 'none')
   const receive: FlowStageInsight =
-    approved.length === 0
+    noMoney
+      ? approved.length === 0
+        ? {
+            tone: 'idle',
+            label: 'Not yet',
+            pct: null,
+            detail: 'Needs an approved PO',
+          }
+        : allFull
+          ? {
+              tone: 'ok',
+              label: 'Received',
+              pct: 100,
+              detail: `${approved.length} PO received`,
+            }
+          : anyReceived
+            ? {
+                tone: 'progress',
+                label: 'Partial',
+                pct: pct(fullyReceived, approved.length),
+                detail: `${fullyReceived} of ${approved.length} PO fully received`,
+              }
+            : {
+                tone: 'idle',
+                label: 'Not received',
+                pct: 0,
+                detail: 'Nothing arrived yet',
+              }
+    : approved.length === 0
       ? {
           tone: 'idle',
           label: 'Not yet',
@@ -288,6 +325,9 @@ export function buildPurchaseFlowInsight(
       }
       if (approved.length === 0)
         return { tone: 'progress', text: 'Ordered: waiting for PO approval' }
+      if (allFull) return { tone: 'ok', text: 'Received: everything has arrived' }
+      if (anyReceived)
+        return { tone: 'progress', text: 'Partly received: waiting for the rest' }
       return { tone: 'ok', text: 'Ordered: waiting for delivery' }
     }
     if (live.length === 0) {
@@ -313,6 +353,7 @@ export function buildPurchaseFlowInsight(
     }
     if (!allFull)
       return { tone: 'progress', text: 'Next: record what arrives (receipt)' }
+    if (noMoney) return { tone: 'ok', text: 'Received: everything has arrived' }
     if (uninvoiced.length > 0)
       return {
         tone: 'progress',

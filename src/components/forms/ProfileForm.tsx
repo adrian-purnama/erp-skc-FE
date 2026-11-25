@@ -206,7 +206,7 @@ export default function ProfileForm() {
           >
             {uploadingPicture ? 'Uploading…' : 'Change photo'}
           </button>
-          <span className={`text-center text-[0.7rem] ${hintClassName}`}>
+          <span className={`text-center text-xs ${hintClassName}`}>
             PNG or JPG · max 2MB
           </span>
         </div>

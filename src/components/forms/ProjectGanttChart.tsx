@@ -444,7 +444,7 @@ export default function ProjectGanttChart({ events, onSelectEvent, sCurve }: Pro
       </div>
 
       {outsideCount > 0 ? (
-        <p className={cn('border-b border-(--line) px-3 py-1.5 text-[11px]', hintClassName)}>
+        <p className={cn('border-b border-(--line) px-3 py-1.5 text-xs', hintClassName)}>
           {outsideCount} event{outsideCount === 1 ? '' : 's'} outside this
           window — use ← → or switch to Week/Month
           {bounds
@@ -533,7 +533,7 @@ export default function ProjectGanttChart({ events, onSelectEvent, sCurve }: Pro
                   >
                     <span
                       className={cn(
-                        'text-[11px] font-medium tabular-nums',
+                        'text-xs font-medium tabular-nums',
                         isTodayCol
                           ? 'rounded-full bg-(--ink) px-1.5 text-white'
                           : 'text-(--ink)',
@@ -542,7 +542,7 @@ export default function ProjectGanttChart({ events, onSelectEvent, sCurve }: Pro
                       {col.label}
                     </span>
                     {col.sub ? (
-                      <span className="text-[10px] text-(--muted)">
+                      <span className="text-xs text-(--muted)">
                         {col.sub}
                       </span>
                     ) : null}
@@ -574,7 +574,7 @@ export default function ProjectGanttChart({ events, onSelectEvent, sCurve }: Pro
                       <text
                         x={4}
                         y={yOf(t) - 3}
-                        className="fill-(--muted) text-[10px] tabular-nums"
+                        className="fill-(--muted) text-xs tabular-nums"
                       >
                         {t}%
                       </text>
@@ -647,7 +647,7 @@ export default function ProjectGanttChart({ events, onSelectEvent, sCurve }: Pro
                         <button
                           type="button"
                           className={cn(
-                            'absolute top-2.5 flex h-6 items-center truncate rounded-md px-2 text-left text-[11px] font-semibold text-white shadow-sm',
+                            'absolute top-2.5 flex h-6 items-center truncate rounded-md px-2 text-left text-xs font-semibold text-white shadow-sm',
                             event.type === 'deadline' &&
                               'min-w-6 justify-center',
                           )}

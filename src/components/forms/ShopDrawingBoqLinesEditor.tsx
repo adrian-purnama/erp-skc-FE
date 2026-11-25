@@ -113,6 +113,54 @@ function unitsPerUom(line: DraftLine): string {
 
 const MODE_LABELS = { up: 'up', down: 'down', nearest: 'to nearest' } as const
 
+/** Column widths shared by every table in a stack, so they line up. */
+function StackColumns({
+  withLabel,
+  canManage,
+}: {
+  withLabel: boolean
+  canManage: boolean
+}) {
+  return (
+    <colgroup>
+      {withLabel ? <col className="w-24" /> : null}
+      <col />
+      <col className="w-16" />
+      <col className="w-36" />
+      <col className="w-28" />
+      {canManage ? <col className="w-20" /> : null}
+    </colgroup>
+  )
+}
+
+/** One header row for a stack of headless compact editors. */
+export function BoqStackHeader({
+  makeQty,
+  canManage,
+}: {
+  makeQty: string
+  canManage: boolean
+}) {
+  const head = 'px-2 py-2 font-medium'
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[34rem] table-fixed border-collapse text-left text-sm">
+        <StackColumns withLabel canManage={canManage} />
+        <thead>
+          <tr className="border-b border-(--line) bg-(--surface) text-(--muted)">
+            <th className={head}>Layer</th>
+            <th className={head}>Material</th>
+            <th className={head}>UOM</th>
+            <th className={head}>Qty per unit</th>
+            <th className={head}>Total for {makeQty || '—'}</th>
+            {canManage ? <th className={head}> </th> : null}
+          </tr>
+        </thead>
+      </table>
+    </div>
+  )
+}
+
 /** Need × make qty, plus what the RAB buys after the item's decimals rule. */
 function LineTotal({
   qtyPerUnit,
@@ -146,8 +194,8 @@ function LineTotal({
       <span className="block font-medium">
         {purchase.buy} {purchase.symbol}
       </span>
-      <span className={cn('block text-[11px]', hintClassName)}>
-        need {purchase.need}
+      <span className={cn('block text-xs', hintClassName)}>
+        need {Number(Number(purchase.need).toFixed(2))}
       </span>
     </span>
   )
@@ -190,6 +238,10 @@ type Props = {
   maxLines?: number
   /** Tighter padding, hide # column — for sandwich stacks. */
   compact?: boolean
+  /** Skip the column header (a shared BoqStackHeader sits above). */
+  headless?: boolean
+  /** First cell of each row, e.g. "Above 1" / "Base" in a stack. */
+  rowLabel?: string
   /**
    * First N lines are frozen (RAB locked): view-only, cannot remove.
    * New lines after the prefix remain editable.
@@ -209,12 +261,19 @@ export default function ShopDrawingBoqLinesEditor({
   allowEmpty = true,
   maxLines,
   compact = false,
+  headless = false,
+  rowLabel,
   frozenPrefixCount = 0,
 }: Props) {
   const cell = compact ? 'px-2 py-1.5' : 'px-3 py-2.5'
   const head = compact ? 'px-2 py-1.5' : 'px-3 py-2'
   const colCount =
-    (compact ? 0 : 1) + 1 + (showSpec ? 1 : 0) + 3 + (canManage ? 1 : 0)
+    (compact ? 0 : 1) +
+    (rowLabel !== undefined ? 1 : 0) +
+    1 +
+    (showSpec ? 1 : 0) +
+    3 +
+    (canManage ? 1 : 0)
   const materialOptions = materials.map((m) => ({
     value: m.id,
     label: `${m.itemId} — ${m.name}`,
@@ -277,31 +336,41 @@ export default function ShopDrawingBoqLinesEditor({
         <table
           className={cn(
             'w-full border-collapse text-left text-sm',
-            compact ? 'min-w-[32rem]' : 'min-w-[40rem]',
+            compact ? 'min-w-[34rem] table-fixed' : 'min-w-[40rem]',
           )}
         >
-          <thead>
-            <tr
-              className={cn(
-                'border-b border-(--line) text-[11px] tracking-wide text-(--muted)',
-                !compact && 'bg-(--surface)',
-              )}
-            >
-              {compact ? null : (
-                <th className={cn('w-10 font-medium', head)}>#</th>
-              )}
-              <th className={cn('font-medium', head)}>Material</th>
-              {showSpec ? (
-                <th className={cn('w-32 font-medium', head)}>Spec</th>
-              ) : null}
-              <th className={cn('w-20 font-medium', head)}>UOM</th>
-              <th className={cn('w-36 font-medium', head)}>Qty / unit</th>
-              <th className={cn('w-28 font-medium', head)}>Total</th>
-              {canManage ? (
-                <th className={cn('w-16 font-medium', head)}> </th>
-              ) : null}
-            </tr>
-          </thead>
+          {compact ? (
+            <StackColumns
+              withLabel={rowLabel !== undefined}
+              canManage={canManage}
+            />
+          ) : null}
+          {headless ? null : (
+            <thead>
+              <tr
+                className={cn(
+                  'border-b border-(--line) text-sm text-(--muted)',
+                  !compact && 'bg-(--surface)',
+                )}
+              >
+                {compact ? null : (
+                  <th className={cn('w-10 font-medium', head)}>#</th>
+                )}
+                <th className={cn('font-medium', head)}>Material</th>
+                {showSpec ? (
+                  <th className={cn('w-32 font-medium', head)}>Spec</th>
+                ) : null}
+                <th className={cn('w-20 font-medium', head)}>UOM</th>
+                <th className={cn('w-36 font-medium', head)}>Qty per unit</th>
+                <th className={cn('w-28 font-medium', head)}>
+                  Total for {makeQty || '—'}
+                </th>
+                {canManage ? (
+                  <th className={cn('w-16 font-medium', head)}> </th>
+                ) : null}
+              </tr>
+            </thead>
+          )}
           <tbody>
             {lines.length === 0 ? (
               <tr>
@@ -365,6 +434,17 @@ export default function ShopDrawingBoqLinesEditor({
                       {index + 1}
                     </td>
                   )}
+                  {rowLabel !== undefined ? (
+                    <td
+                      className={cn(
+                        cell,
+                        'truncate align-top text-sm text-(--muted)',
+                      )}
+                      title={rowLabel}
+                    >
+                      {rowLabel}
+                    </td>
+                  ) : null}
 
                   {editing && lineEditable ? (
                     <>
@@ -374,20 +454,18 @@ export default function ShopDrawingBoqLinesEditor({
                       >
                         <div
                           className={cn(
-                            'flex flex-nowrap items-center gap-2',
-                            !compact && 'items-end',
+                            'flex items-center gap-2',
+                            compact ? 'flex-wrap' : 'flex-nowrap items-end',
                           )}
                         >
                           <div
                             className={cn(
                               'min-w-0 shrink space-y-1',
-                              compact ? 'w-[14rem] max-w-[50%]' : 'w-[18rem]',
+                              compact ? 'w-[16rem] max-w-full' : 'w-[18rem]',
                             )}
                           >
                             {compact ? null : (
-                              <p className="text-[11px] text-(--muted)">
-                                Material
-                              </p>
+                              <p className="text-xs text-(--muted)">Material</p>
                             )}
                             <Combobox
                               value={line.materialItemId}
@@ -430,7 +508,7 @@ export default function ShopDrawingBoqLinesEditor({
                           </div>
                           <div className="w-24 shrink-0 space-y-1">
                             {compact ? null : (
-                              <p className="text-[11px] text-(--muted)">UOM</p>
+                              <p className="text-xs text-(--muted)">UOM</p>
                             )}
                             <Combobox
                               value={line.itemUomId}
@@ -465,7 +543,7 @@ export default function ShopDrawingBoqLinesEditor({
                           {showSpec ? (
                             <div className="w-36 shrink-0 space-y-1">
                               {compact ? null : (
-                                <p className="text-[11px] text-(--muted)">
+                                <p className="text-xs text-(--muted)">
                                   Spec / dimension
                                 </p>
                               )}
@@ -489,9 +567,7 @@ export default function ShopDrawingBoqLinesEditor({
                           <div className="min-w-0 shrink-0 space-y-1">
                             <div className="flex items-center gap-2">
                               {compact ? null : (
-                                <p className="text-[11px] text-(--muted)">
-                                  Qty
-                                </p>
+                                <p className="text-xs text-(--muted)">Qty</p>
                               )}
                               {canYield ? (
                                 <Tabs
@@ -506,7 +582,7 @@ export default function ShopDrawingBoqLinesEditor({
                                   <TabsList className="h-6 p-0.5">
                                     <TabsTrigger
                                       value="unit"
-                                      className="px-2 text-[11px]"
+                                      className="px-2 text-xs"
                                       title="How much material one finished unit uses"
                                       disabled={disabled}
                                     >
@@ -514,7 +590,7 @@ export default function ShopDrawingBoqLinesEditor({
                                     </TabsTrigger>
                                     <TabsTrigger
                                       value="yield"
-                                      className="px-2 text-[11px]"
+                                      className="px-2 text-xs"
                                       title={`How many finished units one ${uomSymbol ?? 'unit'} makes`}
                                       disabled={disabled}
                                     >
@@ -592,7 +668,7 @@ export default function ShopDrawingBoqLinesEditor({
                             ) : null}
                             {yieldMode ? (
                               hasYield && perUnitQty !== '—' ? (
-                                <p className="text-[11px] tabular-nums text-(--muted)">
+                                <p className="text-xs tabular-nums text-(--muted)">
                                   = {perUnitQty}
                                   {uomSymbol ? ` ${uomSymbol}` : ''} per unit
                                 </p>
@@ -698,7 +774,7 @@ export default function ShopDrawingBoqLinesEditor({
                             {meta?.name ?? '—'}
                           </span>
                           {meta?.itemId ? (
-                            <span className="mt-0.5 block font-mono text-xs text-(--muted)">
+                            <span className="mt-0.5 block truncate font-mono text-xs text-(--muted)">
                               {meta.itemId}
                             </span>
                           ) : null}
@@ -741,7 +817,7 @@ export default function ShopDrawingBoqLinesEditor({
                     >
                       {lineFrozen ? (
                         <span
-                          className={cn('px-1 text-[10px]', hintClassName)}
+                          className={cn('px-1 text-xs', hintClassName)}
                           title="Frozen after RAB lock"
                         >
                           Locked

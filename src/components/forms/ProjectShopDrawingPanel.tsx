@@ -69,7 +69,7 @@ import type {
   ProjectShopDrawingFile,
   ProjectShopDrawingItem,
 } from '#/lib/project'
-import { buttonOutlineClassName, hintClassName } from '#/lib/ui-classes'
+import { hintClassName } from '#/lib/ui-classes'
 import { useDebouncedValue } from '#/lib/useDebouncedValue'
 import { cn } from '#/lib/utils'
 
@@ -99,7 +99,7 @@ function BoqBadge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset',
         tone === 'ok' && 'bg-emerald-50 text-emerald-800 ring-emerald-200',
         tone === 'warn' && 'bg-amber-50 text-amber-900 ring-amber-200',
         tone === 'locked' && 'bg-(--surface) text-(--ink) ring-(--line)',
@@ -148,7 +148,7 @@ const FILE_KIND_LABELS: Record<FileKind, string> = {
 }
 
 const FILE_KIND_SHORT: Record<FileKind, string> = {
-  sd: 'SD',
+  sd: 'Drawing',
   production: 'Produksi',
 }
 
@@ -175,70 +175,76 @@ function FileSlot({
   const detail = file
     ? `${file.originalFilename}\n${formatBytes(file.sizeBytes)} · ${auditUploadedLine(file)}`
     : undefined
+  const downloadable = file !== null && !file.isDeleted
   return (
-    <div className="flex h-7 min-w-0 items-center gap-2">
-      <span className="w-14 shrink-0 text-[10px] font-semibold tracking-wide text-(--muted) uppercase">
+    <div className="flex min-h-8 min-w-0 items-center gap-2">
+      <span className={cn('w-16 shrink-0 text-xs', hintClassName)}>
         {FILE_KIND_SHORT[kind]}
       </span>
       {file ? (
-        <span className="min-w-0 flex-1 truncate text-xs" title={detail}>
-          <span className="tabular-nums text-(--muted)">
-            v{file.version}
-            {file.sameAsVersion != null ? `=v${file.sameAsVersion}` : ''}
-          </span>{' '}
+        <button
+          type="button"
+          className="min-w-0 flex-1 truncate text-left text-sm hover:underline disabled:no-underline"
+          title={detail}
+          disabled={!downloadable}
+          aria-label={`Download ${label}: ${file.originalFilename}`}
+          onClick={() => {
+            if (downloadable) onDownload(file)
+          }}
+        >
           {file.originalFilename}
-        </span>
+          {file.version > 1 ? (
+            <span className={cn('ml-1.5 text-xs tabular-nums', hintClassName)}>
+              v{file.version}
+            </span>
+          ) : null}
+        </button>
       ) : (
-        <span className={cn('min-w-0 flex-1 text-xs', hintClassName)}>
+        <span className={cn('min-w-0 flex-1 text-sm', hintClassName)}>
           No file yet
         </span>
       )}
-      <div className="flex shrink-0 items-center">
+      <div
+        className={cn(
+          'flex shrink-0 items-center transition-opacity',
+          // Quiet until the row is hovered or focused; always shown when empty.
+          file &&
+            'opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100',
+        )}
+      >
         {canManage ? (
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="size-6"
+            className="size-7"
             disabled={busy}
-            title={`Upload ${label}`}
-            aria-label={`Upload ${label}`}
+            title={file ? `Upload new ${label} version` : `Upload ${label}`}
+            aria-label={
+              file ? `Upload new ${label} version` : `Upload ${label}`
+            }
             onClick={onUpload}
           >
             {busy ? (
-              <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+              <LoaderCircle className="size-4 animate-spin" aria-hidden />
             ) : (
-              <Upload className="size-3.5" aria-hidden />
+              <Upload className="size-4" aria-hidden />
             )}
           </Button>
         ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          disabled={!file || file.isDeleted}
-          title={`Download ${label}`}
-          aria-label={`Download ${label}`}
-          onClick={() => {
-            if (file) onDownload(file)
-          }}
-        >
-          <Download className="size-3.5" aria-hidden />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-6 min-w-9 gap-0.5 px-1 text-[11px] tabular-nums"
-          disabled={versionCount === 0}
-          title={`${label} history`}
-          aria-label={`${label} history (${versionCount})`}
-          onClick={onHistory}
-        >
-          <History className="size-3" aria-hidden />
-          {versionCount}
-        </Button>
+        {versionCount > 1 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title={`${label} history (${versionCount} versions)`}
+            aria-label={`${label} history (${versionCount} versions)`}
+            onClick={onHistory}
+          >
+            <History className="size-4" aria-hidden />
+          </Button>
+        ) : null}
       </div>
     </div>
   )
@@ -670,12 +676,16 @@ export default function ProjectShopDrawingPanel({
               />
             ) : null}
             {item.makeType !== 'inhouse' ? (
-              <ListChip dot tone={PRODUCTION_ORDER_TYPE_TONES[item.makeType]} className="mt-0.5">
+              <ListChip
+                dot
+                tone={PRODUCTION_ORDER_TYPE_TONES[item.makeType]}
+                className="mt-0.5"
+              >
                 {PRODUCTION_ORDER_TYPE_LABELS[item.makeType]}
               </ListChip>
             ) : null}
             {item.category && !groupByCategory ? (
-              <p className="text-[10px] font-normal tracking-wide text-(--muted)">
+              <p className={cn('text-sm font-normal', hintClassName)}>
                 {item.category}
               </p>
             ) : null}
@@ -685,7 +695,7 @@ export default function ProjectShopDrawingPanel({
       {
         header: 'Ukuran',
         icon: Ruler,
-        cellClassName: 'whitespace-nowrap text-xs tabular-nums',
+        cellClassName: 'whitespace-nowrap tabular-nums',
         cell: (item) =>
           item.dimension || <span className={hintClassName}>—</span>,
       },
@@ -717,48 +727,54 @@ export default function ProjectShopDrawingPanel({
               ? 'Edit'
               : 'View'
             : 'Add BOQ'
+          if (!current.hasBoq && !editable) {
+            return <BoqBadge tone="warn" label="Missing" />
+          }
           return (
-            <div className="flex items-center gap-2">
-              {current.hasBoq ? (
-                frozen ? (
-                  <BoqBadge tone="locked" label="Frozen" />
-                ) : (
-                  <BoqBadge tone="ok" label="Ready" />
-                )
-              ) : (
-                <BoqBadge tone="warn" label="Missing" />
+            <Link
+              to="/dashboard/internal/shop-drawing-boq"
+              search={{
+                projectId,
+                itemId: item.id,
+                fileId: current.id,
+              }}
+              className={cn(
+                'inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium no-underline ring-1 ring-inset transition-colors',
+                !current.hasBoq &&
+                  'bg-amber-50 text-amber-900 ring-amber-200 hover:bg-amber-100',
+                current.hasBoq &&
+                  frozen &&
+                  'text-(--ink) ring-(--line) hover:bg-(--surface)',
+                current.hasBoq &&
+                  !frozen &&
+                  'bg-emerald-50 text-emerald-800 ring-emerald-200 hover:bg-emerald-100',
               )}
-              {current.hasBoq || editable ? (
-                <Link
-                  to="/dashboard/internal/shop-drawing-boq"
-                  search={{
-                    projectId,
-                    itemId: item.id,
-                    fileId: current.id,
-                  }}
-                  className={cn(
-                    buttonOutlineClassName,
-                    'inline-flex h-7 items-center gap-1 px-2 text-xs no-underline',
-                  )}
-                  aria-label={`${label} BOQ for ${item.label}`}
-                  onClick={stopRowClick}
-                >
-                  {current.hasBoq ? (
-                    <Pencil className="size-3" aria-hidden />
-                  ) : (
-                    <Plus className="size-3" aria-hidden />
-                  )}
-                  {label}
-                </Link>
-              ) : null}
-            </div>
+              title={
+                !current.hasBoq
+                  ? 'BOQ missing'
+                  : frozen
+                    ? 'BOQ is frozen while the RAB is locked'
+                    : 'BOQ ready'
+              }
+              aria-label={`${label} BOQ for ${item.label}`}
+              onClick={stopRowClick}
+            >
+              {!current.hasBoq ? (
+                <Plus className="size-4" aria-hidden />
+              ) : frozen ? (
+                <Lock className="size-4" aria-hidden />
+              ) : (
+                <Pencil className="size-4" aria-hidden />
+              )}
+              {current.hasBoq ? `${label} BOQ` : label}
+            </Link>
           )
         },
       },
       {
         header: 'Files',
         icon: Paperclip,
-        cellClassName: 'w-[22rem] max-w-[22rem]',
+        cellClassName: 'w-[24rem] max-w-[24rem]',
         cell: (item) => {
           const busy = busyItemId === item.id
           return (
@@ -856,25 +872,10 @@ export default function ProjectShopDrawingPanel({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className={hintClassName}>
-          Shop drawing items and their files (max 20MB).
-        </p>
-        {canManage ? (
-          <Button
-            type="button"
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={openCreateItem}
-          >
-            <Plus className="size-3.5" aria-hidden />
-            Add item
-          </Button>
-        ) : null}
-      </div>
-
       <ListTable
-        density="compact"
+        addAction={
+          canManage ? { label: 'Add item', onClick: openCreateItem } : undefined
+        }
         filters={
           <>
             <ListSearchInput
@@ -1044,8 +1045,8 @@ export default function ProjectShopDrawingPanel({
             {makeTypeDraft === 'outsource' ? (
               <div className="space-y-2">
                 <p className={cn('text-xs', hintClassName)}>
-                  No BOQ needed: set the qty here. Add the vendor fee in the
-                  RAB as a labour line on this item.
+                  No BOQ needed: set the qty here. Add the vendor fee in the RAB
+                  as a labour line on this item.
                 </p>
                 <label className="block space-y-1.5">
                   <span className="text-sm font-medium">Qty (pcs)</span>
@@ -1134,7 +1135,7 @@ export default function ProjectShopDrawingPanel({
                       aria-pressed={selected}
                       onClick={() => setCategoryDraft(selected ? '' : c)}
                       className={cn(
-                        'rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+                        'rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset',
                         selected
                           ? 'bg-primary text-primary-foreground ring-primary'
                           : 'text-(--muted) ring-(--line) hover:text-(--ink)',
@@ -1217,9 +1218,7 @@ export default function ProjectShopDrawingPanel({
                           {' · '}
                           {doc.originalFilename}
                         </span>
-                        <span
-                          className={cn('block text-[11px]', hintClassName)}
-                        >
+                        <span className={cn('block text-xs', hintClassName)}>
                           {formatBytes(doc.sizeBytes)}
                           {doc.sameAsVersion != null
                             ? ` · same as v${doc.sameAsVersion}`
@@ -1236,7 +1235,7 @@ export default function ProjectShopDrawingPanel({
                     </button>
                     {open ? (
                       <div className="space-y-2 border-t border-(--line) px-3 py-2">
-                        <p className={cn('text-[11px]', hintClassName)}>
+                        <p className={cn('text-xs', hintClassName)}>
                           {auditUploadedLine(doc)}
                         </p>
                         <div className="flex flex-wrap items-center gap-1">
@@ -1278,7 +1277,7 @@ export default function ProjectShopDrawingPanel({
                                 Use this version
                               </Button>
                               {versionSwitchBlocked ? (
-                                <p className={cn('text-[11px]', hintClassName)}>
+                                <p className={cn('text-xs', hintClassName)}>
                                   Open a change on RAB to switch current version
                                 </p>
                               ) : null}

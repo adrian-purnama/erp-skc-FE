@@ -469,7 +469,7 @@ export default function ProjectDocumentsPanel({ projectId, canManage }: Props) {
                           {doc.originalFilename}
                         </span>
                         <span
-                          className={cn('block text-[11px]', hintClassName)}
+                          className={cn('block text-xs', hintClassName)}
                         >
                           {formatBytes(doc.sizeBytes)}
                           {doc.sameAsVersion != null
@@ -487,11 +487,11 @@ export default function ProjectDocumentsPanel({ projectId, canManage }: Props) {
                     </button>
                     {open ? (
                       <div className="space-y-2 border-t border-(--line) px-3 py-2">
-                        <p className={cn('text-[11px]', hintClassName)}>
+                        <p className={cn('text-xs', hintClassName)}>
                           {auditUploadedLine(doc)}
                         </p>
                         {deletedLine ? (
-                          <p className="text-[11px] text-(--muted)">
+                          <p className="text-xs text-(--muted)">
                             {deletedLine}
                           </p>
                         ) : null}
@@ -837,7 +837,7 @@ function VersionRow({
             {' · '}
             {doc.originalFilename}
           </p>
-          <div className="mt-0.5 space-y-0.5 text-[10px] leading-snug text-(--muted)">
+          <div className="mt-0.5 space-y-0.5 text-xs leading-snug text-(--muted)">
             <p>{formatBytes(doc.sizeBytes)}</p>
             <p>{auditUploadedLine(doc)}</p>
             {deletedLine ? <p>{deletedLine}</p> : null}

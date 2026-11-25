@@ -48,6 +48,7 @@ import {
   hintClassName,
   sectionTitleClassName,
 } from '#/lib/ui-classes'
+import { formatYmdShort } from '#/lib/projectSchedule'
 import { cn } from '#/lib/utils'
 
 type Props = {
@@ -195,7 +196,7 @@ export default function ProjectProductionPanel({ projectId }: Props) {
         cell: (o) => (
           <div className="min-w-0">
             <p className="truncate">{o.labourName}</p>
-            <p className="text-[10px] tracking-wide text-(--muted)">
+            <p className={cn('text-sm', hintClassName)}>
               {stageLabel(o)}
               {o.executor === 'vendor' ? ' · Vendor' : ''}
             </p>
@@ -211,11 +212,13 @@ export default function ProjectProductionPanel({ projectId }: Props) {
       {
         header: 'Planned',
         icon: CalendarClock,
-        cellClassName: 'w-48 text-xs tabular-nums whitespace-nowrap',
+        cellClassName: 'w-40 tabular-nums whitespace-nowrap',
         cell: (o) =>
-          o.plannedStart || o.plannedFinish
-            ? `${o.plannedStart ?? '—'} → ${o.plannedFinish ?? '—'}`
-            : '—',
+          o.plannedStart || o.plannedFinish ? (
+            `${o.plannedStart ? formatYmdShort(o.plannedStart) : '—'} → ${o.plannedFinish ? formatYmdShort(o.plannedFinish) : '—'}`
+          ) : (
+            <span className={hintClassName}>Not planned</span>
+          ),
       },
       {
         header: 'PIC',
@@ -285,7 +288,7 @@ export default function ProjectProductionPanel({ projectId }: Props) {
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-8 px-2"
               onClick={() => setShowCancelled((v) => !v)}
             >
               {showCancelled

@@ -109,7 +109,7 @@ export default function PurchaseOrdersForm({
             Waiting to order
             {waiting.rows.length > 0 ? (
               <span
-                className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] leading-5 font-semibold text-white tabular-nums"
+                className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-xs leading-5 font-semibold text-white tabular-nums"
                 aria-label={`${waiting.rows.length} waiting`}
               >
                 {waiting.rows.length > 99 ? '99+' : waiting.rows.length}

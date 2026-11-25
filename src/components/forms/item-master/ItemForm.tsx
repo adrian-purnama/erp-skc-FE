@@ -900,7 +900,7 @@ export function ItemForm({
                       <p
                         className={cn(
                           hintClassName,
-                          'mt-1 flex items-center gap-1 text-[11px]',
+                          'mt-1 flex items-center gap-1 text-xs',
                         )}
                       >
                         {row.isBase ? (
