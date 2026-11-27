@@ -163,7 +163,7 @@ function ProjectKeyNumbers({
         value={formatRupiahCompact(summary.contractValue)}
         note={
           summary.plannedMargin !== null
-            ? `Margin ${formatRupiahCompact(summary.plannedMargin)}`
+            ? `Margin now ${formatRupiahCompact(summary.plannedMargin)}`
             : summary.contractValue
               ? null
               : 'No quotation yet'

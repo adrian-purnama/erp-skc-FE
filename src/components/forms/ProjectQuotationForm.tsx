@@ -266,6 +266,10 @@ export default function ProjectQuotationForm({
   const [reissueValidUntil, setReissueValidUntil] = useState('')
   const [discardOpen, setDiscardOpen] = useState(false)
   const [wonOpen, setWonOpen] = useState(false)
+  /** "I understand" on an old-RAB / losing quotation before win or re-issue. */
+  const [riskAck, setRiskAck] = useState(false)
+  const riskReasons = quotation?.rabRisk?.reasons ?? []
+  const riskBlocks = riskReasons.length > 0 && !riskAck
   const [undoWonOpen, setUndoWonOpen] = useState(false)
   const [terms, setTerms] = useState<TermOfPaymentOption[]>([])
 
@@ -437,6 +441,7 @@ export default function ProjectQuotationForm({
         ? current
         : jakartaDateKey(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
     )
+    setRiskAck(false)
     setReissueOpen(true)
   }
 
@@ -483,7 +488,10 @@ export default function ProjectQuotationForm({
           ? { method: 'POST' }
           : {
               method: 'POST',
-              body: JSON.stringify({ validUntil: reissueValidUntil }),
+              body: JSON.stringify({
+                validUntil: reissueValidUntil,
+                acknowledgeRisk: riskAck,
+              }),
             },
       )
       const data = response.data
@@ -515,7 +523,12 @@ export default function ProjectQuotationForm({
     try {
       const response = await apiFetch<Quotation>(
         `/quotation/${quotation.id}/won`,
-        { method: won ? 'POST' : 'DELETE' },
+        won
+          ? {
+              method: 'POST',
+              body: JSON.stringify({ acknowledgeRisk: riskAck }),
+            }
+          : { method: 'DELETE' },
       )
       if (!response.success || !response.data) {
         toast.error(response.message || 'Failed to update quotation')
@@ -750,7 +763,12 @@ export default function ProjectQuotationForm({
                     : undefined
                 }
                 onMarkWon={
-                  canMarkWon && !hasWon ? () => setWonOpen(true) : undefined
+                  canMarkWon && !hasWon
+                    ? () => {
+                        setRiskAck(false)
+                        setWonOpen(true)
+                      }
+                    : undefined
                 }
                 onUndoWon={canMarkWon ? () => setUndoWonOpen(true) : undefined}
                 onDiscard={() => setDiscardOpen(true)}
@@ -862,14 +880,12 @@ export default function ProjectQuotationForm({
               and you.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {quotation &&
-          overview &&
-          quotation.rabRevision !== overview.currentRabRevision ? (
-            <p className="text-sm text-amber-800 dark:text-amber-200">
-              Priced from RAB rev {quotation.rabRevision}; the RAB is now at rev{' '}
-              {overview.currentRabRevision}.
-            </p>
-          ) : null}
+          <RabRiskNotice
+            reasons={riskReasons}
+            acknowledged={riskAck}
+            onAcknowledge={setRiskAck}
+            disabled={busy}
+          />
           <label className="block space-y-1.5">
             <span className="text-sm font-medium">Valid until</span>
             <input
@@ -884,7 +900,7 @@ export default function ProjectQuotationForm({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={busy || !reissueValidUntil}
+              disabled={busy || !reissueValidUntil || riskBlocks}
               onClick={(e) => {
                 e.preventDefault()
                 void issue('reissue')
@@ -912,10 +928,16 @@ export default function ProjectQuotationForm({
               locked and the project status becomes Win.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <RabRiskNotice
+            reasons={riskReasons}
+            acknowledged={riskAck}
+            onAcknowledge={setRiskAck}
+            disabled={busy}
+          />
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={busy}
+              disabled={busy || riskBlocks}
               onClick={(e) => {
                 e.preventDefault()
                 void setWon(true)
@@ -1588,6 +1610,38 @@ function QuotationKeyNumbers({ quotation: q }: { quotation: Quotation }) {
   )
 }
 
+/** Old RAB revision or a losing price: say why and ask for an explicit OK. */
+function RabRiskNotice({
+  reasons,
+  acknowledged,
+  onAcknowledge,
+  disabled,
+}: {
+  reasons: string[]
+  acknowledged: boolean
+  onAcknowledge: (value: boolean) => void
+  disabled: boolean
+}) {
+  if (reasons.length === 0) return null
+  return (
+    <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+      <ul className="list-disc space-y-1 pl-5">
+        {reasons.map((r) => (
+          <li key={r}>{r}</li>
+        ))}
+      </ul>
+      <label className="flex items-center gap-2 font-medium">
+        <Checkbox
+          checked={acknowledged}
+          disabled={disabled}
+          onCheckedChange={(v) => onAcknowledge(v === true)}
+        />
+        I understand and want to continue
+      </label>
+    </div>
+  )
+}
+
 /** Internal only: how much of the price is RAB cost vs margin (never printed). */
 function MarginInsight({ quotation: q }: { quotation: Quotation }) {
   const cost = Number(q.totals.costTotal)
@@ -1619,7 +1673,7 @@ function MarginInsight({ quotation: q }: { quotation: Quotation }) {
       aria-label="Margin insight"
     >
       <p className={cn('text-sm', hintClassName)}>
-        Cost vs price (before PPN) · internal
+        Margin at quote (RAB rev {q.rabRevision}, before PPN) · internal
       </p>
 
       <MarginBar cost={cost} sell={sell} />

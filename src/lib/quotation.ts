@@ -120,7 +120,19 @@ export type QuotationSummary = {
   wonBy: ProjectRabUserRef | null
 }
 
+/** An issued / superseded / won quotation compared with today's RAB (excl. PPN). */
+export type QuotationRabRisk = {
+  currentRabRevision: number
+  outdated: boolean
+  costNow: string | null
+  marginNow: string | null
+  /** Why winning / re-issuing needs an explicit OK; empty when none. */
+  reasons: string[]
+}
+
 export type Quotation = QuotationSummary & {
+  /** Null for drafts. */
+  rabRisk: QuotationRabRisk | null
   subject: string
   markupPercent: string
   discountType: QuotationDiscountType

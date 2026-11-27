@@ -292,7 +292,7 @@ function ProjectList({ canManage }: { canManage: boolean }) {
                   ? 'Won'
                   : 'Quoted'}
                 {project.summary.plannedMargin !== null
-                  ? ` · margin ${formatRupiahCompact(project.summary.plannedMargin)}`
+                  ? ` · margin now ${formatRupiahCompact(project.summary.plannedMargin)}`
                   : ''}
               </div>
             </div>

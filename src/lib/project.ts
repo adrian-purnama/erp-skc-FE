@@ -663,6 +663,10 @@ export type ProjectRab = {
   chargesTotal: string
   /** subtotal + chargesTotal. */
   grandTotal: string | null
+  /** Σ tax charges (PPN): in the grand total, not in the cost. */
+  taxTotal: string
+  /** Project cost: grandTotal − taxTotal (the dashboard budget). */
+  cost: string | null
   /** Latest committed change revision; 0 if locked with no commits. */
   currentRevision: number
 }

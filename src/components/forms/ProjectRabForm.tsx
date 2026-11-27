@@ -1499,7 +1499,7 @@ export default function ProjectRabForm({
 
           {hasLines ? (
             <div className="space-y-2">
-              <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-(--line) bg-(--line) lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+              <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-(--line) bg-(--line) lg:grid-cols-[1.4fr_1fr_1fr_1fr_1.2fr]">
                 <RabStat
                   label="Grand total"
                   value={formatRupiahAmount(rab?.grandTotal)}
@@ -1521,6 +1521,12 @@ export default function ProjectRabForm({
                 <RabStat
                   label="Additional"
                   value={formatRupiahAmount(rab?.chargesTotal)}
+                />
+                <RabStat
+                  label="Cost (excl. PPN)"
+                  value={formatRupiahAmount(rab?.cost)}
+                  hint="Budget for margin and spend"
+                  className="col-span-2 lg:col-span-1"
                 />
               </dl>
               {totals.unpriced > 0 ? (
@@ -2052,14 +2058,16 @@ function RabStat({
   value,
   hint,
   emphasis = false,
+  className,
 }: {
   label: string
   value: string
   hint?: string
   emphasis?: boolean
+  className?: string
 }) {
   return (
-    <div className="min-w-0 bg-white px-4 py-3">
+    <div className={cn('min-w-0 bg-white px-4 py-3', className)}>
       <dt className={cn('truncate text-sm', hintClassName)}>{label}</dt>
       <dd
         className={cn(
